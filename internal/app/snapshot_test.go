@@ -96,6 +96,7 @@ func teamApp(t *testing.T) (*App, *frostuitest.Loop) {
 		Body: "# Network and connectivity\n\n## Summary\n\nThe lab sits on one flat LAN behind the **UDM Pro**, with a tailnet over it.\n\n| Host | Address | Role |\n|---|---|---|\n| minideb | 192.0.2.175 | Incus host |\n| caddy | 192.0.2.10 | Reverse proxy |\n\nSee [Storage](storage.md) for the NAS."}}
 	a.arts = artifacts{loaded: true, sel: "3/arch", list: []pocket.Artifact{
 		{Session: 3, SessionTitle: "Desk dashboard: weekly metrics", ID: "arch", Title: "Dashboard data flow", Type: "svg", Current: 2, Versions: 2, Size: 2400, UpdatedAt: ms(20 * time.Minute)},
+		{Session: 1, SessionTitle: "Plan the Q4 roadmap", ID: "frostread-v060-release", Title: "frostread v0.6.0 release notes", Type: "markdown", Current: 1, Versions: 1, Size: 4200, UpdatedAt: ms(15 * time.Minute)},
 		{Session: 1, SessionTitle: "Plan the Q4 roadmap", ID: "plan", Title: "Q4 roadmap", Type: "markdown", Current: 1, Versions: 1, Size: 5100, UpdatedAt: ms(2 * time.Hour)},
 		{Session: 4, SessionTitle: "Draft the release notes", ID: "notes", Title: "Release notes preview", Type: "html", Current: 3, Versions: 3, Size: 18000, UpdatedAt: ms(26 * time.Hour)},
 	}}
@@ -114,6 +115,10 @@ func deskFixture(ms func(time.Duration) pocket.Millis) desk {
 					{ID: "T1439c", Text: "Verify frostyard.org in Google Search Console now (Domain property, DNS TXT record in Cloudflare); Google then wants 24 h before the branding retry.", At: ms(35 * time.Minute), Options: []string{"Done", "Later"}, From: "irulan"},
 				},
 				Open: []string{"2 asks wait for Brian"}},
+			{ID: "T1461", Title: "frostread v0.6.0: release", Origin: "delegate", Agents: []string{"irulan"},
+				Repo: "frostyard/frostread", State: "open", Next: "brian", LastEventAt: ms(10 * time.Minute), Supervisor: 1,
+				Asks: []pocket.DeskAsk{{ID: "T1461a", Text: "The release notes are ready: artifact:frostread-v060-release. Tag v0.6.0 now, or hold for the docs pass?",
+					At: ms(12 * time.Minute), Options: []string{"Tag it", "Hold"}, From: "irulan"}}},
 			{ID: "T1455", Title: "frostui: correctness for the apps (#10, B1 menu, mailto attach)", Origin: "delegate", Agents: []string{"duncan"},
 				Repo: "frostyard/frostui", State: "open", Next: "agent", LastEventAt: ms(4 * time.Minute),
 				PRs: []pocket.DeskPR{{Ref: "frostyard/frostui#143", State: "OPEN", Title: "correctness for the apps"}}},
@@ -293,8 +298,33 @@ func TestStatesSortSessions(t *testing.T) {
 			t.Errorf("session %d: state %d, want %d", id, got, st)
 		}
 	}
-	// 1 call to allow, 2 decisions, 1 PR to merge; lessons do not count.
-	if n := a.inboxCount(); n != 4 {
-		t.Errorf("inbox count = %d, want 4", n)
+	// 1 call to allow, 3 decisions, 1 PR to merge; lessons do not count.
+	if n := a.inboxCount(); n != 5 {
+		t.Errorf("inbox count = %d, want 5", n)
+	}
+}
+
+func TestDecisionOpensTheArtifactItNames(t *testing.T) {
+	a, loop := teamApp(t)
+	tt := ui.NewTesterWith(a.View, 1440, 1400, ui.TesterOptions{Dark: os.Getenv("POCKET_DARK") != ""})
+	frames := func() {
+		for range 4 {
+			tt.Advance(100 * time.Millisecond)
+			loop.Flush()
+			tt.Frame()
+		}
+	}
+	loop.Post(func() { a.inboxSel = "a:T1461a" })
+	frames()
+	if !tt.HasText("frostread v0.6.0 release notes") {
+		t.Fatalf("the decision has no button for its artifact: %q", tt.Texts())
+	}
+	writePNG(t, tt, "decision-artifact")
+	if err := tt.Click("frostread v0.6.0 release notes"); err != nil {
+		t.Fatal(err)
+	}
+	frames()
+	if a.selected != "x:artifacts" || a.arts.sel != "1/frostread-v060-release" {
+		t.Fatalf("opened %q, chose %q", a.selected, a.arts.sel)
 	}
 }

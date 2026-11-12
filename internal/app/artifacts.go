@@ -36,6 +36,8 @@ type artifacts struct {
 	fetching map[string]bool
 	// shown is the page the web view shows.
 	shown string
+	// then runs once the list under way is read: what waits for it.
+	then []func()
 }
 
 func artifactKey(x *pocket.Artifact) string {
@@ -55,6 +57,13 @@ func (a *App) loadArtifacts() {
 		return err
 	}, func(err error) {
 		a.arts.loading, a.arts.loaded = false, true
+		then := a.arts.then
+		a.arts.then = nil
+		defer func() {
+			for _, fn := range then {
+				fn()
+			}
+		}()
 		if err != nil {
 			a.arts.err = err.Error()
 			return
@@ -66,6 +75,127 @@ func (a *App) loadArtifacts() {
 			a.arts.sel = artifactKey(&list[0])
 		}
 	})
+}
+
+// followLink follows a link in Markdown Pocket shows: an artifact
+// reference opens the artifact, a web or mail address the browser.
+func (a *App) followLink(dest string) {
+	switch {
+	case strings.HasPrefix(dest, "artifact:"):
+		id, hint, _ := strings.Cut(strings.TrimPrefix(dest, "artifact:"), "#")
+		var prefer []int
+		if n, err := strconv.Atoi(hint); err == nil {
+			prefer = append(prefer, n)
+		}
+		a.openArtifactRef(id, prefer)
+	case strings.HasPrefix(dest, "https://"), strings.HasPrefix(dest, "http://"), strings.HasPrefix(dest, "mailto:"):
+		a.openURL(dest)
+	}
+}
+
+// findArtifact returns the artifact of an id: in the first session of
+// prefer that has one, else the newest.
+func (a *App) findArtifact(id string, prefer []int) *pocket.Artifact {
+	var newest *pocket.Artifact
+	for _, session := range prefer {
+		for i := range a.arts.list {
+			if x := &a.arts.list[i]; x.ID == id && x.Session == session {
+				return x
+			}
+		}
+	}
+	for i := range a.arts.list {
+		if x := &a.arts.list[i]; x.ID == id && newest == nil {
+			newest = x
+		}
+	}
+	return newest
+}
+
+// openArtifactRef opens the artifact a reference names in the Artifacts
+// place, reading the list again when the artifact is not in it yet.
+func (a *App) openArtifactRef(id string, prefer []int) {
+	if !a.arts.loaded {
+		a.afterArtifacts(func() { a.showArtifactRef(id, prefer, false) })
+		return
+	}
+	a.showArtifactRef(id, prefer, true)
+}
+
+func (a *App) showArtifactRef(id string, prefer []int, retry bool) {
+	if x := a.findArtifact(id, prefer); x != nil {
+		a.goPlace("x:artifacts")
+		a.arts.sel = artifactKey(x)
+		return
+	}
+	if retry {
+		a.afterArtifacts(func() { a.showArtifactRef(id, prefer, false) })
+		return
+	}
+	a.toast("No artifact " + id + " in the sessions you can see: its session may be archived")
+}
+
+// afterArtifacts reads the artifacts, then runs fn.
+func (a *App) afterArtifacts(fn func()) {
+	a.arts.then = append(a.arts.then, fn)
+	a.loadArtifacts()
+}
+
+// artifactPrefer lists the sessions a thread's references are looked for
+// in first: its own session, then its supervisor's.
+func (a *App) artifactPrefer(t *pocket.DeskThread) []int {
+	var prefer []int
+	if t == nil {
+		return nil
+	}
+	if s := a.sessionForThread(t); s != nil {
+		prefer = append(prefer, s.ID)
+	}
+	if t.Supervisor != 0 {
+		prefer = append(prefer, t.Supervisor)
+	}
+	return prefer
+}
+
+// artifactHint is the session a link in a thread's text names first.
+func (a *App) artifactHint(t *pocket.DeskThread) string {
+	if p := a.artifactPrefer(t); len(p) > 0 {
+		return strconv.Itoa(p[0])
+	}
+	return ""
+}
+
+// artifactButtons gives each artifact a text references a button that
+// opens it, titled as the artifact is once the list is read.
+func (a *App) artifactButtons(c *ui.Context, ids []string, prefer []int) {
+	if len(ids) == 0 {
+		return
+	}
+	if !a.arts.loaded && !a.arts.loading {
+		a.loadArtifacts()
+	}
+	ui.Row(c).Gap(frostui.SpaceS).Wrap().Children(func() {
+		for _, id := range ids {
+			label := "artifact:" + id
+			tip := "Open artifact:" + id
+			if x := a.findArtifact(id, prefer); x != nil {
+				label = x.Title
+				tip = fmt.Sprintf("Open %s (%s, from %s)", x.Title, strings.ToUpper(x.Type), firstNonEmpty(x.SessionTitle, "a session"))
+			}
+			ref, want := id, prefer
+			if frostui.LabeledButton(c.Key("art-"+id), artifactIcon(a.artifactType(id, prefer)), label, false).Tooltip(tip).Clicked() {
+				a.openArtifactRef(ref, want)
+			}
+		}
+	})
+}
+
+// artifactType is a referenced artifact's type, once known.
+func (a *App) artifactType(id string, prefer []int) string {
+	if x := a.findArtifact(id, prefer); x != nil {
+		return x.Type
+	}
+	return ""
 }
 
 func (a *App) chosenArtifact() *pocket.Artifact {
@@ -122,12 +252,12 @@ func (a *App) artifactsPane(c *ui.Context) {
 
 func artifactIcon(kind string) string {
 	switch kind {
-	case "svg":
-		return "pocket-artifact"
 	case "markdown":
 		return "text-x-generic"
+	case "html":
+		return "pocket-diff"
 	}
-	return "pocket-diff"
+	return "pocket-artifact"
 }
 
 func (a *App) artifactRow(c *ui.Context, x *pocket.Artifact) {
