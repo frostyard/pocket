@@ -41,8 +41,8 @@ server that surpasses its web app at a desk. Phases 1 to 4 shipped on
 
 ## Phase 5 — Polish from daily use
 
-- Hover hints on the sidebar's agent rows, which need a tooltip on frostui's
-  `SourceRow` (a frostui change and release first).
+- Hover hints on the sidebar's agent rows, with frostui v0.6.0's
+  `SourceRow.Tooltip` (done, 2026-11-12).
 - Identity for the open session (use an agent in this session) in the
   inspector.
 - **Done when:** the owner uses Pocket for a full working day without opening

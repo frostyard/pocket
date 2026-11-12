@@ -432,7 +432,7 @@ func (a *App) agentRow(id string) frostui.SourceRow {
 	if p == nil {
 		return frostui.SourceRow{Title: id, Icon: "pocket-agent", Dim: true}
 	}
-	row := frostui.SourceRow{Title: p.Name, Icon: "pocket-agent"}
+	row := frostui.SourceRow{Title: p.Name, Icon: "pocket-agent", Tooltip: a.agentHint(id)}
 	if p.Role == "supervisor" || p.Role == "clerk" {
 		row.Tag = p.Role
 	}

@@ -56,8 +56,9 @@ internal/icons ── the icons Pocket draws itself
 - **Team** (⌘3) — the lessons agents want to keep, to approve, edit or
   discard (a change to an approved one shows old and new), and the roster.
   Each agent's page has a task card, its sessions, its lessons (forget,
-  edit, add one of the owner's), places and profile. Hovering an agent's
-  avatar anywhere says its role, home and repositories.
+  edit, add one of the owner's), places and profile. Hovering an agent, in
+  the sidebar or by its avatar anywhere, says its role, model, home and
+  repositories.
 - **Shift board** (⌘4) — the night-shift goal board: limits, rows by state,
   Pick / Unpick, Launch picks.
 - **Numbers** (⌘5) — the Desk's dashboard: completion, closures, cycle time,
