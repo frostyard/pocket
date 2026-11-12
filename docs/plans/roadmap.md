@@ -1,0 +1,58 @@
+# Plan: Roadmap
+
+What Pocket delivers, in order: a desktop client of the owner's Pi Pocket
+server that surpasses its web app at a desk. Phases 1 to 3 shipped on
+2026-11-12; phase 4 is next.
+
+## Phase 1 — A session, native (done)
+
+- Sign-in, the event stream and view merging; the transcript with streaming
+  Markdown, folded tools, approvals and questions; the composer; the
+  inspector; the palette ([design](../design/pocket.md#a-session)).
+- **Done when:** against a real server, a message sent from Pocket streams
+  its reply back, and a call waiting for approval is allowed from Pocket
+  (`TestLiveDemo`).
+
+## Phase 2 — Places for the team (done)
+
+- The Inbox, In motion, the Shift board, Numbers, the Team and agent pages,
+  peeks ([design](../design/pocket.md#places)).
+- **Done when:** the owner answers a Desk decision and allows a call from the
+  Inbox without opening a session.
+
+## Phase 3 — Calm, settings, and the Mac (done)
+
+- Notification kinds, bursts, do not disturb and quiet hours; the Settings
+  dialog; `mygo.json` and an app icon
+  ([design](../design/pocket.md#notifications-and-settings)).
+- **Done when:** `make app` on a Mac builds a `Pocket.app` that signs in and
+  shows a notification.
+
+## Phase 4 — The rest of the web app the owner uses
+
+- **Team:** the roster as cards, each agent's soul and places, identity for
+  the open session, and the lessons inbox — approve, discard, edit or forget
+  what agents propose (`/api/x/team/memory`).
+- **Wiki:** the homewiki module's pages, read natively (`/api/x/homewiki`).
+- **Artifacts:** each session's artifacts, and the artifacts across sessions
+  (`/api/artifacts`), with the page in a web view.
+- **Done when:** the owner approves an agent's lesson, reads a wiki page and
+  opens an artifact without the web app.
+
+## Later / ideas
+
+- Plans: a native plan view (stepper, sections, asks with criteria and marks,
+  approve).
+- Attachments: drop files on the composer (`/upload`).
+- The supervisor's "Needs you: T13a" line as chips linked to the Inbox.
+- A first release: `.svu.yml`, `make bump`, a signed and notarized Mac build,
+  and a `site/` (core ADR-0012, ADR-0070).
+
+## Open questions
+
+- **Read marks shared with the web app?** Pocket keeps its own pinned and
+  read marks; the server stores none. Decide by the first release.
+
+## References
+
+- Implements: [design: Pocket](../design/pocket.md)

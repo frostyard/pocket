@@ -1,0 +1,11 @@
+{
+  "name": "Pocket",
+  "slug": "pocket",
+  "identifier": "org.frostyard.Pocket",
+  "version": "0.1.0",
+  "publisher": "frostyard",
+  "license": "MIT",
+  "icon": "resources/icon.png",
+  "main": "./cmd/pocket",
+  "out": "build/mygo"
+}

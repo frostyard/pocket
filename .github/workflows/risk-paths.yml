@@ -1,0 +1,25 @@
+# PR triage (frostyard/core ADR-0068, ADR-0077, ADR-0078): this caller runs
+# core's reusable pr-triage workflow. It adds 1 level label, level:L1 to
+# level:L4, from the level of each changed path in .github/risk-paths.json, and
+# risk:high for L1 and L2. It removes ready-for-human when the head moves after
+# the label or when CI at the head is not green. It writes a "would auto-merge"
+# shadow comment on some Dependabot pull requests; it never merges.
+# pull_request_target resolves the called workflow on the base branch, so the
+# job runs trusted code, checks out nothing and runs no pull request code. It is
+# pinned to a full core commit SHA (core ADR-0021) and is not a required check.
+# The repository must have the risk:high label, or the job fails; without the 4
+# level labels it writes a warning and changes no level label.
+name: PR triage
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited, labeled]
+
+permissions: {}
+
+jobs:
+  pr-triage:
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: frostyard/core/.github/workflows/pr-triage.yml@c996ea3fb54bcf1a3c621113522213702a7673e2 # frostyard/core main, 2026-11-09 (core#225)

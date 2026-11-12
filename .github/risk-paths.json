@@ -1,0 +1,81 @@
+{
+  "schema_version": 2,
+  "default_level": "L3",
+  "paths": [
+    {
+      "glob": ".github/risk-paths.json",
+      "level": "L2",
+      "why": "governance: the high-risk path list"
+    },
+    {
+      "glob": ".github/workflows/**",
+      "level": "L2",
+      "why": "governance: CI, the risk-paths caller and token permissions"
+    },
+    {
+      "glob": "Makefile",
+      "level": "L2",
+      "why": "governance: the verify gate"
+    },
+    {
+      "glob": "scripts/check-template.mjs",
+      "level": "L2",
+      "why": "governance: the template verification gate"
+    },
+    {
+      "glob": "scripts/check-corrections.mjs",
+      "level": "L2",
+      "why": "governance: the corrections validation gate"
+    },
+    {
+      "glob": "scripts/lib/**",
+      "level": "L2",
+      "why": "governance: the vendored risk-path validator and matcher"
+    },
+    {
+      "glob": "mise.toml",
+      "level": "L1",
+      "why": "supply chain: the tool pins that CI installs"
+    },
+    {
+      "glob": "mise.lock",
+      "level": "L1",
+      "why": "supply chain: the checksums of the tools that CI installs"
+    },
+    {
+      "glob": ".golangci.yml",
+      "level": "L2",
+      "why": "governance: the lint configuration of the verify gate"
+    },
+    {
+      "glob": "go.mod",
+      "level": "L2",
+      "why": "supply chain: the module's requirements and the mygo build tool"
+    },
+    {
+      "glob": "go.sum",
+      "level": "L2",
+      "why": "supply chain: the checksums of the module's requirements"
+    },
+    {
+      "glob": "internal/config/secret.go",
+      "level": "L2",
+      "why": "secrets: where the sign-in token is kept, in the keyring or a file"
+    },
+    {
+      "glob": "cmd/pocket/main.go",
+      "level": "L2",
+      "why": "secrets: the keyring service the token is stored under"
+    },
+    {
+      "glob": "internal/pocket/client.go",
+      "level": "L2",
+      "why": "auth: sign-in links, invites and the bearer token on every request"
+    },
+    {
+      "glob": "mygo.json",
+      "level": "L1",
+      "why": "publication: the app's identifier and signing settings for mygo build"
+    }
+  ]
+}

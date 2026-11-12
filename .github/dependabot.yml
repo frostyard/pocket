@@ -1,0 +1,28 @@
+# Dependabot (frostyard/core ADR-0071 row B13): the actions the workflows pin,
+# and the Go module. Each entry has 1 group with `patterns: ["*"]`, so each
+# entry opens at most 1 version-update PR for each run (ADR-0075). The group
+# has no `applies-to`, so security updates stay 1 PR each.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    groups:
+      go:
+        patterns: ["*"]

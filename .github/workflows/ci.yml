@@ -1,0 +1,81 @@
+# CI workflow (ADR-0021: SHA-pinned actions, least privilege): the job verify
+# is the required check. Actions use full commit SHA pins with the version in
+# a comment, the token has only contents read, and checkout does not persist
+# credentials.
+name: CI
+
+on:
+  pull_request: {}
+  push:
+    branches:
+      - main
+  merge_group: {}
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The corrections check compares .memory/corrections.jsonl with the
+          # base, which needs the base commit's history.
+          fetch-depth: 0
+      # Go comes from go.mod's go line, the only Go pin.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # golangci-lint and Node come from mise.toml and mise.lock (ADR-0043),
+      # checksum-verified: golangci-lint for the pinned lint, Node for the
+      # template gate.
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        with:
+          install: true
+          install_args: golangci-lint node
+          cache: true
+      # MyGo's Tester lays text out with Pango and cairo (no GTK, no display).
+      - name: Install the text runtime of the UI tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends fonts-dejavu-core libpangocairo-1.0-0
+      - run: make ci BASE="$BASE"
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || '' }}
+
+  # Each target on a runner of its own, so a failure names its platform.
+  # The Makefile's CROSS_TARGETS lists the same targets.
+  cross-build:
+    name: cross-build (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - linux/amd64
+          - linux/arm64
+          - windows/amd64
+          - windows/arm64
+          - darwin/amd64
+          - darwin/arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make cross CROSS_TARGETS="$TARGET"
+        env:
+          TARGET: ${{ matrix.target }}
