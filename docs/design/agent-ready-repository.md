@@ -55,7 +55,7 @@ The parts that the template brings are:
 | `Makefile` | Verify, check and CI triad, and the Go and app targets |
 | `mise.toml`, `mise.lock` | Tool pins (golangci-lint, Node); `mise install` provisions them |
 | `LICENSE` | MIT license text |
-| `SECURITY.md` | Private vulnerability reporting |
+| `SECURITY.md` | The support policy and where to report a vulnerability |
 | `scripts/` | Template and corrections gates |
 | `scripts/lib/risk-paths.mjs` | Pinned risk-path validator, matcher and levels |
 | `scripts/check-template.mjs` | Template verification entry point |
