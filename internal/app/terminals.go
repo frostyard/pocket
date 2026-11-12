@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/url"
 	"runtime"
 	"slices"
+	"strings"
 
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
@@ -23,7 +26,10 @@ type terms struct {
 	open    map[string]*openTerm
 	sel     string
 	loading bool
-	busy    bool
+	// probed is true once the module answered (or did not): the place
+	// does not ask again each frame.
+	probed bool
+	busy   bool
 	// libErr says why the emulator's library did not load.
 	libErr string
 	// field is the shown terminal's view, for its focus.
@@ -56,7 +62,7 @@ func (a *App) loadTerminals() {
 		list, on, err = c.Terminals(ctx)
 		return err
 	}, func(err error) {
-		a.terms.loading = false
+		a.terms.loading, a.terms.probed = false, true
 		if err == nil {
 			a.terms.on = on
 			a.setTerminals(list)
@@ -75,8 +81,23 @@ func (a *App) terminalsChanged(data json.RawMessage) {
 
 func (a *App) setTerminals(list []pocket.TerminalInfo) {
 	a.terms.list = list
-	if a.terms.sel == "" && len(list) > 0 {
-		a.terms.sel = list[len(list)-1].ID
+	listed := map[string]bool{}
+	for _, t := range list {
+		listed[t.ID] = true
+	}
+	// A shell that left the list (ended in the web app, or exited and
+	// dropped by the module) leaves Pocket too, with its scrollback.
+	for id, ot := range a.terms.open {
+		if !listed[id] {
+			_ = ot.term.Close()
+			delete(a.terms.open, id)
+		}
+	}
+	if !listed[a.terms.sel] {
+		a.terms.sel = ""
+		if len(list) > 0 {
+			a.terms.sel = list[len(list)-1].ID
+		}
 	}
 }
 
@@ -104,19 +125,18 @@ func (a *App) attach(id string) *openTerm {
 		return nil
 	}
 	conn := a.link.client.OpenTerminal(id)
-	ot := &openTerm{conn: conn}
-	term, err := terminal.New(terminal.Options{
-		Conn: conn,
-		OnTitle: func(title string) {
-			a.post(func() { ot.title = title })
-		},
-		OnExit: func(int) {
-			code := conn.ExitCode()
-			a.post(func() {
-				ot.exited, ot.code = true, code
-			})
-		},
-	})
+	ot := &openTerm{conn: conn, code: -1}
+	opts := a.termOptions(conn)
+	opts.OnTitle = func(title string) {
+		a.post(func() { ot.title = title })
+	}
+	opts.OnExit = func(int) {
+		code := conn.ExitCode()
+		a.post(func() {
+			ot.exited, ot.code = true, code
+		})
+	}
+	term, err := terminal.New(opts)
 	if err != nil {
 		_ = conn.Close()
 		a.terms.libErr = err.Error()
@@ -128,6 +148,43 @@ func (a *App) attach(id string) *openTerm {
 	}
 	a.terms.open[id] = ot
 	return ot
+}
+
+// termOptions are the emulator's options for a shell on the server. What
+// the server sends is the server's: it may not write the desktop's
+// clipboard (OSC 52), which the next paste into a local terminal would
+// run, and a link from it opens only on the web or in mail, never as a
+// file or another program's address. Reads of the clipboard stay refused
+// (the plugin's default).
+func (a *App) termOptions(conn io.ReadWriteCloser) terminal.Options {
+	return terminal.Options{
+		Conn:             conn,
+		NoClipboardWrite: true,
+		OpenLink: func(link string) bool {
+			if safeLink(link) {
+				a.openURL(link)
+			} else {
+				a.toast("Only web and mail links open from a terminal")
+			}
+			return true // handled: nothing else opens it
+		},
+	}
+}
+
+// safeLink reports whether a link from a terminal may open: http, https
+// or mailto, and nothing else (no file:, smb: or an app's own scheme).
+func safeLink(link string) bool {
+	u, err := url.Parse(link)
+	if err != nil {
+		return false
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+		return u.Host != ""
+	case "mailto":
+		return true
+	}
+	return false
 }
 
 // newTerminal starts a shell in place and shows it.
@@ -185,7 +242,7 @@ func (a *App) closeTerminals() {
 // chosen.
 func (a *App) terminalPane(c *ui.Context) {
 	t := c.Theme()
-	if !a.terms.on && !a.terms.loading {
+	if !a.terms.probed && !a.terms.loading {
 		a.loadTerminals()
 	}
 	ui.Column(c).Grow(1).AlignItems(ui.Stretch).Background(t.Background).Children(func() {
@@ -215,6 +272,10 @@ func (a *App) terminalPane(c *ui.Context) {
 			}
 		}
 		switch {
+		case a.terms.probed && !a.terms.on:
+			ui.Column(c).Grow(1).Children(func() {
+				frostui.Empty(c, "pocket-terminal", "No terminal module", "This server's terminal module is off, or not installed.").Grow(1)
+			})
 		case a.terms.libErr != "":
 			frostui.Problem(c, "The terminal emulator did not load: "+a.terms.libErr).Margin(frostui.SpaceL)
 		case info == nil:
@@ -244,8 +305,12 @@ func (a *App) terminalPane(c *ui.Context) {
 				if info.ExitCode != nil {
 					code = *info.ExitCode
 				}
+				msg := fmt.Sprintf("The shell exited (code %d).", code)
+				if code < 0 {
+					msg = "Disconnected from the shell."
+				}
 				ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Padding(frostui.SpaceS, frostui.SpaceM).Children(func() {
-					frostui.Toned(c, fmt.Sprintf("The shell exited (code %d).", code), frostui.Warning).Grow(1)
+					frostui.Toned(c, msg, frostui.Warning).Grow(1)
 					if ui.Button(c, "Close").Clicked() {
 						a.endTerminal(info.ID)
 					}

@@ -75,7 +75,10 @@ internal/icons ── the icons Pocket draws itself
   one in the server's home or, from a session's details or ⌘⇧T, in that
   session's folder. While a terminal has the focus, the window's Ctrl keys
   that shells use (Ctrl N, P, L, B, Q, Alt Y, N) go to the shell; on macOS
-  they are ⌘ keys and never reach it.
+  they are ⌘ keys and never reach it. What a shell prints is the server's, so
+  it may not write the desktop's clipboard (OSC 52) or read it, and only the
+  web and mail links it prints open with the system; a shell that exits shows
+  its code, and one that goes or stops taking keys says it is disconnected.
 - **Sessions** — pinned sessions and recent ones that no other session
   started; delegations nest under the session that started them. ⌘P finds
   any session.
@@ -129,7 +132,8 @@ server's facts. The status bar shows do not disturb while it holds.
   `io.ReadWriteCloser` for the emulator: Read long-polls the output (25 s at
   most) from the offset it has, in the module's units (UTF-16 code units: it
   takes the server's `to`); Write posts keys in chunks numbered per window, so
-  a chunk sent again lands once; Resize posts the size the view fits. Closing
+  a chunk sent again lands once, and a chunk the module refuses, or that does
+  not land in 30 s, ends the connection; Resize posts the size the view fits. Closing
   it stops polling, and the module ends the shell 60 s later; End ends it at
   once. The emulator's library (libghostty-vt) is packaged by `mygo build`, and
   downloaded once into the user's cache under `go run` and `go test`; it needs

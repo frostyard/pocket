@@ -112,14 +112,15 @@ type TermConn struct {
 // what the server keeps (its last 256 K characters).
 func (c *Client) OpenTerminal(id string) *TermConn {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &TermConn{c: c, id: id, tab: NewTabID(), ctx: ctx, cancel: cancel, retry: time.Second}
+	return &TermConn{c: c, id: id, tab: NewTabID(), ctx: ctx, cancel: cancel, retry: time.Second, exitCode: -1}
 }
 
 // ID is the shell's ID.
 func (t *TermConn) ID() string { return t.id }
 
 // ExitCode is the shell's exit code once Read has returned io.EOF for its
-// exit, and -1 when it went without one.
+// exit; -1 when the connection ended without one (a disconnect, a sign-out,
+// a shell that went).
 func (t *TermConn) ExitCode() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -222,6 +223,10 @@ func (t *TermConn) Write(p []byte) (int, error) {
 		body := map[string]any{"data": chunk, "tab": t.tab, "seq": t.seq}
 		path := "/api/x/terminal/terminals/" + url.PathEscape(t.id) + "/input"
 		if err := t.send(path, body); err != nil {
+			// The keys did not land, and the emulator takes no more after
+			// a failed write: end the connection, so the view says so
+			// rather than taking keys that go nowhere.
+			t.cancel()
 			return 0, err
 		}
 	}
