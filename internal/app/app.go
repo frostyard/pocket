@@ -135,7 +135,7 @@ func New(opts Options) (*App, error) {
 	a.shell.Console.Subtitle = "what Pocket and the server did"
 	a.shell.Console.EmptyNote = "The connection and every command Pocket sends show here."
 	a.shell.Panes.Layout = frostui.PaneLayout{Widths: st.Widths, Collapsed: st.Collapsed}
-	a.md = markdown.Options{Reveal: &markdown.Reveal{Unit: markdown.ByWord, CatchUp: 300 * time.Millisecond}}
+	a.md = markdown.Options{Reveal: &markdown.Reveal{Unit: markdown.ByWord, CatchUp: 300 * time.Millisecond}, OnLink: a.followLink}
 	a.setUpSidebar()
 	a.setUpCommands()
 	a.shell.Palette.Sources = []frostui.PaletteSource{a.sessionSource(), a.agentSource()}

@@ -412,7 +412,8 @@ func (a *App) askItem(c *ui.Context, it *inboxItem) {
 			ui.Spacer(c)
 			frostui.Caption(c, clock(it.at))
 		})
-		markdown.View(c, ask.Text, &a.md)
+		markdown.View(c, linkArtifacts(ask.Text, a.artifactHint(t)), &a.md)
+		a.artifactButtons(c, refIDs(ask.Text), a.artifactPrefer(t))
 		busy := a.desk.busy[ask.ID]
 		if len(ask.Options) > 0 {
 			ui.Row(c).Gap(frostui.SpaceS).Wrap().Children(func() {
@@ -487,7 +488,7 @@ func levelTone(level string) frostui.Tone {
 
 // openURL opens a web address in the person's browser.
 func (a *App) openURL(u string) {
-	opener := frostui.Opener{Schemes: []string{"https", "http"}, Launch: a.opts.OpenURL}
+	opener := frostui.Opener{Schemes: []string{"https", "http", "mailto"}, Launch: a.opts.OpenURL}
 	go func() {
 		if err := opener.OpenURL(u); err != nil {
 			a.post(func() { a.toast("Opening the link: " + err.Error()) })
@@ -618,7 +619,10 @@ func (a *App) threadContext(c *ui.Context, t *pocket.DeskThread) {
 		for i := len(d.Reports) - 1; i >= 0 && i >= len(d.Reports)-3; i-- {
 			r := d.Reports[i]
 			a.disclosureRow(c.Key(fmt.Sprint("r", i)), "report:"+t.ID+":"+fmt.Sprint(i), "pocket-desk",
-				truncate(firstLine(r.Text), 70), clock(r.At.Time()), func() { markdown.View(c, r.Text, &a.md) })
+				truncate(firstLine(r.Text), 70), clock(r.At.Time()), func() {
+					markdown.View(c, linkArtifacts(r.Text, a.artifactHint(t)), &a.md)
+					a.artifactButtons(c, refIDs(r.Text), a.artifactPrefer(t))
+				})
 		}
 	}
 	events := t.Events
