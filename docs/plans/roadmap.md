@@ -1,8 +1,8 @@
 # Plan: Roadmap
 
 What Pocket delivers, in order: a desktop client of the owner's Pi Pocket
-server that surpasses its web app at a desk. Phases 1 to 3 shipped on
-2026-11-12; phase 4 is next.
+server that surpasses its web app at a desk. Phases 1 to 4 shipped on
+2026-11-12; phase 5 is next.
 
 ## Phase 1 — A session, native (done)
 
@@ -28,16 +28,25 @@ server that surpasses its web app at a desk. Phases 1 to 3 shipped on
 - **Done when:** `make app` on a Mac builds a `Pocket.app` that signs in and
   shows a notification.
 
-## Phase 4 — The rest of the web app the owner uses
+## Phase 4 — The rest of the web app the owner uses (done)
 
-- **Team:** the roster as cards, each agent's soul and places, identity for
-  the open session, and the lessons inbox — approve, discard, edit or forget
-  what agents propose (`/api/x/team/memory`).
+- **Team:** the roster as cards, each agent's soul and places, and the
+  lessons inbox — approve, discard, edit or forget what agents propose, and
+  add the owner's own (`/api/x/team/memory`).
 - **Wiki:** the homewiki module's pages, read natively (`/api/x/homewiki`).
 - **Artifacts:** each session's artifacts, and the artifacts across sessions
   (`/api/artifacts`), with the page in a web view.
 - **Done when:** the owner approves an agent's lesson, reads a wiki page and
   opens an artifact without the web app.
+
+## Phase 5 — Polish from daily use
+
+- Hover hints on the sidebar's agent rows, which need a tooltip on frostui's
+  `SourceRow` (a frostui change and release first).
+- Identity for the open session (use an agent in this session) in the
+  inspector.
+- **Done when:** the owner uses Pocket for a full working day without opening
+  the web app.
 
 ## Later / ideas
 

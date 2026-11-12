@@ -61,6 +61,12 @@ func (a *App) mainPane(c *ui.Context) {
 		a.boardPane(c)
 	case a.selected == "x:numbers":
 		a.numbersPane(c)
+	case a.selected == "x:team":
+		a.teamPane(c)
+	case a.selected == "x:wiki":
+		a.wikiPane(c)
+	case a.selected == "x:artifacts":
+		a.artifactsPane(c)
 	default:
 		a.inboxPane(c)
 	}
@@ -75,6 +81,12 @@ func (a *App) placeTitle() string {
 		return "Shift board"
 	case "x:numbers":
 		return "Numbers"
+	case "x:team":
+		return "Team"
+	case "x:wiki":
+		return "Wiki"
+	case "x:artifacts":
+		return "Artifacts"
 	}
 	return "Inbox"
 }
@@ -132,8 +144,11 @@ func (a *App) mainBar(c *ui.Context) {
 	}
 }
 
+// inspectorBar is the top bar over the right pane, which the window's own
+// controls (the palette field, Activity, the menu, and on some desktops the
+// window's buttons) cover: it holds nothing of its own.
 func (a *App) inspectorBar(c *ui.Context) {
-	frostui.Strong(c, "Details")
+	ui.Spacer(c)
 }
 
 // inspector is the right pane: what the chosen thing is about.
@@ -152,7 +167,9 @@ func (a *App) inspector(c *ui.Context) {
 					return
 				}
 				frostui.Muted(c, "Choose a thread to see its PRs, events and reports. Double-click opens its session.").Wrap()
-			case "x:board", "x:numbers":
+			case "x:wiki":
+				a.wikiContext(c)
+			case "x:board", "x:numbers", "x:team", "x:artifacts":
 				a.cheatSheet(c)
 			default:
 				a.inboxContext(c)
@@ -274,7 +291,7 @@ func (a *App) nextWaiting() {
 }
 
 func (a *App) menu(m *ui.Menu) {
-	a.table.Menu("new", "inbox", "motion", "board", "numbers", "next-waiting", "", "sidebar", "inspector", "")(m)
+	a.table.Menu("new", "inbox", "motion", "team", "board", "numbers", "wiki", "artifacts", "next-waiting", "", "sidebar", "inspector", "")(m)
 	a.table.MenuItem(m, "settings")
 	a.table.MenuItem(m, "dnd")
 	a.table.MenuItem(m, "shortcuts")
@@ -325,12 +342,23 @@ func (a *App) setUpCommands() {
 			Run:      func() { a.goPlace("x:motion") }},
 		frostui.Command{ID: "board", Title: "Shift Board", Group: "Go to", Icon: "pocket-night",
 			Enabled:  func() (bool, string) { return a.desk.on, "This server has no Desk" },
-			Bindings: []frostui.KeyBinding{{Mods: ui.Cmd, Key: ui.Key3, Scope: frostui.Everywhere}},
+			Bindings: []frostui.KeyBinding{{Mods: ui.Cmd, Key: ui.Key4, Scope: frostui.Everywhere}},
 			Run:      func() { a.goPlace("x:board") }},
 		frostui.Command{ID: "numbers", Title: "Numbers", Group: "Go to", Icon: "view-grid",
 			Enabled:  func() (bool, string) { return a.desk.on, "This server has no Desk" },
-			Bindings: []frostui.KeyBinding{{Mods: ui.Cmd, Key: ui.Key4, Scope: frostui.Everywhere}},
+			Bindings: []frostui.KeyBinding{{Mods: ui.Cmd, Key: ui.Key5, Scope: frostui.Everywhere}},
 			Run:      func() { a.goPlace("x:numbers") }},
+		frostui.Command{ID: "team", Title: "Team", Group: "Go to", Icon: "pocket-team",
+			Enabled:  func() (bool, string) { return a.team.on, "This server has no team" },
+			Bindings: []frostui.KeyBinding{{Mods: ui.Cmd, Key: ui.Key3, Scope: frostui.Everywhere}},
+			Run:      func() { a.goPlace("x:team") }},
+		frostui.Command{ID: "wiki", Title: "Wiki", Group: "Go to", Icon: "pocket-wiki",
+			Enabled:  func() (bool, string) { return a.wiki.on, "This server has no wiki" },
+			Bindings: []frostui.KeyBinding{{Mods: ui.Cmd, Key: ui.Key6, Scope: frostui.Everywhere}},
+			Run:      func() { a.goPlace("x:wiki") }},
+		frostui.Command{ID: "artifacts", Title: "Artifacts", Group: "Go to", Icon: "pocket-artifact",
+			Bindings: []frostui.KeyBinding{{Mods: ui.Cmd, Key: ui.Key7, Scope: frostui.Everywhere}},
+			Run:      func() { a.goPlace("x:artifacts") }},
 		frostui.Command{ID: "inbox-next", Title: "Next in the Inbox", Group: "Inbox", Unlisted: true,
 			Enabled:  func() (bool, string) { return a.current == 0 && a.selected == "" || a.selected == "x:inbox", "" },
 			Bindings: []frostui.KeyBinding{{Key: ui.KeyJ, Scope: frostui.OutsideText}},

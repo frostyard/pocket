@@ -27,7 +27,7 @@ func (a *App) inspectorPane(c *ui.Context) {
 			s := a.byID[a.current]
 			if p := a.agentOf(s); p != nil {
 				ui.Row(c).Gap(frostui.SpaceM).AlignItems(ui.Center).Children(func() {
-					frostui.SquareAvatar(c, p.Name, 36)
+					a.agentAvatar(c, p.ID, 36)
 					ui.Column(c).Gap(2).Children(func() {
 						frostui.Strong(c, p.Name)
 						frostui.Caption(c, roleTitle(p.Role))
@@ -161,7 +161,7 @@ func meter(c *ui.Context, label, detail string, share float64, tone frostui.Tone
 func (a *App) cheatSheet(c *ui.Context) {
 	frostui.SectionHeader(c, frostui.SectionHead{Title: "Keys", Quiet: true})
 	shortcuts := [][2]string{
-		{"Cmd 1 … 4", "Inbox, In motion, Shift board, Numbers"},
+		{"Cmd 1 … 7", "Inbox, In motion, Team, Shift board, Numbers, Wiki, Artifacts"},
 		{"J / K", "Next / previous in the Inbox"},
 		{"1 … 6", "Answer a decision with that option"},
 		{"Cmd K", "Everything: commands, sessions, agents"},
@@ -261,7 +261,7 @@ func (a *App) sessionCard(c *ui.Context, s *pocket.Session) {
 	card.Children(func() {
 		ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
 			if p := a.agentOf(s); p != nil {
-				frostui.SquareAvatar(c, p.Name, 20)
+				a.agentAvatar(c, p.ID, 20)
 			}
 			frostui.Strong(c, s.DisplayTitle()).SingleLine().Grow(1)
 			switch st {
@@ -334,7 +334,7 @@ func (a *App) agentPane(c *ui.Context, id string) {
 		ui.Column(c).AlignItems(ui.Center).Padding(frostui.SpaceXL).Children(func() {
 			ui.Column(c).MaxWidth(860).FillWidth().Gap(frostui.SpaceL).AlignItems(ui.Stretch).Children(func() {
 				ui.Row(c).Gap(frostui.SpaceL).AlignItems(ui.Center).Children(func() {
-					frostui.SquareAvatar(c, p.Name, 64)
+					a.agentAvatar(c, p.ID, 64)
 					ui.Column(c).Gap(frostui.SpaceXS).Grow(1).Children(func() {
 						frostui.Title(c, p.Name)
 						meta := []string{roleTitle(p.Role)}
@@ -357,6 +357,7 @@ func (a *App) agentPane(c *ui.Context, id string) {
 					}
 					a.sessionCard(c.Key(s.ID), s)
 				}
+				a.agentLessons(c, id)
 				var places []frostui.KeyValue
 				if p.Home != "" {
 					places = append(places, frostui.KeyValue{Key: "Home", Value: a.homePath(p.Home), Mono: true})

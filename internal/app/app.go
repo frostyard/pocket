@@ -35,6 +35,9 @@ type Options struct {
 	Badge  func(int)
 	// OpenURL opens a web address; nil opens it with the desktop's handler.
 	OpenURL func(string) error
+	// Web shows artifacts' pages inside the window; nil opens them in the
+	// browser.
+	Web WebPane
 	// After runs a function on the UI thread after a while; nil uses
 	// time.AfterFunc and Post. Tests give a clock of their own.
 	After func(time.Duration, func())
@@ -73,8 +76,11 @@ type App struct {
 	// loading is the session asked for whose view has not come yet.
 	loading int
 
-	team team
-	desk desk
+	team    team
+	desk    desk
+	lessons lessons
+	wiki    wiki
+	arts    artifacts
 	// peeks are live summaries of the sessions that wait or work.
 	peeks   map[int]*pocket.Peek
 	peekIDs []int
@@ -201,6 +207,7 @@ func (a *App) reset() {
 	a.current, a.loading = 0, 0
 	a.team = team{}
 	a.desk = desk{}
+	a.lessons, a.wiki, a.arts = lessons{}, wiki{}, artifacts{}
 	a.peeks, a.peekIDs, a.asksSeen = map[int]*pocket.Peek{}, nil, nil
 	a.selected = ""
 	a.setBadge(0)
@@ -242,6 +249,7 @@ func (a *App) handle(ev pocket.Event) {
 		}
 		a.peekIDs = nil // a new connection watches nothing yet
 		a.loadDesk()
+		a.loadWiki()
 		if first {
 			a.loadTeam()
 			if a.current == 0 && a.settings.LastSession != "" {
@@ -336,7 +344,13 @@ func (a *App) handle(ev pocket.Event) {
 		}
 		switch x.Module {
 		case "team":
-			a.loadTeam()
+			if x.Event == "memory" {
+				a.loadMemory()
+			} else {
+				a.loadTeam()
+			}
+		case "homewiki":
+			a.loadWiki()
 		case "desk":
 			a.deskChanged()
 		case "night-shift":
@@ -434,8 +448,17 @@ func (a *App) goPlace(key string) {
 	}
 	a.selected = key
 	a.sidebar.Select("places", key)
-	if key == "x:board" && a.desk.on {
-		a.loadBoard()
+	switch key {
+	case "x:board":
+		if a.desk.on {
+			a.loadBoard()
+		}
+	case "x:team":
+		a.loadMemory()
+	case "x:wiki":
+		a.loadWiki()
+	case "x:artifacts":
+		a.loadArtifacts()
 	}
 }
 

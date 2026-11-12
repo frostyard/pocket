@@ -72,6 +72,34 @@ func teamApp(t *testing.T) (*App, *frostuitest.Loop) {
 		{Kind: "tool", Name: "bash", Args: map[string]any{"command": "go test ./... -run TestDashboard"}, Status: "running"},
 	}}
 	a.desk = deskFixture(ms)
+	newText := "Run make ci, not just make test, before reporting done."
+	a.lessons.memory = &pocket.Memory{Agents: map[string][]pocket.Lesson{
+		"duncan": {
+			{ID: "l1", Text: "The nsl CI matrix needs the arm64 runner label.", Pending: true, ByPi: true, CreatedAt: ms(3 * time.Hour), From: 2},
+			{ID: "l2", Text: "Run make test before reporting done.", ByPi: true, CreatedAt: ms(72 * time.Hour),
+				Proposal: &struct {
+					Text   *string `json:"text,omitempty"`
+					Forget bool    `json:"forget,omitempty"`
+					ByPi   bool    `json:"byPi"`
+				}{Text: &newText, ByPi: true}},
+			{ID: "l3", Text: "frostyard/snow images boot with systemd-boot, not GRUB.", CreatedAt: ms(200 * time.Hour)},
+		},
+	}}
+	a.lessons.memory.Limits.Approved = 40
+	a.wiki = wiki{on: true, sel: "docs/network.md", ready: true, data: &pocket.Wiki{Pages: []pocket.WikiPage{
+		{Path: "README.md", Title: "Homelab inventory wiki"},
+		{Path: "docs/network.md", Title: "Network and connectivity", Order: 1},
+		{Path: "docs/storage.md", Title: "Storage, shares, and data protection", Order: 2},
+		{Path: "docs/hosts/minideb.md", Title: "minideb", Section: "Hosts", Order: 10},
+		{Path: "docs/hosts/caddy.md", Title: "caddy", Section: "Hosts", Order: 11},
+	}}, page: &pocket.WikiPage{Path: "docs/network.md", Title: "Network and connectivity", Updated: "2026-11-10",
+		Body: "# Network and connectivity\n\n## Summary\n\nThe lab sits on one flat LAN behind the **UDM Pro**, with a tailnet over it.\n\n| Host | Address | Role |\n|---|---|---|\n| minideb | 192.0.2.175 | Incus host |\n| caddy | 192.0.2.10 | Reverse proxy |\n\nSee [Storage](storage.md) for the NAS."}}
+	a.arts = artifacts{loaded: true, sel: "3/arch", list: []pocket.Artifact{
+		{Session: 3, SessionTitle: "Desk dashboard: weekly metrics", ID: "arch", Title: "Dashboard data flow", Type: "svg", Current: 2, Versions: 2, Size: 2400, UpdatedAt: ms(20 * time.Minute)},
+		{Session: 1, SessionTitle: "Plan the Q4 roadmap", ID: "plan", Title: "Q4 roadmap", Type: "markdown", Current: 1, Versions: 1, Size: 5100, UpdatedAt: ms(2 * time.Hour)},
+		{Session: 4, SessionTitle: "Draft the release notes", ID: "notes", Title: "Release notes preview", Type: "html", Current: 3, Versions: 3, Size: 18000, UpdatedAt: ms(26 * time.Hour)},
+	}}
+	a.arts.svgs = map[string]*ui.SVG{"3/arch@2": ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 160" width="400" height="160"><rect x="10" y="50" width="100" height="60" rx="8" fill="#3b82f6"/><rect x="150" y="50" width="100" height="60" rx="8" fill="#10b981"/><rect x="290" y="50" width="100" height="60" rx="8" fill="#f59e0b"/><path d="M110 80h40M250 80h40" stroke="#94a3b8" stroke-width="4"/></svg>`))}
 	return a, loop
 }
 
@@ -202,6 +230,24 @@ func TestTeamSnapshots(t *testing.T) {
 	loop.Post(func() { a.goPlace("x:numbers") })
 	settle()
 	writePNG(t, tt, "team-numbers")
+	loop.Post(func() { a.selected = "x:team" })
+	settle()
+	if !tt.HasText("Lessons to review") || !tt.HasText("Approve") {
+		t.Errorf("team lacks its lessons: %v", tt.Texts())
+	}
+	writePNG(t, tt, "team-team")
+	loop.Post(func() { a.selected = "x:wiki" })
+	settle()
+	if !tt.HasText("Network and connectivity") {
+		t.Errorf("wiki lacks its page: %v", tt.Texts())
+	}
+	writePNG(t, tt, "team-wiki")
+	loop.Post(func() { a.selected = "x:artifacts" })
+	settle()
+	if !tt.HasText("Dashboard data flow") {
+		t.Errorf("artifacts lack the list: %v", tt.Texts())
+	}
+	writePNG(t, tt, "team-artifacts")
 	loop.Post(func() { a.openAgent("duncan") })
 	settle()
 	if !tt.HasText("Give Duncan a task") {
@@ -247,7 +293,7 @@ func TestStatesSortSessions(t *testing.T) {
 			t.Errorf("session %d: state %d, want %d", id, got, st)
 		}
 	}
-	// 1 call to allow, 2 decisions, 1 PR to merge.
+	// 1 call to allow, 2 decisions, 1 PR to merge; lessons do not count.
 	if n := a.inboxCount(); n != 4 {
 		t.Errorf("inbox count = %d, want 4", n)
 	}

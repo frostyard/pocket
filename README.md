@@ -7,7 +7,7 @@
 
 Pocket is a desktop app for people who run a team of agents on a [Pi Pocket](https://github.com/TannerMidd/pi-pocket) server, that puts everything waiting on you, and everything in motion, in one window. Where Pi Pocket's web app shows one session at a time, Pocket is organized around your attention, with [pi-pocket-team](https://github.com/bketelsen/pi-pocket-team)'s Desk built in.
 
-**Status:** pre-release. It signs in to a server, streams sessions, and runs the Inbox, In motion, the shift board, Numbers and notifications.
+**Status:** pre-release. It signs in to a server, streams sessions, and runs the Inbox, In motion, the team, the wiki and artifacts.
 
 **Documentation:** [docs/README.md](docs/README.md)
 
@@ -16,7 +16,8 @@ Pocket is a desktop app for people who run a team of agents on a [Pi Pocket](htt
 - **Inbox.** Calls to allow, Pi's questions, the Desk's decisions and PRs ready to merge, in one queue, each answered on its card, keyboard first. [Design](docs/design/pocket.md#places)
 - **In motion.** Every thread at work, grouped by who moves it next, with what each agent does right now. [Design](docs/design/pocket.md#places)
 - **Sessions, native.** Replies stream in as Markdown, tool calls fold away, approvals dock above the composer, `@agent` starts a task. [Design](docs/design/pocket.md#a-session)
-- **The team.** The shift board, the Desk's numbers, and a page for each named agent. [Design](docs/design/pocket.md#places)
+- **The team.** Lessons to approve, a page for each named agent, the shift board and the Desk's numbers. [Design](docs/design/pocket.md#places)
+- **Wiki and artifacts.** The homelab wiki and every session's pages, documents and pictures, read in the app. [Design](docs/design/pocket.md#places)
 - **Calm notifications.** By kind, bursts gathered into one, do not disturb and quiet hours, without changing what your phone gets. [Design](docs/design/pocket.md#notifications-and-settings)
 
 ## Requirements

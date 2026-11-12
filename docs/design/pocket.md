@@ -45,26 +45,36 @@ internal/icons ── the icons Pocket draws itself
 - **Inbox** (⌘1 / Ctrl 1) — one queue of everything that waits on the owner,
   the most pressing first: calls to allow and questions waiting in sessions
   (subagents' included), the Desk's decisions, PRs ready to merge (by review
-  level), a full desk (Allow 1), failed runs, found work and threads gone
-  quiet. Each is answered on its card; J/K move, 1–6 answer a decision with
+  level), a full desk (Allow 1), failed runs, found work, threads gone quiet,
+  and lessons to review (which the badge does not count). Each is answered on its card; J/K move, 1–6 answer a decision with
   that option, ⌥Y / ⌥N allow or deny. The right pane shows the chosen item's
   context: a thread's PRs, reports and events, or a session's last steps.
 - **In motion** (⌘2) — every thread under way, grouped by who moves it next
   (agents at work, with the supervisor, in review, plans, watching, parked),
   each with what its session does now from the server's peek feed, and runs
   at work that no thread holds. Double-click opens the thread's session.
-- **Shift board** (⌘3) — the night-shift goal board: limits, rows by state,
+- **Team** (⌘3) — the lessons agents want to keep, to approve, edit or
+  discard (a change to an approved one shows old and new), and the roster.
+  Each agent's page has a task card, its sessions, its lessons (forget,
+  edit, add one of the owner's), places and profile. Hovering an agent's
+  avatar anywhere says its role, home and repositories.
+- **Shift board** (⌘4) — the night-shift goal board: limits, rows by state,
   Pick / Unpick, Launch picks.
-- **Numbers** (⌘4) — the Desk's dashboard: completion, closures, cycle time,
+- **Numbers** (⌘5) — the Desk's dashboard: completion, closures, cycle time,
   workload, PRs, cost and tokens, closures by day, by repository.
-- **Team** — each named agent with its status; its page has a task card, its
-  sessions, places and profile.
+- **Wiki** (⌘6) — the homewiki module's pages, read-only, rendered natively;
+  links between pages stay in the wiki, and it reads again as pages change.
+- **Artifacts** (⌘7) — every session's artifacts, newest first: an SVG drawn
+  natively, an HTML or Markdown page in a web view signed in as the owner
+  (the `pocket_auth` cookie for the server's host alone), or in the browser
+  where the system has no web view.
 - **Sessions** — pinned sessions and recent ones that no other session
   started; delegations nest under the session that started them. ⌘P finds
   any session.
 
-The places that need the Desk show only when the server has it; Pocket works
-against a Pi Pocket without the team modules.
+The places that need a module (Team, the Desk's Shift board and Numbers, the
+Wiki) show only when the server has it; Pocket works against a Pi Pocket
+without the team modules.
 
 ### A session
 
@@ -102,8 +112,11 @@ server's facts. The status bar shows do not disturb while it holds.
   whole in the next update. `pocket.View.Apply` is a port of the web app's
   `mergeView`. Peeks (`/api/peeks`) give each waiting or working session's
   last steps.
-- **Team and Desk:** JSON routes under `/api/x/team/…` and `/api/x/desk/…`;
-  their `ext` events are signals to read again. A thread's session is matched
+- **Team, Desk and wiki:** JSON routes under `/api/x/team/…` (agents,
+  supervisor, memory), `/api/x/desk/…` and `/api/x/homewiki/…`; their `ext`
+  events are signals to read again. A lesson's approval sends what the owner
+  saw (`expected`), so it holds only for that text. Artifacts come from
+  `/api/artifacts` and `/a/<session>/<artifact>/<version>`. A thread's session is matched
   by title. A session's agent comes from its folder: an agent's home, or a
   delegation's worktree `<checkout>--<agent>-<slug>`.
 - **Threads:** the client's goroutines never touch UI state; they post

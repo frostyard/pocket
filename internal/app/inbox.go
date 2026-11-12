@@ -30,10 +30,13 @@ const (
 	inboxStale                     // a thread with no news for days
 	inboxFound                     // work the Desk found with no thread
 	inboxFull                      // the desk is at its cap
+	inboxLesson                    // a lesson an agent wants to keep
 )
 
 type inboxItem struct {
 	key     string
+	agent   string
+	lesson  *pocket.Lesson
 	kind    inboxKind
 	session *pocket.Session
 	thread  *pocket.DeskThread
@@ -86,7 +89,10 @@ func (a *App) inboxItems() []inboxItem {
 			items = append(items, inboxItem{key: "p:" + p.Ref, kind: inboxReady, pr: p, thread: a.desk.thread(p.Thread), at: p.At.Time()})
 		}
 	}
-	rank := map[inboxKind]int{inboxFull: 0, inboxApproval: 1, inboxAsk: 2, inboxReady: 3, inboxFailed: 4, inboxFound: 5, inboxStale: 6}
+	for _, al := range a.waitingLessons() {
+		items = append(items, inboxItem{key: "l:" + al.lesson.ID, kind: inboxLesson, agent: al.agent, lesson: al.lesson, at: al.lesson.CreatedAt.Time()})
+	}
+	rank := map[inboxKind]int{inboxFull: 0, inboxApproval: 1, inboxAsk: 2, inboxReady: 3, inboxFailed: 4, inboxFound: 5, inboxStale: 6, inboxLesson: 7}
 	slices.SortStableFunc(items, func(x, y inboxItem) int {
 		if rank[x.kind] != rank[y.kind] {
 			return rank[x.kind] - rank[y.kind]
@@ -171,6 +177,8 @@ func inboxHeading(k inboxKind) string {
 		return "Found work"
 	case inboxStale:
 		return "Gone quiet"
+	case inboxLesson:
+		return "Lessons to review"
 	}
 	return ""
 }
@@ -190,6 +198,9 @@ func (a *App) inboxLine(items []inboxItem) string {
 	}
 	if n := counts[inboxReady]; n > 0 {
 		parts = append(parts, plural(n, "PR to merge", "PRs to merge"))
+	}
+	if n := counts[inboxLesson]; n > 0 {
+		parts = append(parts, plural(n, "lesson to review", "lessons to review"))
 	}
 	if n := counts[inboxFailed] + counts[inboxStale] + counts[inboxFound]; n > 0 {
 		parts = append(parts, plural(n, "thing to look at", "things to look at"))
@@ -270,6 +281,8 @@ func (a *App) inboxCard(c *ui.Context, it *inboxItem) {
 				}
 			})
 		})
+	case inboxLesson:
+		a.lessonCard(c, it.agent, it.lesson, true)
 	case inboxStale, inboxFound:
 		t := it.thread
 		what := "No news for days."
@@ -298,7 +311,7 @@ func (a *App) inboxCard(c *ui.Context, it *inboxItem) {
 func (a *App) cardHead(c *ui.Context, p *pocket.Persona, title, when string) {
 	ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
 		if p != nil {
-			frostui.SquareAvatar(c, p.Name, 22)
+			a.agentAvatar(c, p.ID, 22)
 		}
 		frostui.Strong(c, title).SingleLine().Grow(1)
 		if when != "" {
@@ -311,7 +324,7 @@ func (a *App) cardHead(c *ui.Context, p *pocket.Persona, title, when string) {
 func (a *App) threadHead(c *ui.Context, t *pocket.DeskThread) {
 	ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
 		for _, ag := range t.Agents {
-			frostui.SquareAvatar(c.Key(ag), a.agentName(ag), 22)
+			a.agentAvatar(c.Key(ag), ag, 22)
 		}
 		frostui.Mono(c, t.ID).TextColor(c.Theme().TextMuted)
 		frostui.Strong(c, t.Title).SingleLine().Grow(1)
@@ -433,7 +446,7 @@ func (a *App) readyItem(c *ui.Context, it *inboxItem) {
 	a.card(c, it.key, frostui.Success, p.Ref, func() {
 		ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
 			for _, ag := range p.Agents {
-				frostui.SquareAvatar(c.Key(ag), a.agentName(ag), 22)
+				a.agentAvatar(c.Key(ag), ag, 22)
 			}
 			if p.Level != "" {
 				frostui.Pill(c, p.Level, levelTone(p.Level))
@@ -508,7 +521,7 @@ func (a *App) inboxContext(c *ui.Context) {
 func (a *App) sessionContext(c *ui.Context, s *pocket.Session) {
 	ui.Row(c).Gap(frostui.SpaceM).AlignItems(ui.Center).Children(func() {
 		if p := a.agentOf(s); p != nil {
-			frostui.SquareAvatar(c, p.Name, 32)
+			a.agentAvatar(c, p.ID, 32)
 		}
 		ui.Column(c).Grow(1).Gap(2).Children(func() {
 			frostui.Strong(c, s.DisplayTitle()).Wrap()

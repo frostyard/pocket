@@ -557,7 +557,7 @@ func toolIcon(name string) string {
 	case "bash", "background", "shell":
 		return "pocket-terminal"
 	case "read", "ls", "view":
-		return "file-text"
+		return "text-x-generic"
 	case "edit", "write", "multi_edit":
 		return "pocket-diff"
 	case "grep", "find", "glob", "search", "tool_search":

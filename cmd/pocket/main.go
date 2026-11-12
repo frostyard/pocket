@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"runtime"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"github.com/frostyard/pocket/internal/app"
 	"github.com/frostyard/pocket/internal/config"
 	"github.com/frostyard/pocket/internal/icons"
+	"github.com/frostyard/pocket/internal/pocket"
 )
 
 // version is stamped at build time.
@@ -47,12 +49,19 @@ func run() error {
 	}
 	p := &poster{}
 	var win *mygo.Window
+	// Artifacts' pages show in a web view where the system has one.
+	var web app.WebPane
+	pane := &webPane{}
+	if mygo.WebViewAvailable() {
+		web = pane
+	}
 	a, err := app.New(app.Options{
 		Version: version,
 		Post:    p.post,
 		Store:   store,
 		Creds:   creds(store.Dir()),
 		Notify:  notifier{win: func() *mygo.Window { return win }},
+		Web:     web,
 		Quit:    mygo.App.Quit,
 		Badge:   mygo.App.SetBadgeCount,
 		Raise: func() {
@@ -71,6 +80,14 @@ func run() error {
 			TitleBarStyle: mygo.TitleBarHidden,
 			Content:       ui.View(a.View),
 		})
+		if web != nil {
+			view, err := win.NewWebView(mygo.WebViewOptions{})
+			if err != nil {
+				slog.Warn("the artifacts' web view", "err", err)
+			} else {
+				pane.view = view
+			}
+		}
 		win.OnFocus(func() { p.post(func() { a.SetFocused(true) }) })
 		win.OnBlur(func() { p.post(func() { a.SetFocused(false) }) })
 		win.OnClose(func(*mygo.CloseEvent) { a.Close() })
@@ -160,4 +177,41 @@ func (n notifier) Notify(title, body string, onClick func()) {
 			slog.Debug("notification", "err", err)
 		}
 	}()
+}
+
+// webPane shows artifacts' pages in a web view of the window, signed in
+// with the person's token as the cookie Pi Pocket's own pages use.
+type webPane struct {
+	view *mygo.WebView
+}
+
+func (w *webPane) View() ui.NativeWebView {
+	if w.view == nil {
+		return nil
+	}
+	return w.view
+}
+
+// Show sets the sign-in cookie for the server's host alone, then loads
+// the page, off the UI thread.
+func (w *webPane) Show(page, server, token string) error {
+	if w.view == nil {
+		return errors.New("no web view")
+	}
+	u, err := url.Parse(server)
+	if err != nil {
+		return err
+	}
+	view := w.view
+	go func() {
+		err := mygo.Cookies.Set(mygo.Cookie{Name: pocket.CookieName, Value: token, Domain: u.Hostname(), Path: "/",
+			Secure: u.Scheme == "https", HTTPOnly: true, SameSite: mygo.CookieSameSiteLax})
+		if err != nil {
+			slog.Warn("signing the web view in", "err", err)
+		}
+		if err := view.Page().LoadURL(page); err != nil {
+			slog.Warn("loading an artifact", "err", err)
+		}
+	}()
+	return nil
 }

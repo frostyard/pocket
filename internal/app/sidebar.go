@@ -68,6 +68,7 @@ func (a *App) loadTeam() {
 		a.team.on, a.team.agents, a.team.supervisor = on, agents, sup
 		if on {
 			a.console.Addf(frostui.LevelInfo, "team", "%d named agents", len(agents))
+			a.loadMemory()
 		}
 	})
 }
@@ -236,10 +237,16 @@ func (a *App) archive(id int, archived bool) {
 // places are the window's places, in the sidebar's first section.
 func (a *App) places() []string {
 	out := []string{"x:inbox", "x:motion"}
+	if a.team.on {
+		out = append(out, "x:team")
+	}
 	if a.desk.on {
 		out = append(out, "x:board", "x:numbers")
 	}
-	return out
+	if a.wiki.on {
+		out = append(out, "x:wiki")
+	}
+	return append(out, "x:artifacts")
 }
 
 // children lists the sessions linked from session id (delegations a
@@ -359,6 +366,17 @@ func (a *App) placeRow(key string) frostui.SourceRow {
 		return row
 	case "x:numbers":
 		return frostui.SourceRow{Title: "Numbers", Icon: "view-grid"}
+	case "x:team":
+		row := frostui.SourceRow{Title: "Team", Icon: "pocket-team"}
+		if n := len(a.waitingLessons()); n > 0 {
+			row.Count, row.CountTone = fmt.Sprint(n), frostui.Warning
+			row.Spoken = plural(n, "lesson to review", "lessons to review")
+		}
+		return row
+	case "x:wiki":
+		return frostui.SourceRow{Title: "Wiki", Icon: "pocket-wiki"}
+	case "x:artifacts":
+		return frostui.SourceRow{Title: "Artifacts", Icon: "pocket-artifact"}
 	}
 	return frostui.SourceRow{Title: key}
 }

@@ -50,6 +50,12 @@ func Embedded() map[string][]byte {
 		"pocket-night": svg(`<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/>`),
 		// A desk lamp: the desk.
 		"pocket-desk": svg(`<path d="M3 21h18M12 21v-6M8 15h8M9 4l6 3-3 6-6-3zM15 7l3-1"/>`),
+		// Two people: the team.
+		"pocket-team": svg(`<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.2a5 5 0 0 1 5.5 5.8"/>`),
+		// An open book: the wiki.
+		"pocket-wiki": svg(`<path d="M12 7v14M3 18V5a1 1 0 0 1 1-1h5a3 3 0 0 1 3 3 3 3 0 0 1 3-3h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a2 2 0 0 0-2 2 2 2 0 0 0-2-2H4a1 1 0 0 1-1-1z"/>`),
+		// A framed page with a shape: an artifact.
+		"pocket-artifact": svg(`<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-4.5-4.5L6 21"/>`),
 		// An eye: viewing.
 		"pocket-eye": svg(`<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>`),
 	}

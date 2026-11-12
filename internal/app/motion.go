@@ -151,7 +151,7 @@ func (a *App) threadRow(c *ui.Context, th *pocket.DeskThread) {
 				if i == 2 {
 					break
 				}
-				frostui.SquareAvatar(c.Key(ag), a.agentName(ag), 24)
+				a.agentAvatar(c.Key(ag), ag, 24)
 			}
 		})
 		ui.Column(c).Grow(1).Gap(2).AlignItems(ui.Stretch).Children(func() {
@@ -216,7 +216,7 @@ func (a *App) runRow(c *ui.Context, s *pocket.Session) {
 	row.Children(func() {
 		ui.Row(c).Width(48).Children(func() {
 			if p := a.agentOf(s); p != nil {
-				frostui.SquareAvatar(c, p.Name, 24)
+				a.agentAvatar(c, p.ID, 24)
 			} else {
 				frostui.IconTile(c, "pocket-session", frostui.Neutral, 24)
 			}
@@ -416,7 +416,7 @@ func (a *App) boardRow(c *ui.Context, r pocket.BoardRow) {
 	}
 	ui.Row(c).Gap(frostui.SpaceM).AlignItems(ui.Center).Padding(frostui.SpaceM, frostui.SpaceL).Radius(10).
 		Background(frostui.Panel(t)).BorderWidth(1, 1, 1, 4).BorderColor(frostui.ToneLine(t, tone)).Children(func() {
-		frostui.SquareAvatar(c, a.agentName(r.Agent), 28)
+		a.agentAvatar(c, r.Agent, 28)
 		ui.Column(c).Grow(1).Gap(2).AlignItems(ui.Stretch).Children(func() {
 			ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
 				frostui.Mono(c, fmt.Sprintf("#%d", r.ID)).TextColor(t.TextMuted)

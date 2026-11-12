@@ -76,7 +76,7 @@ func (a *App) suggestions() []suggestion {
 			}
 		}
 		for _, p := range a.composer.prompts {
-			icon := "file-text"
+			icon := "text-x-generic"
 			if p.Skill {
 				icon = "pocket-sparkle"
 			}
