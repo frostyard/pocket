@@ -45,8 +45,11 @@ repository exists on GitHub.
    Repository rulesets are not copied from a template. `15368` is the GitHub
    Actions app; `actor_id` 5 is the repository admin role.
 
-3. Enable private vulnerability reporting. Repository settings are not copied
-   from a template, so no repository made from this one has it. Run it as a
+3. Enable private vulnerability reporting, once the repository is public:
+   GitHub offers it for public repositories only, and answers 404 for a
+   private one. Until then, `SECURITY.md` sends reports to the maintainer.
+   Repository settings are not copied from a template, so no repository made
+   from this one has it. Run it as a
    repository admin:
 
    ```sh
