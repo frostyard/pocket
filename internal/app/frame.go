@@ -28,7 +28,12 @@ func (a *App) View(c *ui.Context) {
 		return
 	}
 	conn := a.conn
-	a.table.Editing = func(c *ui.Context) bool { return c.FocusWithin(a.composer.field) }
+	// A terminal takes keys as an editor does: the window's Ctrl K steps
+	// aside there, and guardShellKeys keeps the shells' Ctrl keys for them.
+	a.terms.focused = a.selected == "x:terminal" && c.FocusWithin(a.terms.field)
+	a.table.Editing = func(c *ui.Context) bool {
+		return c.FocusWithin(a.composer.field) || (a.selected == "x:terminal" && c.FocusWithin(a.terms.field))
+	}
 	a.shell.View(c, frostui.PaneFrame{
 		SidebarPane: "sessions",
 		Panes: []frostui.Pane{
@@ -67,6 +72,8 @@ func (a *App) mainPane(c *ui.Context) {
 		a.wikiPane(c)
 	case a.selected == "x:artifacts":
 		a.artifactsPane(c)
+	case a.selected == "x:terminal":
+		a.terminalPane(c)
 	default:
 		a.inboxPane(c)
 	}
@@ -87,6 +94,8 @@ func (a *App) placeTitle() string {
 		return "Wiki"
 	case "x:artifacts":
 		return "Artifacts"
+	case "x:terminal":
+		return "Terminal"
 	}
 	return "Inbox"
 }
@@ -169,7 +178,7 @@ func (a *App) inspector(c *ui.Context) {
 				frostui.Muted(c, "Choose a thread to see its PRs, events and reports. Double-click opens its session.").Wrap()
 			case "x:wiki":
 				a.wikiContext(c)
-			case "x:board", "x:numbers", "x:team", "x:artifacts":
+			case "x:board", "x:numbers", "x:team", "x:artifacts", "x:terminal":
 				a.cheatSheet(c)
 			default:
 				a.inboxContext(c)
@@ -291,7 +300,7 @@ func (a *App) nextWaiting() {
 }
 
 func (a *App) menu(m *ui.Menu) {
-	a.table.Menu("new", "inbox", "motion", "team", "board", "numbers", "wiki", "artifacts", "next-waiting", "", "sidebar", "inspector", "")(m)
+	a.table.Menu("new", "inbox", "motion", "team", "board", "numbers", "wiki", "artifacts", "terminal", "new-terminal", "next-waiting", "", "sidebar", "inspector", "")(m)
 	a.table.MenuItem(m, "settings")
 	a.table.MenuItem(m, "dnd")
 	a.table.MenuItem(m, "shortcuts")
@@ -359,6 +368,28 @@ func (a *App) setUpCommands() {
 		frostui.Command{ID: "artifacts", Title: "Artifacts", Group: "Go to", Icon: "pocket-artifact",
 			Bindings: []frostui.KeyBinding{{Mods: ui.Cmd, Key: ui.Key7, Scope: frostui.Everywhere}},
 			Run:      func() { a.goPlace("x:artifacts") }},
+		frostui.Command{ID: "terminal", Title: "Terminal", Group: "Go to", Icon: "pocket-terminal",
+			Enabled:  func() (bool, string) { return a.terms.on, "This server has no terminal module" },
+			Bindings: []frostui.KeyBinding{{Mods: ui.Cmd, Key: ui.Key8, Scope: frostui.Everywhere}},
+			Run:      func() { a.goPlace("x:terminal") }},
+		frostui.Command{ID: "new-terminal", Title: "New Terminal", Group: "Terminal", Icon: "pocket-terminal",
+			Enabled: func() (bool, string) {
+				switch {
+				case !a.terms.on:
+					return false, "This server has no terminal module"
+				case a.liveTerminals() >= 4:
+					return false, "The server runs 4 terminals at most"
+				}
+				return true, ""
+			},
+			Bindings: []frostui.KeyBinding{{Mods: ui.Cmd | ui.Shift, Key: ui.KeyT, Scope: frostui.Everywhere}},
+			Run: func() {
+				place := pocket.TerminalPlace{}
+				if a.current != 0 {
+					place.Session = a.current
+				}
+				a.newTerminal(place)
+			}},
 		frostui.Command{ID: "inbox-next", Title: "Next in the Inbox", Group: "Inbox", Unlisted: true,
 			Enabled:  func() (bool, string) { return a.current == 0 && a.selected == "" || a.selected == "x:inbox", "" },
 			Bindings: []frostui.KeyBinding{{Key: ui.KeyJ, Scope: frostui.OutsideText}},

@@ -69,6 +69,13 @@ internal/icons ── the icons Pocket draws itself
   natively, an HTML or Markdown page in a web view signed in as the owner
   (the `pocket_auth` cookie for the server's host alone), or in the browser
   where the system has no web view.
+- **Terminal** (⌘8) — shells on the server, as the owner, through
+  pi-pocket-team's terminal module, drawn by Ghostty's emulator (MyGo's
+  terminal plugin): tabs of the shells (four at most, the module's cap), a new
+  one in the server's home or, from a session's details or ⌘⇧T, in that
+  session's folder. While a terminal has the focus, the window's Ctrl keys
+  that shells use (Ctrl N, P, L, B, Q, Alt Y, N) go to the shell; on macOS
+  they are ⌘ keys and never reach it.
 - **Sessions** — pinned sessions and recent ones that no other session
   started; delegations nest under the session that started them. ⌘P finds
   any session.
@@ -117,7 +124,16 @@ server's facts. The status bar shows do not disturb while it holds.
   supervisor, memory), `/api/x/desk/…` and `/api/x/homewiki/…`; their `ext`
   events are signals to read again. A lesson's approval sends what the owner
   saw (`expected`), so it holds only for that text. Artifacts come from
-  `/api/artifacts` and `/a/<session>/<artifact>/<version>`. A thread's session is matched
+  `/api/artifacts` and `/a/<session>/<artifact>/<version>`.
+- **Terminal:** `/api/x/terminal/…`. `pocket.TermConn` is a shell as an
+  `io.ReadWriteCloser` for the emulator: Read long-polls the output (25 s at
+  most) from the offset it has, in the module's units (UTF-16 code units: it
+  takes the server's `to`); Write posts keys in chunks numbered per window, so
+  a chunk sent again lands once; Resize posts the size the view fits. Closing
+  it stops polling, and the module ends the shell 60 s later; End ends it at
+  once. The emulator's library (libghostty-vt) is packaged by `mygo build`, and
+  downloaded once into the user's cache under `go run` and `go test`; it needs
+  macOS 13 (`mygo.json`). A thread's session is matched
   by title. A session's agent comes from its folder: an agent's home, or a
   delegation's worktree `<checkout>--<agent>-<slug>`.
 - **Threads:** the client's goroutines never touch UI state; they post
@@ -135,6 +151,9 @@ server's facts. The status bar shows do not disturb while it holds.
   when a read fails.
 - macOS shows notifications only from a packaged app (`make app`,
   `make dev`).
+- The live terminal test needs the demo server started with
+  `POCKET_DEMO_MODULES=<a pi-pocket-team checkout>`, which drops the
+  terminal module into its data folder and turns it on.
 - The live tests (`make live`) drive the app against real Pi Pocket servers
   with a scripted model that costs nothing. In a Pi Pocket checkout (after
   `npm ci`), `node test/serve.ts 8899 127.0.0.2` serves a copy and prints an

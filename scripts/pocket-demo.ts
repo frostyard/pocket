@@ -1,5 +1,7 @@
 // A demo server for Pocket's development: a scripted model that thinks, runs tools, and asks, at a pace you can watch.
-import { cleanUp, lastText, newSession, openApp, root, say } from "./helpers.ts";
+import { cleanUp, lastText, newSession, openApp, owner, root, say } from "./helpers.ts";
+import { copyFileSync, cpSync, existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { createServer } from "node:http";
 import type { FauxResponseStep } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxThinking, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
@@ -57,7 +59,34 @@ const route: FauxResponseStep = (request) => {
 
 const faux = fauxProvider({ tokensPerSecond: 90, models: [{ id: "faux-1" }, { id: "faux-2" }] });
 faux.setResponses(Array.from({ length: 1000 }, () => route));
+// POCKET_DEMO_MODULES names a pi-pocket-team checkout: its terminal module is dropped into the data folder and turned
+// on, as the owner does, so Pocket's Terminal place runs against the real module.
+const modules = process.env.POCKET_DEMO_MODULES;
+const dropIns = ["terminal.ts"];
+
+if (modules) {
+    mkdirSync(join(root, "data", "extensions"), { recursive: true });
+
+    for (const file of dropIns) {
+        const extensions = join(root, "data", "extensions");
+        const web = file.replace(/\.ts$/, "-web");
+
+        copyFileSync(join(modules, file), join(extensions, file));
+
+        // A module with a browser part keeps it in a folder beside it.
+        if (existsSync(join(modules, web))) {
+            cpSync(join(modules, web), join(extensions, web), { recursive: true });
+        }
+    }
+}
+
 const app = await openApp(faux);
+
+if (modules) {
+    for (const file of dropIns) {
+        await app.setExtensionEnabled(owner(app), file, true);
+    }
+}
 const server = createServer(createHandler({ app, listen: { host, port }, restart: () => {} }));
 await new Promise<void>((resolve) => server.listen(port, host, resolve));
 

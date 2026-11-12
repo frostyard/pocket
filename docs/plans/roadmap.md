@@ -45,6 +45,8 @@ server that surpasses its web app at a desk. Phases 1 to 4 shipped on
   `SourceRow.Tooltip` (done, 2026-11-12).
 - Identity for the open session (use an agent in this session) in the
   inspector.
+- The terminal module's shells in a Terminal place, with Ghostty's emulator
+  (done, 2026-11-12).
 - **Done when:** the owner uses Pocket for a full working day without opening
   the web app.
 
