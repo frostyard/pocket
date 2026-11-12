@@ -59,6 +59,23 @@ func (a *App) inspectorPane(c *ui.Context) {
 					a.open(v.Conversation.Parent.ID)
 				}
 			}
+			if a.terms.on {
+				id := a.current
+				cwd := firstNonEmpty(v.Agent.Cwd, v.Conversation.Cwd)
+				ui.Row(c).Gap(frostui.SpaceS).Wrap().Children(func() {
+					if frostui.LabeledButton(c, "pocket-terminal", "Open a terminal here", false).
+						Disabled(a.liveTerminals() >= 4 || a.terms.busy).Tooltip("A shell on the server in " + a.homePath(cwd)).Clicked() {
+						a.newTerminal(pocket.TerminalPlace{Session: id})
+					}
+					for _, tm := range a.terminalsIn(cwd) {
+						tid := tm.ID
+						if ui.Button(c.Key(tid), "Show terminal").Clicked() {
+							a.goPlace("x:terminal")
+							a.terms.sel = tid
+						}
+					}
+				})
+			}
 
 			frostui.SectionHeader(c, frostui.SectionHead{Title: "Usage", Quiet: true})
 			stats := [][2]string{{"Spent", fmt.Sprintf("$%.2f", v.Conversation.Spend.Spent)}}
@@ -161,7 +178,8 @@ func meter(c *ui.Context, label, detail string, share float64, tone frostui.Tone
 func (a *App) cheatSheet(c *ui.Context) {
 	frostui.SectionHeader(c, frostui.SectionHead{Title: "Keys", Quiet: true})
 	shortcuts := [][2]string{
-		{"Cmd 1 … 7", "Inbox, In motion, Team, Shift board, Numbers, Wiki, Artifacts"},
+		{"Cmd 1 … 8", "Inbox, In motion, Team, Shift board, Numbers, Wiki, Artifacts, Terminal"},
+		{"Cmd Shift T", "New terminal, in the open session's folder"},
 		{"J / K", "Next / previous in the Inbox"},
 		{"1 … 6", "Answer a decision with that option"},
 		{"Cmd K", "Everything: commands, sessions, agents"},

@@ -48,7 +48,8 @@ them rather than improvising, whichever agent you are. Start a new one from
   `mergeView`). `internal/app` is the window: `app.go` (state, events),
   `conn.go` (the link), `frame.go` (frame, commands, palette), `sidebar.go`,
   `inbox.go`, `motion.go` (In motion, Shift board, Numbers), `desk.go`,
-  `transcript.go`, `composer.go`, `pages.go`, `notify.go`, `settings.go`.
+  `transcript.go`, `composer.go`, `pages.go`, `notify.go`, `settings.go`,
+  `terminals.go` (the Terminal place, over `pocket.TermConn`).
   `internal/config` holds settings and credentials; `internal/icons` the
   icons Pocket draws.
 - **UI thread.** `App` and everything in it belong to the UI thread. Work
@@ -70,6 +71,10 @@ them rather than improvising, whichever agent you are. Start a new one from
 - **Notifications** go through `deliver` in `internal/app/notify.go`, never
   straight to `Options.Notify`
   ([ADR-0006](docs/adr/0006-filter-notifications-in-the-client.md)).
+- **Keys a terminal needs.** A command whose Ctrl key a shell uses (history,
+  clear, tmux's prefix, readline's Alt keys) goes in `shellKeys`
+  (`internal/app/terminals.go`), which stands it aside while a terminal has
+  the focus, except on macOS, where it is a ⌘ key.
 - **Every platform.** The app builds with `CGO_ENABLED=0` for darwin, linux
   and windows (`make cross`). Write keys for people with `keys()` and
   `keyName()` (⌘ and ⌥ on macOS); bind them with `ui.Cmd`, which is Cmd there

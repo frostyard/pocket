@@ -246,7 +246,11 @@ func (a *App) places() []string {
 	if a.wiki.on {
 		out = append(out, "x:wiki")
 	}
-	return append(out, "x:artifacts")
+	out = append(out, "x:artifacts")
+	if a.terms.on {
+		out = append(out, "x:terminal")
+	}
+	return out
 }
 
 // children lists the sessions linked from session id (delegations a
@@ -377,6 +381,13 @@ func (a *App) placeRow(key string) frostui.SourceRow {
 		return frostui.SourceRow{Title: "Wiki", Icon: "pocket-wiki"}
 	case "x:artifacts":
 		return frostui.SourceRow{Title: "Artifacts", Icon: "pocket-artifact"}
+	case "x:terminal":
+		row := frostui.SourceRow{Title: "Terminal", Icon: "pocket-terminal"}
+		if n := a.liveTerminals(); n > 0 {
+			row.Count = fmt.Sprint(n)
+			row.Spoken = plural(n, "shell running", "shells running")
+		}
+		return row
 	}
 	return frostui.SourceRow{Title: key}
 }

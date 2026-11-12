@@ -81,6 +81,7 @@ type App struct {
 	lessons lessons
 	wiki    wiki
 	arts    artifacts
+	terms   terms
 	// peeks are live summaries of the sessions that wait or work.
 	peeks   map[int]*pocket.Peek
 	peekIDs []int
@@ -138,6 +139,7 @@ func New(opts Options) (*App, error) {
 	a.md = markdown.Options{Reveal: &markdown.Reveal{Unit: markdown.ByWord, CatchUp: 300 * time.Millisecond}, OnLink: a.followLink}
 	a.setUpSidebar()
 	a.setUpCommands()
+	a.guardShellKeys()
 	a.shell.Palette.Sources = []frostui.PaletteSource{a.sessionSource(), a.agentSource()}
 	return a, nil
 }
@@ -164,6 +166,7 @@ func (a *App) Start() {
 
 // Close stops the link and keeps the layout.
 func (a *App) Close() {
+	a.closeTerminals()
 	a.disconnect()
 	a.settings.Widths = a.shell.Panes.Layout.Widths
 	a.settings.Collapsed = a.shell.Panes.Layout.Collapsed
@@ -207,7 +210,8 @@ func (a *App) reset() {
 	a.current, a.loading = 0, 0
 	a.team = team{}
 	a.desk = desk{}
-	a.lessons, a.wiki, a.arts = lessons{}, wiki{}, artifacts{}
+	a.closeTerminals()
+	a.lessons, a.wiki, a.arts, a.terms = lessons{}, wiki{}, artifacts{}, terms{}
 	a.peeks, a.peekIDs, a.asksSeen = map[int]*pocket.Peek{}, nil, nil
 	a.selected = ""
 	a.setBadge(0)
@@ -250,6 +254,7 @@ func (a *App) handle(ev pocket.Event) {
 		a.peekIDs = nil // a new connection watches nothing yet
 		a.loadDesk()
 		a.loadWiki()
+		a.loadTerminals()
 		if first {
 			a.loadTeam()
 			if a.current == 0 && a.settings.LastSession != "" {
@@ -336,8 +341,9 @@ func (a *App) handle(ev pocket.Event) {
 		}
 	case "ext":
 		var x struct {
-			Module string `json:"module"`
-			Event  string `json:"event"`
+			Module string          `json:"module"`
+			Event  string          `json:"event"`
+			Data   json.RawMessage `json:"data"`
 		}
 		if !a.decode(ev, &x) {
 			return
@@ -351,6 +357,10 @@ func (a *App) handle(ev pocket.Event) {
 			}
 		case "homewiki":
 			a.loadWiki()
+		case "terminal":
+			if x.Event == "terminals" {
+				a.terminalsChanged(x.Data)
+			}
 		case "desk":
 			a.deskChanged()
 		case "night-shift":
@@ -459,6 +469,8 @@ func (a *App) goPlace(key string) {
 		a.loadWiki()
 	case "x:artifacts":
 		a.loadArtifacts()
+	case "x:terminal":
+		a.loadTerminals()
 	}
 }
 
