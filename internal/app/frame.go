@@ -57,7 +57,10 @@ func (a *App) View(c *ui.Context) {
 	a.numberRecordsDialog(c)
 	a.newSessionDialog(c)
 	a.backgroundDialog(c)
+	a.sessionFilesDialog(c)
 	a.scheduleDialog(c)
+	// Confirmations must sit above sheets such as Changes and files.
+	a.dialogs.View(c)
 }
 
 func (a *App) mainPane(c *ui.Context) {
