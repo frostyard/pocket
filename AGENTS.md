@@ -47,6 +47,7 @@ them rather than improvising, whichever agent you are. Start a new one from
   `types.go` (wire types), `terminal.go` (shell transport), `stream.go` and `sse.go` (the
   event stream), `view.go` (`View.Apply`, the port of the web app's
   `mergeView`). `internal/app` is the window: `app.go` (state, events),
+  `derived.go` (cached Inbox, session states and thread matches),
   `conn.go` (the link), `frame.go` (frame, commands, palette), `sidebar.go`,
   `inbox.go`, `board_actions.go` (board details and actions), `core_memory.go` (Pi Pocket lessons), `motion.go` (In motion, Shift board, Numbers), `numbers.go` (filters and records), `desk.go`,
   `desk_actions.go` (owner thread actions), `desk_extras.go` (supplementary lists),
@@ -67,6 +68,10 @@ them rather than improvising, whichever agent you are. Start a new one from
   answers from a previous sign-in and signs out on a route 401, without
   calling the old completion. Stream retries keep the authenticated client. Never
   touch `App` from a goroutine.
+- **Derived data.** Server events and request completions invalidate the Inbox,
+  state and thread-match caches. A new direct mutation of their sources must
+  call `invalidateDerived`; `setSessions` and `markSeen` already do. Cache
+  pointers belong to the current source snapshots, never to a previous sign-in.
 - **MyGo's rules** (as frostui's): no `ui.Handle` made in a view; state lives
   in structs. `Element.Selected` recolors text for an accent fill, so a card
   that shows selection by its border uses `AccessSelected`.

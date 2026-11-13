@@ -256,15 +256,8 @@ func (a *App) modelChip(c *ui.Context) {
 
 // status is the status bar's start: what the team is doing.
 func (a *App) status() []frostui.StatusItem {
-	waiting, working := 0, 0
-	for i := range a.sessions {
-		switch a.stateOf(&a.sessions[i]) {
-		case stateWaiting:
-			waiting++
-		case stateWorking:
-			working++
-		}
-	}
+	d := a.derivedData()
+	waiting, working := d.waiting, d.working
 	var items []frostui.StatusItem
 	if q, ok := a.quietItem(); ok {
 		items = append(items, q)

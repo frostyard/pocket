@@ -50,7 +50,7 @@ type inboxItem struct {
 
 // inboxItems gathers what waits, the most pressing first: answers before
 // reviews before what went wrong, and older before newer in each.
-func (a *App) inboxItems() []inboxItem {
+func (a *App) computeInbox() []inboxItem {
 	var items []inboxItem
 	if v := a.desk.view; v != nil && v.Cap.Full {
 		items = append(items, inboxItem{key: "full", kind: inboxFull})
@@ -246,12 +246,7 @@ func (a *App) inboxLine(items []inboxItem) string {
 	if n := counts[inboxFailed] + counts[inboxStale] + counts[inboxFound]; n > 0 {
 		parts = append(parts, plural(n, "thing to look at", "things to look at"))
 	}
-	working := 0
-	for i := range a.sessions {
-		if a.stateOf(&a.sessions[i]) == stateWorking {
-			working++
-		}
-	}
+	working := a.derivedData().working
 	if working > 0 {
 		parts = append(parts, plural(working, "run at work", "runs at work"))
 	}

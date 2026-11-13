@@ -223,12 +223,9 @@ func (a *App) grant() {
 	})
 }
 
-// sessionForThread uses the Desk binding. Only older module views without
-// a session field fall back to matching delegation titles.
-func (a *App) sessionForThread(t *pocket.DeskThread) *pocket.Session {
-	if t.Session != nil {
-		return a.byID[*t.Session]
-	}
+// matchThreadSession is the title fallback for older Desk modules without
+// a session binding. Titles are normalized once per source snapshot.
+func (a *App) matchThreadSession(t *pocket.DeskThread, titles []string) *pocket.Session {
 	title := strings.ToLower(strings.TrimSpace(t.Title))
 	if title == "" {
 		return nil
@@ -236,7 +233,7 @@ func (a *App) sessionForThread(t *pocket.DeskThread) *pocket.Session {
 	var best *pocket.Session
 	for i := range a.sessions {
 		s := &a.sessions[i]
-		st := strings.ToLower(s.Title)
+		st := titles[i]
 		if !strings.Contains(st, title) && !strings.Contains(title, strings.TrimSpace(afterColon(st))) {
 			continue
 		}
