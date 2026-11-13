@@ -22,11 +22,17 @@ type Notifier interface {
 	Notify(title, body string, onClick func())
 }
 
+// SaveFileOptions describes the destination dialog without native UI dependencies.
+type SaveFileOptions struct {
+	Name, Title, Filter string
+	Extensions          []string
+}
+
 // Options are what the program gives the app.
 type Options struct {
 	PickFiles func(context.Context) ([]string, error)
 	// SaveFile runs on a worker; it presents a save dialog and writes only the chosen path.
-	SaveFile func(context.Context, string, []byte) (bool, error)
+	SaveFile func(context.Context, SaveFileOptions, []byte) (bool, error)
 	Version  string
 	// Post runs a function on the UI thread; safe from any goroutine.
 	Post   func(func())

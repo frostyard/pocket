@@ -101,6 +101,9 @@ them rather than improvising, whichever agent you are. Start a new one from
   the emulator. Render history through the isolated reply sink; never forward
   raw history or use a timing flag to suppress asynchronously queued replies
   ([ADR-0007](docs/adr/0007-render-terminal-history-before-attaching.md)).
+- **Dependencies across repositories.** Merge the dependency PR first, then pin a
+  release or commit reachable from its default branch before merging this app.
+  An open dependency PR may be used for testing, never as the final merge pin.
 - **Every platform.** The app builds with `CGO_ENABLED=0` for darwin, linux
   and windows (`make cross`). Write keys for people with `keys()` and
   `keyName()` (⌘ and ⌥ on macOS); bind them with `ui.Cmd`, which is Cmd there

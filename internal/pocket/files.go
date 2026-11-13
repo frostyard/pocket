@@ -72,7 +72,7 @@ func (c *Client) ViewFile(ctx context.Context, id int, path string) (*FileView, 
 	return &out, err
 }
 func (c *Client) FileImage(ctx context.Context, id int, path string) ([]byte, error) {
-	return c.readFileBytes(ctx, conv(id, "file?path="+url.QueryEscape(path)), 16<<20)
+	return c.readFileBytes(ctx, conv(id, "file?path="+url.QueryEscape(path)), 25<<20)
 }
 func (c *Client) Download(ctx context.Context, id int, path string) ([]byte, error) {
 	return c.readFileBytes(ctx, conv(id, "download?path="+url.QueryEscape(path)), 64<<20)
@@ -103,6 +103,9 @@ func (c *Client) readFileBytes(ctx context.Context, path string, limit int64) ([
 		}
 		_ = json.Unmarshal(data, &e)
 		return nil, &APIError{Status: resp.StatusCode, Message: e.Error}
+	}
+	if resp.ContentLength > limit {
+		return nil, fmt.Errorf("file response exceeds %d MB", limit>>20)
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {

@@ -54,7 +54,7 @@ func (a *App) sessionOperation(op string) {
 			if save == nil {
 				return fmt.Errorf("file saving is unavailable")
 			}
-			saved, err = save(ctx, fmt.Sprintf("session-%d.md", id), data)
+			saved, err = save(ctx, SaveFileOptions{Name: fmt.Sprintf("session-%d.md", id), Title: "Export session", Filter: "Markdown", Extensions: []string{"md"}}, data)
 			return err
 		}
 		return fmt.Errorf("unknown session operation")

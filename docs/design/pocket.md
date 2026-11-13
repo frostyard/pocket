@@ -192,7 +192,9 @@ repository, added/removed counts and files edited in this session; selecting a
 change loads frostui’s `DiffView`. Files has a filtered path list and an explicit
 path field, with read-only text, image and folder previews. The server’s truncated
 previews are labeled. Downloads use a native save dialog, preserve the bytes and
-fail above 64 MB; raster previews are limited to 16 MB and 16 million pixels.
+fail above 64 MB; image responses are limited to 25 MB and raster previews to 16 million pixels.
+SVGs render natively; other unsupported formats offer a download. Text previews
+virtualize lines, and session exports retain their Markdown save filter.
 Revert requires a destructive confirmation, captures the source session and
 reports busy/conflict errors without discarding the preview. New files are
 explicitly described as deleted; renamed files remain for Git to undo. Viewers

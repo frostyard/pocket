@@ -61,7 +61,11 @@ func TestSessionExportPreservesMarkdownAndCancel(t *testing.T) {
 		return reply(r, "# Session\n\nA reply.\n"), nil
 	})}
 	saved := make(chan bool, 1)
-	a.opts.SaveFile = func(_ context.Context, name string, data []byte) (bool, error) {
+	a.opts.SaveFile = func(_ context.Context, spec SaveFileOptions, data []byte) (bool, error) {
+		name := spec.Name
+		if spec.Title != "Export session" || spec.Filter != "Markdown" || len(spec.Extensions) != 1 || spec.Extensions[0] != "md" {
+			t.Errorf("export dialog %+v", spec)
+		}
 		if name != "session-7.md" || string(data) != "# Session\n\nA reply.\n" {
 			t.Errorf("export was altered: %s %s", name, data)
 		}

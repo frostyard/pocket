@@ -18,7 +18,7 @@ import (
 
 type sessionFiles struct {
 	session                                      int
-	open, loading, previewing, busy              bool
+	open, loading, previewing, busy, reload      bool
 	tab, filter, address, selected, selectedFile string
 	err, previewErr                              string
 	changes                                      *pocket.Changes
@@ -29,6 +29,8 @@ type sessionFiles struct {
 	isDiff                                       bool
 	seq                                          int
 	list                                         ui.ListState
+	textList                                     ui.ListState
+	lines                                        []string
 }
 
 func (a *App) openSessionFiles() {
@@ -40,7 +42,11 @@ func (a *App) openSessionFiles() {
 }
 func (a *App) loadSessionFiles() {
 	s := a.files
-	if s == nil || !s.open || s.loading || !a.canSteer() {
+	if s == nil || !s.open || !a.canSteer() {
+		return
+	}
+	if s.loading {
+		s.reload = true
 		return
 	}
 	s.loading = true
@@ -64,7 +70,8 @@ func (a *App) loadSessionFiles() {
 			return
 		}
 		s.loading = false
-		if tab != s.tab {
+		if tab != s.tab || s.reload {
+			s.reload = false
 			a.loadSessionFiles()
 			return
 		}
@@ -89,6 +96,8 @@ func (a *App) previewSessionFile(selected, file string, diff bool) {
 	seq := s.seq
 	s.selected, s.selectedFile, s.isDiff = selected, file, diff
 	s.preview, s.image, s.previewErr = nil, nil, ""
+	s.lines = nil
+	s.textList.ScrollTo(0, ui.Start)
 	s.diff.SetPatch("")
 	s.previewing = true
 	var patch string
@@ -116,6 +125,9 @@ func (a *App) previewSessionFile(selected, file string, diff bool) {
 		s.previewing = false
 		s.preview = view
 		s.image = img
+		if view != nil && view.Kind == "text" {
+			s.lines = strings.Split(view.Text, "\n")
+		}
 		if err != nil {
 			s.previewErr = err.Error()
 			return
@@ -126,9 +138,12 @@ func (a *App) previewSessionFile(selected, file string, diff bool) {
 	})
 }
 func decodeFileImage(data []byte) (ui.ImageSource, error) {
+	if svg, err := ui.ParseSVG(data); err == nil {
+		return svg, nil
+	}
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
-		return nil, fmt.Errorf("image preview unavailable: %w", err)
+		return nil, fmt.Errorf("preview not supported for this image format; save a copy to open it locally")
 	}
 	if cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > 16_000_000 {
 		return nil, fmt.Errorf("image preview exceeds 16 million pixels")
@@ -185,7 +200,7 @@ func (a *App) downloadSessionFile() {
 		if err != nil {
 			return err
 		}
-		saved, err = save(ctx, path.Base(strings.ReplaceAll(selected, "\\", "/")), data)
+		saved, err = save(ctx, SaveFileOptions{Name: path.Base(strings.ReplaceAll(selected, "\\", "/")), Title: "Save file"}, data)
 		return err
 	}, func(err error) {
 		if a.files != s {
@@ -295,9 +310,6 @@ func (a *App) changedFilesList(c *ui.Context, s *sessionFiles) {
 		ui.Column(c).Padding(frostui.SpaceS).Gap(2).AlignItems(ui.Stretch).Children(func() {
 			if ui.Button(c, file.Path).Label("Review " + file.Path).Clicked() {
 				target := s.changedPath(file.Path)
-				if row.piOnly {
-					target = file.Path
-				}
 				a.previewSessionFile(file.Path, target, !row.piOnly)
 			}
 			detail := file.Kind
@@ -386,7 +398,9 @@ func (a *App) sessionFilePreview(c *ui.Context, s *sessionFiles) {
 	}
 	switch view.Kind {
 	case "text":
-		ui.Scroll(c).Grow(1).Basis(0).Children(func() { frostui.Mono(c, view.Text).Wrap().Selectable() })
+		ui.List(c, &s.textList, len(s.lines), func(i int) {
+			ui.Row(c).MinHeight(frostui.TextSize(c, 16)).Children(func() { frostui.Mono(c, s.lines[i]).Wrap().Selectable().Grow(1).Basis(0) })
+		}).Grow(1).Basis(0).Label("File contents")
 	case "image":
 		if s.image != nil {
 			ui.Image(c, s.image).Fit(ui.ScaleDown).Grow(1)
