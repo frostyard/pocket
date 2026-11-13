@@ -51,7 +51,8 @@ them rather than improvising, whichever agent you are. Start a new one from
   `inbox.go`, `motion.go` (In motion, Shift board, Numbers), `desk.go`,
   `transcript.go`, `composer.go`, `pages.go`, `session_details.go` (session
   identity and shift goal), `notify.go`, `settings.go`,
-  `terminals.go` (the Terminal place, over `pocket.TermConn`), `artifacts.go`,
+  `terminals.go` (the Terminal place, over `pocket.TermConn`),
+  `terminal_replay.go` (isolated history rendering), `artifacts.go`,
   `refs.go`, `wiki.go`, `teampage.go` and `signin.go`.
   `internal/config` holds settings and credentials; `internal/icons` the
   icons Pocket draws.
@@ -81,6 +82,10 @@ them rather than improvising, whichever agent you are. Start a new one from
   clear, tmux's prefix, readline's Alt keys) goes in `shellKeys`
   (`internal/app/terminals.go`), which stands it aside while a terminal has
   the focus, except on macOS, where it is a ⌘ key.
+- **Terminal replay.** Set `TermConn.Replay` before giving a connection to
+  the emulator. Render history through the isolated reply sink; never forward
+  raw history or use a timing flag to suppress asynchronously queued replies
+  ([ADR-0007](docs/adr/0007-render-terminal-history-before-attaching.md)).
 - **Every platform.** The app builds with `CGO_ENABLED=0` for darwin, linux
   and windows (`make cross`). Write keys for people with `keys()` and
   `keyName()` (⌘ and ⌥ on macOS); bind them with `ui.Cmd`, which is Cmd there

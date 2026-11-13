@@ -230,3 +230,50 @@ func TestTermConnEndsWhenTheShellGoes(t *testing.T) {
 		}
 	})
 }
+
+func TestTermConnTransformsOnlyFirstPollAndFailsClosed(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(strconv.FormatBool(fail), func(t *testing.T) {
+			f := newFakeTerminal()
+			c, _ := NewClient("https://example.org", "tok")
+			c.HTTP = &http.Client{Transport: f}
+			conn := c.OpenTerminal("s1")
+			t.Cleanup(func() { _ = conn.Close() })
+			if err := conn.Resize(100, 30); err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			errReplay := errors.New("replay failed")
+			conn.Replay = func(data []byte, cols, rows int) ([]byte, error) {
+				calls++
+				if string(data) != "history" || cols != 100 || rows != 30 {
+					t.Errorf("replay got %q at %dx%d", data, cols, rows)
+				}
+				if fail {
+					return nil, errReplay
+				}
+				return []byte("snapshot"), nil
+			}
+			f.print("history")
+			buf := make([]byte, 64)
+			n, err := conn.Read(buf)
+			if fail {
+				if n != 0 || !errors.Is(err, errReplay) {
+					t.Fatalf("failed replay leaked %q / %v", buf[:n], err)
+				}
+				if _, err := conn.Read(buf); !errors.Is(err, io.EOF) {
+					t.Fatal("failed replay did not close attachment")
+				}
+				return
+			}
+			if err != nil || string(buf[:n]) != "snapshot" {
+				t.Fatalf("replay %q / %v", buf[:n], err)
+			}
+			f.print("live")
+			n, err = conn.Read(buf)
+			if err != nil || string(buf[:n]) != "live" || calls != 1 {
+				t.Fatalf("live %q / %v; replay calls %d", buf[:n], err, calls)
+			}
+		})
+	}
+}

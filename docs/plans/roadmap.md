@@ -48,6 +48,9 @@ server that surpasses its web app at a desk. Phases 1 to 4 shipped on
 - Shift goal and progress in the session inspector (done, 2026-11-12).
 - The terminal module's shells in a Terminal place, with Ghostty's emulator
   (done, 2026-11-12).
+- Terminal history is rendered without replies on attachment
+  ([ADR-0007](../adr/0007-render-terminal-history-before-attaching.md),
+  [design](../design/pocket.md#the-protocol)).
 - **Done when:** the owner uses Pocket for a full working day without opening
   the web app.
 
