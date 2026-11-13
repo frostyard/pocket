@@ -97,6 +97,11 @@ type TermConn struct {
 
 	mu      sync.Mutex
 	pending []byte
+	// Replay transforms the first successful poll before it reaches the live
+	// emulator. Set it before Read starts. A failure ends the attachment.
+	Replay     func(data []byte, cols, rows int) ([]byte, error)
+	replayed   bool
+	cols, rows int
 	// from is how far into the output the client has read, in the
 	// server's units (it counts UTF-16 code units: use its "to").
 	from     int64
@@ -112,7 +117,7 @@ type TermConn struct {
 // what the server keeps (its last 256 K characters).
 func (c *Client) OpenTerminal(id string) *TermConn {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &TermConn{c: c, id: id, tab: NewTabID(), ctx: ctx, cancel: cancel, retry: time.Second, exitCode: -1}
+	return &TermConn{c: c, id: id, tab: NewTabID(), ctx: ctx, cancel: cancel, retry: time.Second, exitCode: -1, cols: 80, rows: 24}
 }
 
 // ID is the shell's ID.
@@ -161,13 +166,27 @@ func (t *TermConn) Read(p []byte) (int, error) {
 			}
 			continue
 		}
+		data := []byte(ans.Data)
+		if !t.replayed {
+			t.replayed = true
+			if t.Replay != nil && !ans.Gone {
+				t.mu.Lock()
+				cols, rows := t.cols, t.rows
+				t.mu.Unlock()
+				data, err = t.Replay(data, cols, rows)
+				if err != nil {
+					t.cancel()
+					return 0, err
+				}
+			}
+		}
 		t.mu.Lock()
 		switch {
 		case ans.Gone:
 			t.ended, t.exitCode = true, -1
 		default:
-			if ans.Data != "" {
-				t.pending = append(t.pending, ans.Data...)
+			if len(data) > 0 {
+				t.pending = append(t.pending, data...)
 			}
 			if ans.To > t.from {
 				t.from = ans.To
@@ -261,6 +280,9 @@ func (t *TermConn) Resize(cols, rows int) error {
 	if cols <= 0 || rows <= 0 {
 		return nil
 	}
+	t.mu.Lock()
+	t.cols, t.rows = cols, rows
+	t.mu.Unlock()
 	ctx, cancel := context.WithTimeout(t.ctx, 10*time.Second)
 	defer cancel()
 	return t.c.Post(ctx, "/api/x/terminal/terminals/"+url.PathEscape(t.id)+"/resize",
