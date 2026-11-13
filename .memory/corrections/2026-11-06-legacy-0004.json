@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-06",
+  "scope": "docs/design",
+  "correction": "A new design doc that names an ADR as its rationale also adds itself to the Shapes line in that ADR's References; the back-link is a navigation change, not an edit of the decision",
+  "evidence": "bketelsen/agentic-template#7, cross-review (openai/gpt-6.1-sol) of head a48db1e, finding 1",
+  "promoted_to": "test/doc-backlinks.test.mjs"
+}

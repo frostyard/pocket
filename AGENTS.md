@@ -129,8 +129,10 @@ them rather than improvising, whichever agent you are. Start a new one from
   change draws before you call it done. The live tests skip unless their
   servers are set.
 - Run `make verify` before you call any change done. CI job `verify` runs
-  `make ci`, which also checks that `.memory/corrections.jsonl` is append-only
-  against the PR base; run `make ci BASE=origin/main` for the same check locally.
+  `make ci`, which also checks the corrections records against the PR base: no
+  record removed or renamed, only an empty `promoted_to` filled, and the old
+  corrections file does not come back. Run `make ci BASE=origin/main` for the
+  same check locally.
 - `mise.toml` and `mise.lock` pin every tool the gate runs (ADR-0043 in core);
   run `mise install` to get those versions. Change a pin only with `mise lock`,
   in a commit of its own.
@@ -144,9 +146,9 @@ green.
 **Blocker to guard.** When a review (agent cross-review, owner review, or a
 human) finds a blocking point, the PR that fixes it also adds a guard: a
 targeted test that fails without the fix (preferred), or an `AGENTS.md` rule
-when no test can catch it. The same PR appends 1 line to
-`.memory/corrections.jsonl` (`evidence`: the PR and the review;
-`promoted_to`: the test or the rule). See `.memory/README.md`.
+when no test can catch it. The same PR adds 1 record file under
+`.memory/corrections/` (name `<date>-pr-<N>-<words>.json`; `evidence`: the PR
+and the review; `promoted_to`: the test or the rule). See `.memory/README.md`.
 
 **Risk paths.** `.github/risk-paths.json` is a level list (schema version 2):
 every glob carries a level, and a PR that touches one gets that level label from

@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-13",
+  "scope": "Account boundaries in internal/app",
+  "correction": "An account boundary is any hello whose server and user differ from the account shown, not only a sign-out: on it, put the composer state (an unacknowledged send included) aside for the old account, drop answers of the old account, and clear and restore the session selection for the new one.",
+  "evidence": "https://github.com/frostyard/pocket/pull/78 (cross-review by openai/gpt-6.1-sol at bd40a5d2: pending send and selection kept across a changed hello user)",
+  "promoted_to": "internal/app/account_scope_test.go:TestAccountChangeOnTheSameSignIn; internal/app/account_prefs_test.go:TestAccountChangeRestoresTheNewAccountsSelection"
+}

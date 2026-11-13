@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-05",
+  "scope": "docs/adr",
+  "correction": "The template's ADRs 0001 to 0003 are Accepted; their YYYY-MM-DD date is a placeholder, not a draft status. Record a new rule in a core ADR listed in docs/org-adrs.md or in a new ADR; never edit their decision or consequences",
+  "evidence": "bketelsen/agentic-template#4, cross-review (openai/gpt-6.1-sol) of head 30bf449, finding 1",
+  "promoted_to": "AGENTS.md"
+}

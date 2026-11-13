@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-12",
+  "scope": "connection lifecycle",
+  "correction": "A manual stream retry must preserve the initial Connecting state so hello restores the saved session; clear the old reason while keeping the authenticated client.",
+  "evidence": "https://github.com/frostyard/pocket/pull/35#discussion_r4558272083",
+  "promoted_to": "internal/app/connection_test.go"
+}

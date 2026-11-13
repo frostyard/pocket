@@ -1,6 +1,6 @@
 # Agent-ready repository
 
-Living document. Rationale: [ADR-0001](../adr/0001-record-architecture-decisions.md), [ADR-0002](../adr/0002-agent-portable-instruction-surface.md), [ADR-0003](../adr/0003-verify-gate-risk-paths-and-corrections.md).  
+Living document. Rationale: [ADR-0001](../adr/0001-record-architecture-decisions.md), [ADR-0002](../adr/0002-agent-portable-instruction-surface.md), [ADR-0003](../adr/0003-verify-gate-risk-paths-and-corrections.md), [core ADR-0081](https://github.com/frostyard/core/blob/main/docs/adr/0081-store-each-correction-in-a-file-of-its-own.md).  
 Contracts: [repository baseline spec](https://github.com/frostyard/core/blob/main/docs/specs/repository-baseline.md), [README spec](https://github.com/frostyard/core/blob/main/docs/specs/readme.md).
 
 ## Overview
@@ -59,9 +59,9 @@ The parts that the template brings are:
 | `scripts/` | Template and corrections gates |
 | `scripts/lib/risk-paths.mjs` | Pinned risk-path validator, matcher and levels |
 | `scripts/check-template.mjs` | Template verification entry point |
-| `scripts/check-corrections.mjs` | Pinned append-only corrections gate |
+| `scripts/check-corrections.mjs` | Pinned corrections gate: 1 file for each record |
 | `test/` | Node.js test fixtures and gate tests |
-| `.memory/` | Append-only corrections inbox |
+| `.memory/` | Corrections inbox: 1 file for each record in `.memory/corrections/` |
 | `.github/risk-paths.json` | High-risk repository paths, with a level for each |
 | `.github/dependabot.yml` | Dependency update configuration |
 | `.github/pull_request_template.md` | Risk tier and verification checklist |
@@ -71,9 +71,9 @@ The parts that the template brings are:
 
 `mise install` provisions the pinned golangci-lint and Node.js; Go comes from go.mod's `go` line. `make verify` needs Go, golangci-lint, Node.js 22 or later, `make`, and Pango and cairo for MyGo's Tester; the template gate itself uses no package manager, `package.json`, install step or third-party dependency. Symlinks require Linux or macOS, or `core.symlinks=true` on Windows. GitHub's web renderer shows a symlink as its target path; this is cosmetic only.
 
-The verify gate checks canonical surfaces, the documentation index, risk paths, the corrections inbox and vendored copies. A pull request that touches `.github/risk-paths.json` gets 1 level label, and `risk:high` at L1 or L2; core takes the level from the matched globs, `default_level` and the org floors, and it never lowers a level label that the pull request already has. Blocking reviews become targeted tests or `AGENTS.md` rules with a corrections entry.
+The verify gate checks canonical surfaces, the documentation index, risk paths, the corrections inbox and vendored copies. A pull request that touches `.github/risk-paths.json` gets 1 level label, and `risk:high` at L1 or L2; core takes the level from the matched globs, `default_level` and the org floors, and it never lowers a level label that the pull request already has. Blocking reviews become targeted tests or `AGENTS.md` rules with a corrections record file.
 
 ## References
 
-- Rationale: [ADR-0001](../adr/0001-record-architecture-decisions.md), [ADR-0002](../adr/0002-agent-portable-instruction-surface.md), [ADR-0003](../adr/0003-verify-gate-risk-paths-and-corrections.md)
+- Rationale: [ADR-0001](../adr/0001-record-architecture-decisions.md), [ADR-0002](../adr/0002-agent-portable-instruction-surface.md), [ADR-0003](../adr/0003-verify-gate-risk-paths-and-corrections.md), [core ADR-0081](https://github.com/frostyard/core/blob/main/docs/adr/0081-store-each-correction-in-a-file-of-its-own.md)
 - Contracts: [repository baseline spec](https://github.com/frostyard/core/blob/main/docs/specs/repository-baseline.md), [README spec](https://github.com/frostyard/core/blob/main/docs/specs/readme.md)

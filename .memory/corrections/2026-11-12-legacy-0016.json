@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-12",
+  "scope": "Numbers drilldowns",
+  "correction": "Metric records include closed threads outside the live Desk seven-day window. Fetch their detail when opening a record, including PR thread links, and show it in the inspector.",
+  "evidence": "https://github.com/frostyard/pocket/pull/49#discussion_r4558789173",
+  "promoted_to": "internal/app/numbers_test.go:TestNumberRecordOpensClosedThreadOutsideDesk"
+}

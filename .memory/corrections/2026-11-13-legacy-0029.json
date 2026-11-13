@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-13",
+  "scope": "Transcript attachments",
+  "correction": "Compare attachment names with their case: the server keeps the case of file names, so Report.pdf and report.pdf are 2 files.",
+  "evidence": "https://github.com/frostyard/pocket/pull/77 (cross-review, openai/gpt-6.1-sol)",
+  "promoted_to": "internal/app/transcript_test.go:TestUserRowKeepsCaseDistinctFiles"
+}

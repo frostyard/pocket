@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-12",
+  "scope": "connection lifecycle",
+  "correction": "Discarding async completions at sign-out also requires clearing composer and transcript in-flight state and restoring unacknowledged send text to the original draft.",
+  "evidence": "https://github.com/frostyard/pocket/pull/35#discussion_r4558272080",
+  "promoted_to": "internal/app/connection_test.go"
+}

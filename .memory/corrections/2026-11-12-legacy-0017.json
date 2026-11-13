@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-12",
+  "scope": "Session Find",
+  "correction": "Search literal displayed argument values and tool result text, not JSON-escaped strings or wire metadata keys.",
+  "evidence": "https://github.com/frostyard/pocket/pull/50#discussion_r4558847260",
+  "promoted_to": "internal/app/session_tools_test.go:TestSessionFindUsesVisibleValues"
+}

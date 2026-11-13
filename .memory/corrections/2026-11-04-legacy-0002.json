@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-04",
+  "scope": "check-template",
+  "correction": "A link-pattern gate must match the whole link, closing delimiter included; a pattern that stops at the target accepts incomplete text such as [Doc](path as an index link",
+  "evidence": "T801 t10 branch lucilla/t10-template-l3, cross-review (openai/gpt-6.1-sol) re-review 1 of head 51e2bde",
+  "promoted_to": "test/check-template.test.mjs"
+}

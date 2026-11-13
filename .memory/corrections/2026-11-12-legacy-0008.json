@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-12",
+  "scope": "terminal replay",
+  "correction": "Do not answer historical terminal queries into a live shell. MyGo queues replies asynchronously, so render replay with a write-discarding emulator and forward only its snapshot.",
+  "evidence": "frostyard/pocket#3 review point 7, recorded in https://github.com/frostyard/pocket/issues/12",
+  "promoted_to": "internal/app/terminals_test.go:TestTerminalReplayDoesNotWriteHistoricalReplies"
+}

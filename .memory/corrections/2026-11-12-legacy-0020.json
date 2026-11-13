@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-12",
+  "scope": "Cross-repository dependency merges",
+  "correction": "Before merging an app change, merge its dependency PR and replace any testing pseudo-version with a release or commit reachable from the dependency default branch.",
+  "evidence": "https://github.com/frostyard/pocket/pull/58#discussion_r4559434112",
+  "promoted_to": "AGENTS.md: Dependencies across repositories"
+}

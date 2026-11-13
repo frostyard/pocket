@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-04",
+  "scope": "check-template",
+  "correction": "The docs-index gate must read Markdown link targets as Markdown does: decode percent escapes, accept <...> targets, and count reference-link definitions; a literal path match fails valid links",
+  "evidence": "T801 t10 branch lucilla/t10-template-l3, cross-review (openai/gpt-6.1-sol) of head ec7bf2a, finding 1",
+  "promoted_to": "test/check-template.test.mjs"
+}

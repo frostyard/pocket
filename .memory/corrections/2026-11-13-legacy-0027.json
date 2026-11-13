@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-13",
+  "scope": "Artifact refresh",
+  "correction": "Clear the failed SVG state on the person's explicit artifact refresh only; events and the timer keep it, so a redraw never retries an SVG that failed.",
+  "evidence": "https://github.com/frostyard/pocket/pull/74 (cross-review, openai/gpt-6.1-sol)",
+  "promoted_to": "internal/app/read_retry_test.go:TestArtifactRefreshClearsAFailedSVG"
+}

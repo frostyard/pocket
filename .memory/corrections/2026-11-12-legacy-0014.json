@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-12",
+  "scope": "Desk actions",
+  "correction": "Generic thread controls must not offer an unqualified Drop on plan threads: that route drops the entire plan. Match action availability to the Desk groups.",
+  "evidence": "https://github.com/frostyard/pocket/pull/43#discussion_r4558604981",
+  "promoted_to": "internal/app/desk_actions_test.go:TestPlanAndSleepingThreadsDoNotExposeGenericDestructiveActions"
+}

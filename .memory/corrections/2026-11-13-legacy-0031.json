@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-13",
+  "scope": "Agent task navigation",
+  "correction": "A late task answer must compare the session, view and place captured when the task started, never its source session: the agent page starts a task from another session and must still open the new one.",
+  "evidence": "https://github.com/frostyard/pocket/pull/80 (cross-review, openai/gpt-6.1-sol)",
+  "promoted_to": "internal/app/composer_task_test.go:TestAgentPageTaskOpensTheNewSession"
+}
