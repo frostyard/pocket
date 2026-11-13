@@ -59,7 +59,9 @@ them rather than improvising, whichever agent you are. Start a new one from
   `transcript.go`, `session_tools.go` (find, fork, export and new context), `session_files.go` (native diffs, previews and confirmed reverts), `new_session.go` (server directory prompt), `composer.go`, `attachments.go` (file chips and queue controls), `upload_file_*.go` (platform file opens), `pages.go`, `session_details.go` (session
   identity and shift goal), `notify.go`, `settings.go`,
   `terminals.go` (the Terminal place, over `pocket.TermConn`),
-  `terminal_replay.go` (isolated history rendering), `artifacts.go`,
+  `terminal_replay.go` (isolated history rendering), `arrakis.go` (the
+  Arrakis place: its scene from the window's state), `arrakis_scene.go` (its
+  layout and painter), `arrakis_cast.go` (who is who), `artifacts.go`,
   `running.go` (cross-session work), `background.go` (task output), `schedules.go` (scheduled messages), `timezone.go` (device IANA zone),
   `refs.go`, `desk_files.go` (read-only Desk Markdown), `browser_watch.go` (read-only browser frames), `wiki.go`, `teampage.go`,
   `signin.go`, `webnav.go` (where the artifact web view may go, and its cookie)
@@ -85,6 +87,11 @@ them rather than improvising, whichever agent you are. Start a new one from
 - **MyGo's rules** (as frostui's): no `ui.Handle` made in a view; state lives
   in structs. `Element.Selected` recolors text for an accent fill, so a card
   that shows selection by its border uses `AccessSelected`.
+- **Drawn scenes.** A view that paints (Arrakis) builds an immutable scene
+  in the view and paints it in `Draw` from `p.Now()`; `Draw` changes no
+  state. Shapes that stay are paths, whose masks MyGo keeps; what moves is
+  discs, rectangles and transforms, so a frame makes no new mask. Read
+  `ReduceMotion`, and ask for fewer frames where `p.Accelerated()` is false.
 - **Protocol.** Speak the web app's protocol: a bearer token (never a cookie
   too), `X-Pocket: 1` on every request, `p=5` on the stream
   ([ADR-0004](docs/adr/0004-build-a-native-client-of-pi-pockets-own-api.md)).

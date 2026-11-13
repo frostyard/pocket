@@ -104,6 +104,7 @@ type App struct {
 	wiki    wiki
 	arts    artifacts
 	terms   terms
+	arrakis arrakis
 	// peeks are live summaries of the sessions that wait or work.
 	peeks   map[int]*pocket.Peek
 	peekIDs []int
@@ -357,6 +358,7 @@ func (a *App) reset() {
 	a.closeTerminals()
 	a.core = nil
 	a.lessons, a.wiki, a.arts, a.terms = lessons{}, wiki{}, artifacts{}, terms{}
+	a.arrakis = arrakis{sky: a.arrakis.sky}
 	a.peeks, a.peekIDs, a.asksSeen = map[int]*pocket.Peek{}, nil, nil
 	a.selected = ""
 	a.setBadge(0)
@@ -645,7 +647,7 @@ func (a *App) open(id int) {
 }
 
 // goPlace shows one of the window's places: x:inbox, x:motion, x:board,
-// x:numbers.
+// x:numbers and the rest (places, in sidebar.go).
 func (a *App) goPlace(key string) {
 	if a.current != 0 {
 		a.open(0)

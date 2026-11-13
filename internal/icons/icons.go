@@ -56,6 +56,8 @@ func Embedded() map[string][]byte {
 		"pocket-wiki": svg(`<path d="M12 7v14M3 18V5a1 1 0 0 1 1-1h5a3 3 0 0 1 3 3 3 3 0 0 1 3-3h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a2 2 0 0 0-2 2 2 2 0 0 0-2-2H4a1 1 0 0 1-1-1z"/>`),
 		// A framed page with a shape: an artifact.
 		"pocket-artifact": svg(`<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-4.5-4.5L6 21"/>`),
+		// A sun over a dune: Arrakis.
+		"pocket-arrakis": svg(`<circle cx="12" cy="8" r="4"/><path d="M2 19c3-4 6-4 9-1s6 2 11-3"/>`),
 		// An eye: viewing.
 		"pocket-eye": svg(`<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>`),
 	}

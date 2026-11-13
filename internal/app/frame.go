@@ -87,6 +87,8 @@ func (a *App) mainPane(c *ui.Context) {
 		a.artifactsPane(c)
 	case a.selected == "x:terminal":
 		a.terminalPane(c)
+	case a.selected == "x:arrakis":
+		a.arrakisPane(c)
 	default:
 		a.inboxPane(c)
 	}
@@ -112,6 +114,8 @@ func (a *App) placeTitle() string {
 		return "Artifacts"
 	case "x:terminal":
 		return "Terminal"
+	case "x:arrakis":
+		return "Arrakis"
 	}
 	return "Inbox"
 }
@@ -127,6 +131,9 @@ func (a *App) mainBar(c *ui.Context) {
 		return
 	case a.current == 0:
 		ui.Text(c, a.placeTitle()).Bold().SingleLine()
+		if a.selected == "x:arrakis" {
+			a.arrakisBar(c)
+		}
 		return
 	}
 	a.sessionToolsMenu(c)
@@ -206,6 +213,8 @@ func (a *App) inspectorBody(c *ui.Context) {
 				frostui.Muted(c, "Choose a thread to see its PRs, events and reports. Double-click opens its session.").Wrap()
 			case "x:wiki":
 				a.wikiContext(c)
+			case "x:arrakis":
+				a.arrakisContext(c)
 			case "x:board", "x:numbers", "x:team", "x:artifacts", "x:terminal":
 				a.cheatSheet(c)
 			default:
@@ -321,7 +330,7 @@ func (a *App) nextWaiting() {
 }
 
 func (a *App) menu(m *ui.Menu) {
-	a.table.Menu("new", "inbox", "motion", "team", "board", "numbers", "wiki", "artifacts", "terminal", "new-terminal", "next-waiting", "", "sidebar", "inspector", "")(m)
+	a.table.Menu("new", "inbox", "motion", "team", "board", "numbers", "wiki", "artifacts", "terminal", "arrakis", "new-terminal", "next-waiting", "", "sidebar", "inspector", "")(m)
 	a.table.MenuItem(m, "settings")
 	a.table.MenuItem(m, "dnd")
 	a.table.MenuItem(m, "shortcuts")
@@ -346,6 +355,9 @@ func (a *App) setUpCommands() {
 	}
 	inInbox := func() (bool, string) {
 		return a.current == 0 && (a.selected == "" || a.selected == "x:inbox"), "The Inbox is not shown"
+	}
+	inArrakis := func() (bool, string) {
+		return a.current == 0 && a.selected == "x:arrakis", "Arrakis is not shown"
 	}
 	var answers []frostui.Command
 	for n := 1; n <= 6; n++ {
@@ -393,6 +405,9 @@ func (a *App) setUpCommands() {
 			Enabled:  func() (bool, string) { return a.terms.on, "This server has no terminal module" },
 			Bindings: []frostui.KeyBinding{{Mods: ui.Cmd, Key: ui.Key8, Scope: frostui.Everywhere}},
 			Run:      func() { a.goPlace("x:terminal") }},
+		frostui.Command{ID: "arrakis", Title: "Arrakis", Group: "Go to", Icon: "pocket-arrakis",
+			Bindings: []frostui.KeyBinding{{Mods: ui.Cmd, Key: ui.Key9, Scope: frostui.Everywhere}},
+			Run:      func() { a.goPlace("x:arrakis") }},
 		frostui.Command{ID: "new-terminal", Title: "New Terminal", Group: "Terminal", Icon: "pocket-terminal",
 			Enabled: func() (bool, string) {
 				switch {
@@ -419,6 +434,14 @@ func (a *App) setUpCommands() {
 			Enabled:  inInbox,
 			Bindings: []frostui.KeyBinding{{Key: ui.KeyK, Scope: frostui.OutsideText}},
 			Run:      func() { a.moveInbox(-1) }},
+		frostui.Command{ID: "arrakis-next", Title: "Next Figure of the Desert", Group: "Arrakis", Unlisted: true,
+			Enabled:  inArrakis,
+			Bindings: []frostui.KeyBinding{{Key: ui.KeyJ, Scope: frostui.OutsideText}},
+			Run:      func() { a.moveArrakis(1) }},
+		frostui.Command{ID: "arrakis-prev", Title: "Previous Figure of the Desert", Group: "Arrakis", Unlisted: true,
+			Enabled:  inArrakis,
+			Bindings: []frostui.KeyBinding{{Key: ui.KeyK, Scope: frostui.OutsideText}},
+			Run:      func() { a.moveArrakis(-1) }},
 		frostui.Command{ID: "next-waiting", Title: "Next Session That Needs You", Group: "Go to", Icon: "pocket-waiting",
 			Bindings: []frostui.KeyBinding{{Mods: ui.Cmd | ui.Shift, Key: ui.KeyA, Scope: frostui.Everywhere}},
 			Run:      a.nextWaiting},

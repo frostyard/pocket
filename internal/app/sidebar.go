@@ -275,7 +275,7 @@ func (a *App) places() []string {
 	if a.terms.on {
 		out = append(out, "x:terminal")
 	}
-	return out
+	return append(out, "x:arrakis")
 }
 
 // children lists the sessions linked from session id (delegations a
@@ -417,6 +417,8 @@ func (a *App) placeRow(key string) frostui.SourceRow {
 			row.Spoken = plural(n, "shell running", "shells running")
 		}
 		return row
+	case "x:arrakis":
+		return frostui.SourceRow{Title: "Arrakis", Icon: "pocket-arrakis"}
 	}
 	return frostui.SourceRow{Title: key}
 }

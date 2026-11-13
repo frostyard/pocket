@@ -187,7 +187,7 @@ func meter(c *ui.Context, label, detail string, share float64, tone frostui.Tone
 func (a *App) cheatSheet(c *ui.Context) {
 	frostui.SectionHeader(c, frostui.SectionHead{Title: "Keys", Quiet: true})
 	shortcuts := [][2]string{
-		{"Cmd 1 … 8", "Inbox, In motion, Team, Shift board, Numbers, Wiki, Artifacts, Terminal"},
+		{"Cmd 1 … 9", "Inbox, In motion, Team, Shift board, Numbers, Wiki, Artifacts, Terminal, Arrakis"},
 		{"Cmd Shift T", "New terminal, in the open session's folder"},
 		{"J / K", "Next / previous in the Inbox"},
 		{"1 … 6", "Answer a decision with that option"},
