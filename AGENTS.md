@@ -49,7 +49,10 @@ them rather than improvising, whichever agent you are. Start a new one from
   `conn.go` (the link), `frame.go` (frame, commands, palette), `sidebar.go`,
   `inbox.go`, `motion.go` (In motion, Shift board, Numbers), `desk.go`,
   `transcript.go`, `composer.go`, `pages.go`, `notify.go`, `settings.go`,
-  `terminals.go` (the Terminal place, over `pocket.TermConn`).
+  `terminals.go` (the Terminal place, over `pocket.TermConn`), `webnav.go`
+  (where the artifact web view may go, and its cookie) and `webpane.go`
+  (`ArtifactWeb`: the web view's sign-in, sign-out and native calls, in
+  order, over the `WebNative` that `cmd/pocket` gives it).
   `internal/config` holds settings and credentials; `internal/icons` the
   icons Pocket draws.
 - **UI thread.** `App` and everything in it belong to the UI thread. Work
