@@ -1,0 +1,238 @@
+package app
+
+import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/egoist/mygo/transfer"
+	"github.com/egoist/mygo/ui"
+	"github.com/frostyard/frostui"
+	"github.com/frostyard/pocket/internal/pocket"
+)
+
+func TestComposerDropPasteAndRemove(t *testing.T) {
+	a, loop := teamApp(t)
+	a.current = 7
+	a.composer.reset(7)
+	received := make(chan string, 2)
+	a.link.client.HTTP = &http.Client{Transport: sessionToolsHTTP(func(r *http.Request) (*http.Response, error) {
+		if strings.HasSuffix(r.URL.Path, "/upload") {
+			data, _ := io.ReadAll(r.Body)
+			received <- r.URL.Query().Get("name") + ":" + string(data)
+			return reply(r, `{"path":"/uploads/file","name":"file","mime":"text/plain","size":4}`), nil
+		}
+		return snapshotHTTP{}.RoundTrip(r)
+	})}
+	tt := ui.NewTesterWith(func(c *ui.Context) { frostui.Adapt(c); a.composerView(c) }, 850, 300, ui.TesterOptions{})
+	tt.Frame()
+	path := filepath.Join(t.TempDir(), "notes.txt")
+	if err := os.WriteFile(path, []byte("text"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	r, ok := tt.Find("Message")
+	if !ok {
+		t.Fatal("composer absent")
+	}
+	if !tt.DropFiles(r.X+r.W/2, r.Y+r.H/2, path) {
+		t.Fatal("drop not accepted")
+	}
+	loop.RunUntil(t, func() bool { return len(a.composer.files[7]) == 1 && !a.composer.files[7][0].uploading })
+	if got := <-received; got != "notes.txt:text" {
+		t.Fatalf("upload %q", got)
+	}
+	tt.SetClipboardData(transfer.New(transfer.NewItem(transfer.Bytes(transfer.PNG, []byte("png bytes")))))
+	if err := tt.Click("Message"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Key(ui.Cmd, ui.KeyV)
+	loop.RunUntil(t, func() bool { return len(a.composer.files[7]) == 2 && !a.composer.files[7][1].uploading })
+	if got := <-received; got != "pasted-image.png:png bytes" {
+		t.Fatalf("paste upload %q", got)
+	}
+	tt.Frame()
+	writePNG(t, tt, "composer-attachments")
+	if err := tt.Click("Remove attachment notes.txt"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if len(a.composer.files[7]) != 1 || a.composer.files[7][0].name != "pasted-image.png" {
+		t.Fatal("chip removal lost wrong file")
+	}
+}
+
+func TestRemovedUploadCannotReturnAndSendWaits(t *testing.T) {
+	a, loop := teamApp(t)
+	a.current = 7
+	a.composer.reset(7)
+	entered, release := make(chan struct{}), make(chan struct{})
+	a.link.client.HTTP = &http.Client{Transport: sessionToolsHTTP(func(r *http.Request) (*http.Response, error) {
+		if !strings.HasSuffix(r.URL.Path, "/upload") {
+			t.Errorf("sent before upload finished: %s", r.URL)
+		}
+		close(entered)
+		<-release
+		return reply(r, `{"path":"/uploads/example","name":"example.txt","size":4}`), nil
+	})}
+	a.uploadAttachment(7, "example.txt", func() ([]byte, error) { return []byte("text"), nil })
+	<-entered
+	a.composer.draft = "keep this draft"
+	a.send(a.composer.draft, "")
+	if a.composer.sending || a.composer.draft != "keep this draft" {
+		t.Fatal("send consumed a pending upload")
+	}
+	a.composer.files[7] = nil
+	before := loop.Ran()
+	close(release)
+	loop.RunUntil(t, func() bool { return loop.Ran() > before })
+	if len(a.composer.files[7]) != 0 {
+		t.Fatal("removed upload came back")
+	}
+}
+
+func TestFailedAttachmentSendRestoresOriginalSessionDraft(t *testing.T) {
+	a, loop := teamApp(t)
+	a.current = 7
+	a.composer.reset(7)
+	a.composer.filesFor(7)
+	a.composer.files[7] = []*composerFile{{name: "example.txt", file: pocket.Attachment{Path: "/uploads/example", Name: "example.txt"}}}
+	a.composer.draft = "inspect this"
+	entered, release := make(chan struct{}), make(chan struct{})
+	a.link.client.HTTP = &http.Client{Transport: sessionToolsHTTP(func(r *http.Request) (*http.Response, error) {
+		var body struct {
+			Text        string              `json:"text"`
+			Attachments []pocket.Attachment `json:"attachments"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		if r.URL.Path != "/api/c/7/submit" || body.Text != "inspect this" || len(body.Attachments) != 1 || body.Attachments[0].Path != "/uploads/example" {
+			t.Errorf("wrong submitted draft %s %+v", r.URL, body)
+		}
+		close(entered)
+		<-release
+		resp := reply(r, `{"error":"Try later"}`)
+		resp.StatusCode = 503
+		return resp, nil
+	})}
+	a.send(a.composer.draft, "")
+	<-entered
+	a.current = 8
+	a.composer.reset(8)
+	a.composer.draft = "other session"
+	close(release)
+	loop.RunUntil(t, func() bool { return !a.composer.sending })
+	if a.composer.draft != "other session" || len(a.composer.files[8]) != 0 {
+		t.Fatal("failure contaminated current session")
+	}
+	a.composer.reset(7)
+	if a.composer.draft != "inspect this" || len(a.composer.files[7]) != 1 {
+		t.Fatal("failure lost original draft")
+	}
+	a.composer.resetRequests()
+	if len(a.composer.files) != 0 {
+		t.Fatal("remote file references survived sign-out")
+	}
+}
+
+func TestQueueEditRestoresTextAndAttachmentsAfterNavigation(t *testing.T) {
+	a, loop := teamApp(t)
+	a.current = 7
+	a.composer.reset(7)
+	a.composer.draft = "existing draft"
+	entered, release := make(chan struct{}), make(chan struct{})
+	a.link.client.HTTP = &http.Client{Transport: sessionToolsHTTP(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/api/c/7/edit-queued" {
+			t.Errorf("wrong queue route %s", r.URL)
+		}
+		close(entered)
+		<-release
+		return reply(r, `{"text":"returned message","attachments":[{"path":"/uploads/example","name":"example.txt"}]}`), nil
+	})}
+	a.queueAction(42, "", "edit")
+	<-entered
+	a.queueAction(42, "", "edit")
+	a.current = 8
+	a.composer.reset(8)
+	a.composer.draft = "different draft"
+	close(release)
+	loop.RunUntil(t, func() bool { return !a.composer.queueBusy })
+	if a.composer.draft != "different draft" {
+		t.Fatal("late edit overwrote another session")
+	}
+	a.composer.reset(7)
+	if a.composer.draft != "returned message\n\nexisting draft" || len(a.composer.files[7]) != 1 {
+		t.Fatal("returned draft was lost")
+	}
+}
+
+func TestQueueControlsRespectSenderAndViewer(t *testing.T) {
+	a, _ := teamApp(t)
+	a.view.Inbox = []pocket.QueueRow{{ID: 42, By: "u1", Mode: "followUp", Text: "Check the tests"}, {ID: 43, By: "u2", Mode: "followUp", Text: "Another person's message"}}
+	a.view.Held = []pocket.HeldMessage{{Key: "held1", By: "u1", Mode: "followUp", Text: "Continue the review"}}
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		frostui.Adapt(c)
+		ui.Column(c).Padding(16).Gap(10).AlignItems(ui.Stretch).Children(func() { a.queueSection(c) })
+	}, 360, 500, ui.TesterOptions{})
+	tt.Frame()
+	if _, ok := tt.Find("Edit queued 42"); !ok {
+		t.Fatal("own message cannot be edited")
+	}
+	if _, ok := tt.Find("Edit queued 43"); ok {
+		t.Fatal("another sender's message can be edited")
+	}
+	writePNG(t, tt, "queue-controls")
+	a.hello.User.Role = "viewer"
+	tt.Frame()
+	if tt.HasText("Edit") || tt.HasText("Withdraw") || tt.HasText("Send held messages") {
+		t.Fatal("viewer offered mutations")
+	}
+}
+
+func TestAttachmentSizeLimitBeforeUpload(t *testing.T) {
+	a, loop := teamApp(t)
+	a.current = 7
+	a.composer.reset(7)
+	path := filepath.Join(t.TempDir(), "large.bin")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = file.Truncate(pocket.MaxUpload + 1); err != nil {
+		t.Fatal(err)
+	}
+	if err = file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	a.link.client.HTTP = &http.Client{Transport: sessionToolsHTTP(func(r *http.Request) (*http.Response, error) {
+		t.Errorf("oversized file reached %s", r.URL)
+		return reply(r, `{}`), nil
+	})}
+	a.attachFiles(7, []string{path})
+	loop.RunUntil(t, func() bool { return !a.composer.files[7][0].uploading })
+	if a.composer.files[7][0].err == "" || a.composer.filesReady() {
+		t.Fatal("oversized file became sendable")
+	}
+}
+
+func TestPostedComposerSendKeepsOriginalSession(t *testing.T) {
+	a, loop := teamApp(t)
+	a.current = 7
+	a.composer.reset(7)
+	a.link.client.HTTP = &http.Client{Transport: sessionToolsHTTP(func(r *http.Request) (*http.Response, error) {
+		t.Errorf("send moved to %s", r.URL)
+		return reply(r, `{}`), nil
+	})}
+	a.postComposerSend("original message", "")
+	a.current = 8
+	a.composer.reset(8)
+	a.composer.draft = "another draft"
+	loop.RunUntil(t, func() bool { return a.composer.drafts[7] == "original message" })
+	if a.composer.draft != "another draft" {
+		t.Fatal("navigation lost active draft")
+	}
+}

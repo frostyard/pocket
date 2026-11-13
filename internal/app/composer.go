@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 	"github.com/frostyard/frostui"
 
@@ -16,14 +17,17 @@ import (
 
 // composer is the message field's state.
 type composer struct {
-	session        int
-	draft          string
-	drafts         map[int]string
-	history        []string
-	sending        bool
-	pendingText    string
-	pendingSession int
-	field          ui.Handle
+	files              map[int][]*composerFile
+	pendingFiles       []*composerFile
+	picking, queueBusy bool
+	session            int
+	draft              string
+	drafts             map[int]string
+	history            []string
+	sending            bool
+	pendingText        string
+	pendingSession     int
+	field              ui.Handle
 	// sel is the suggestion chosen with the arrows.
 	sel int
 	// prompts are the session's templates and skills, for /.
@@ -68,6 +72,9 @@ func (cp *composer) resetRequests() {
 		}
 	}
 	cp.sending, cp.pendingText, cp.pendingSession = false, "", 0
+	// Uploaded paths belong to the old authenticated server, never a new sign-in.
+	cp.files, cp.pendingFiles = nil, nil
+	cp.picking, cp.queueBusy = false, false
 	cp.answered, cp.answers = nil, nil
 	cp.prompts, cp.promptsFor = nil, 0
 }
@@ -167,17 +174,28 @@ func (a *App) composerView(c *ui.Context) {
 			}
 			ui.Column(c).AlignItems(ui.Stretch).Radius(12).BorderWidth(1, 1, 1, 1).BorderColor(t.Border).
 				Background(frostui.Panel(t)).Padding(frostui.SpaceS, frostui.SpaceM).Gap(frostui.SpaceXS).Children(func() {
+				a.attachmentChips(c)
 				placeholder := "Message Pi…   / for commands, @ for an agent"
 				if busy {
 					placeholder = "Pi is working. Enter queues a message, " + keys("Ctrl") + "+Enter steers it now."
 				}
+				svc, id := c.Services(), a.current
 				input := ui.TextAreaBase(c.Key(fmt.Sprint("composer", a.current)), &cp.draft).Lines(1, 12).Placeholder(placeholder).
 					Label("Message").Bind(&cp.field).
-					OnTextKey(func(k ui.TextKey) bool { return a.composerKey(k) })
+					OnTextKey(func(k ui.TextKey) bool { return a.composerKey(k) }).
+					OnPaste(func(string) bool {
+						return a.pasteAttachments(id, svc.ReadClipboardData(transfer.FileList, transfer.PNG))
+					})
+				if paths := input.DroppedFiles(); len(paths) > 0 {
+					a.attachFiles(id, paths)
+				}
 				if !a.tr.find.open {
 					input.AutoFocus()
 				}
 				ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
+					if a.opts.PickFiles != nil && ui.Button(c, "Attach files").Disabled(cp.picking || !a.canSteer()).Clicked() {
+						a.pickAttachments()
+					}
 					a.modelChip(c)
 					if a.view.Plan.On {
 						frostui.IconPill(c, "view-list", "Plan mode", frostui.Accent)
@@ -189,8 +207,8 @@ func (a *App) composerView(c *ui.Context) {
 							a.stop()
 						}
 					}
-					empty := strings.TrimSpace(cp.draft) == ""
-					if frostui.IconButton(c, "pocket-send", "Send (Enter)").Disabled(empty || cp.sending).Clicked() {
+					empty := strings.TrimSpace(cp.draft) == "" && len(cp.filesFor(a.current)) == 0
+					if frostui.IconButton(c, "pocket-send", "Send (Enter)").Disabled(empty || cp.sending || !cp.filesReady() || !a.canSteer()).Clicked() {
 						a.send(cp.draft, "")
 					}
 				})
@@ -237,6 +255,9 @@ func (a *App) complete(s suggestion) {
 // and the arrows complete, Escape stops, Up brings back the last message.
 func (a *App) composerKey(k ui.TextKey) bool {
 	cp := &a.composer
+	if k.Key == ui.KeyEnter && (k.Mods == 0 || k.Mods == ui.Cmd) && (cp.sending || !cp.filesReady() || !a.canSteer()) {
+		return true
+	}
 	sugg := a.suggestions()
 	switch {
 	case len(sugg) > 0 && (k.Key == ui.KeyTab || (k.Key == ui.KeyEnter && k.Mods == 0)):
@@ -245,7 +266,7 @@ func (a *App) composerKey(k ui.TextKey) bool {
 		if k.Key == ui.KeyEnter && !strings.HasSuffix(s.insert, " ") {
 			k.SetText("")
 			cp.draft = ""
-			a.post(func() { a.send(s.insert, "") })
+			a.postComposerSend(s.insert, "")
 			return true
 		}
 		k.SetText(s.insert)
@@ -260,21 +281,21 @@ func (a *App) composerKey(k ui.TextKey) bool {
 		return true
 	case k.Key == ui.KeyEnter && k.Mods == 0:
 		text := k.Text()
-		if strings.TrimSpace(text) == "" {
+		if strings.TrimSpace(text) == "" && len(cp.filesFor(a.current)) == 0 {
 			return true
 		}
 		k.SetText("")
 		cp.draft = ""
-		a.post(func() { a.send(text, "") })
+		a.postComposerSend(text, "")
 		return true
 	case k.Key == ui.KeyEnter && k.Mods == ui.Cmd:
 		text := k.Text()
-		if strings.TrimSpace(text) == "" {
+		if strings.TrimSpace(text) == "" && len(cp.filesFor(a.current)) == 0 {
 			return true
 		}
 		k.SetText("")
 		cp.draft = ""
-		a.post(func() { a.send(text, "steer") })
+		a.postComposerSend(text, "steer")
 		return true
 	case k.Key == ui.KeyEscape && k.Mods == 0 && len(sugg) > 0:
 		k.SetText("")
@@ -292,6 +313,20 @@ func (a *App) composerKey(k ui.TextKey) bool {
 	return false
 }
 
+func (a *App) postComposerSend(text, mode string) {
+	id, client := a.current, a.link.client
+	a.post(func() {
+		if a.link.client != client {
+			return
+		}
+		if a.current != id {
+			a.composer.restoreDraft(id, text, nil)
+			return
+		}
+		a.send(text, mode)
+	})
+}
+
 func newRequestID() string {
 	b := make([]byte, 12)
 	_, _ = rand.Read(b)
@@ -302,12 +337,24 @@ func newRequestID() string {
 // for a named agent, or a message for Pi.
 func (a *App) send(text, mode string) {
 	text = strings.TrimSpace(text)
-	if text == "" || a.current == 0 {
+	cp := &a.composer
+	id := a.current
+	files := cp.filesFor(id)
+	if id == 0 || cp.sending || !cp.filesReady() || !a.canSteer() || (text == "" && len(files) == 0) {
 		return
 	}
-	cp := &a.composer
+	// Local commands and agent tasks have different routes and cannot consume uploads.
+	if len(files) > 0 && (strings.HasPrefix(text, "/") || strings.HasPrefix(text, "@")) {
+		if strings.TrimSpace(cp.draft) != text {
+			cp.restoreDraft(id, text, nil)
+		}
+		a.toast("Send attachments with a message to this session, without a slash command or @agent prefix")
+		return
+	}
+	if strings.TrimSpace(cp.draft) == text {
+		cp.draft = ""
+	}
 	cp.history = append(cp.history, text)
-	id := a.current
 	if cmd, args, _ := strings.Cut(text, " "); strings.HasPrefix(text, "/") {
 		if a.runBuiltin(cmd, strings.TrimSpace(args)) {
 			return
@@ -321,20 +368,26 @@ func (a *App) send(text, mode string) {
 		}
 	}
 	cp.sending = true
-	cp.pendingText, cp.pendingSession = text, id
+	cp.pendingText, cp.pendingSession, cp.pendingFiles = text, id, files
+	cp.files[id] = nil
+	var attachments []pocket.Attachment
+	for _, f := range files {
+		attachments = append(attachments, f.file)
+	}
 	reqID := newRequestID()
 	a.console.Add(frostui.LevelCommand, "send", truncate(firstLine(text), 120))
 	a.request("Sending", func(ctx context.Context, c *pocket.Client) error {
+		if len(attachments) > 0 {
+			_, err := c.SubmitAttachments(ctx, id, text, reqID, mode, attachments)
+			return err
+		}
 		_, err := c.Submit(ctx, id, text, reqID, mode)
 		return err
 	}, func(err error) {
 		cp.sending = false
-		cp.pendingText, cp.pendingSession = "", 0
+		cp.pendingText, cp.pendingSession, cp.pendingFiles = "", 0, nil
 		if err != nil {
-			// Give the text back, so nothing typed is lost.
-			if cp.session == id && strings.TrimSpace(cp.draft) == "" {
-				cp.draft = text
-			}
+			cp.restoreDraft(id, text, files)
 			a.toast("Not sent: " + err.Error())
 		}
 	})

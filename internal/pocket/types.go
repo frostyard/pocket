@@ -409,6 +409,7 @@ type ViewUpdate struct {
 	Approvals    []Approval   `json:"approvals"`
 	// Sent only when they change: nil keeps the last value.
 	Schedules *[]Schedule          `json:"schedules"`
+	Held      *[]HeldMessage       `json:"held"`
 	Subagents *[]Subagent          `json:"subagents"`
 	Authors   *map[string]string   `json:"authors"`
 	Decisions *map[string]Decision `json:"decisions"`
