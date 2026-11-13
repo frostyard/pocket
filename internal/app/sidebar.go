@@ -28,6 +28,7 @@ type team struct {
 	agents     []pocket.Persona
 	supervisor *pocket.Supervisor
 	loading    bool
+	dirty      bool
 }
 
 func (t *team) agent(id string) *pocket.Persona {
@@ -43,6 +44,7 @@ func (t *team) agent(id string) *pocket.Persona {
 // the team module.
 func (a *App) loadTeam() {
 	if a.team.loading {
+		a.team.dirty = true
 		return
 	}
 	a.team.loading = true
@@ -56,12 +58,21 @@ func (a *App) loadTeam() {
 			return err
 		}
 		sup, err = c.TeamSupervisor(ctx)
+		if pocket.IsSignedOut(err) {
+			return err
+		}
 		if err != nil {
 			sup = nil // the desk may be off; the agents still show
 		}
 		return nil
 	}, func(err error) {
 		a.team.loading = false
+		defer func() {
+			if a.team.dirty {
+				a.team.dirty = false
+				a.loadTeam()
+			}
+		}()
 		if err != nil {
 			return
 		}

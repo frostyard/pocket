@@ -43,23 +43,28 @@ them rather than improvising, whichever agent you are. Start a new one from
 
 - **Layout.** `cmd/pocket` is the program (window, keyring, notifications,
   badge). `internal/pocket` is the server's client and holds no UI:
-  `client.go`, `api.go`, `desk.go`, `extras.go` (routes), `types.go` (wire
+  `client.go`, `api.go`, `desk.go`, `extras.go`, `memory.go` (routes), `types.go` (wire
   types), `terminal.go` (shell transport), `stream.go` and `sse.go` (the
   event stream), `view.go` (`View.Apply`, the port of the web app's
   `mergeView`). `internal/app` is the window: `app.go` (state, events),
   `conn.go` (the link), `frame.go` (frame, commands, palette), `sidebar.go`,
-  `inbox.go`, `motion.go` (In motion, Shift board, Numbers), `desk.go`,
+  `inbox.go`, `core_memory.go` (Pi Pocket lessons), `motion.go` (In motion, Shift board, Numbers), `desk.go`,
   `desk_actions.go` (owner thread actions), `desk_extras.go` (supplementary lists),
   `transcript.go`, `composer.go`, `pages.go`, `notify.go`, `settings.go`,
   `terminals.go` (the Terminal place, over `pocket.TermConn`),
   `terminal_replay.go` (isolated history rendering), `artifacts.go`,
-  `refs.go`, `wiki.go`, `teampage.go` and `signin.go`.
+  `refs.go`, `wiki.go`, `teampage.go`, `signin.go`, `webnav.go` (where the
+  artifact web view may go, and its cookie) and `webpane.go` (`ArtifactWeb`:
+  the web view's sign-in, sign-out and native calls, in order, over the
+  `WebNative` that `cmd/pocket` gives it).
   `internal/config` holds settings and credentials; `internal/icons` the
   icons Pocket draws.
 - **UI thread.** `App` and everything in it belong to the UI thread. Work
   that waits on the network runs on a goroutine and hands its result back
   with `a.request(what, fn, done)` (or `a.requestWithin` for a slow route),
-  which posts `done` to the UI thread and logs failures to Activity. Never
+  which posts `done` to the UI thread and logs failures to Activity. It drops
+  answers from a previous sign-in and signs out on a route 401, without
+  calling the old completion. Stream retries keep the authenticated client. Never
   touch `App` from a goroutine.
 - **MyGo's rules** (as frostui's): no `ui.Handle` made in a view; state lives
   in structs. `Element.Selected` recolors text for an accent fill, so a card
