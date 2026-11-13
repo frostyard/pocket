@@ -86,6 +86,23 @@ func run() error {
 				slog.Warn("the artifacts' web view", "err", err)
 			} else {
 				pane.view = view
+				page := view.Page()
+				page.OnWillNavigate(func(e *mygo.NavigateEvent) {
+					switch app.ArtifactNavigation(pane.signedServer(), e.URL, e.UserInitiated) {
+					case app.NavigationAllow:
+					case app.NavigationExternal:
+						e.PreventDefault()
+						openExternal(e.URL)
+					default:
+						e.PreventDefault()
+					}
+				})
+				page.SetWindowOpenHandler(func(req mygo.WindowOpenRequest) *mygo.WindowOptions {
+					if app.ArtifactPopup(req.URL, req.UserInitiated) {
+						openExternal(req.URL)
+					}
+					return nil
+				})
 			}
 		}
 		win.OnFocus(func() { p.post(func() { a.SetFocused(true) }) })
@@ -181,8 +198,21 @@ func (n notifier) Notify(title, body string, onClick func()) {
 
 // webPane shows artifacts' pages in a web view of the window, signed in
 // with the person's token as the cookie Pi Pocket's own pages use.
+//
+// The page of an artifact is a program a person did not write, so the view
+// loads only the server's /a/ pages, the ones the server sandboxes; a link
+// elsewhere goes to the person's browser (see app.ArtifactNavigation).
 type webPane struct {
 	view *mygo.WebView
+
+	mu sync.Mutex
+	// server is the server the view is signed in to, or "" when signed
+	// out.
+	server string
+	// hosts are the hostnames that got the sign-in cookie.
+	hosts map[string]bool
+	// last is the tail of the chain of native work: see do.
+	last chan struct{}
 }
 
 func (w *webPane) View() ui.NativeWebView {
@@ -190,6 +220,31 @@ func (w *webPane) View() ui.NativeWebView {
 		return nil
 	}
 	return w.view
+}
+
+// signedServer is the server the view is signed in to, or "".
+func (w *webPane) signedServer() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.server
+}
+
+// do runs fn on a goroutine once the work before it ended. The cookie and
+// load calls of the web view block the main thread while they wait, and
+// they must keep their order: a sign-out must not run after a later Show.
+func (w *webPane) do(fn func()) {
+	w.mu.Lock()
+	prev := w.last
+	done := make(chan struct{})
+	w.last = done
+	w.mu.Unlock()
+	go func() {
+		if prev != nil {
+			<-prev
+		}
+		fn()
+		close(done)
+	}()
 }
 
 // Show sets the sign-in cookie for the server's host alone, then loads
@@ -203,7 +258,14 @@ func (w *webPane) Show(page, server, token string) error {
 		return err
 	}
 	view := w.view
-	go func() {
+	w.mu.Lock()
+	w.server = u.Scheme + "://" + u.Host
+	if w.hosts == nil {
+		w.hosts = map[string]bool{}
+	}
+	w.hosts[u.Hostname()] = true
+	w.mu.Unlock()
+	w.do(func() {
 		err := mygo.Cookies.Set(mygo.Cookie{Name: pocket.CookieName, Value: token, Domain: u.Hostname(), Path: "/",
 			Secure: u.Scheme == "https", HTTPOnly: true, SameSite: mygo.CookieSameSiteLax})
 		if err != nil {
@@ -212,6 +274,43 @@ func (w *webPane) Show(page, server, token string) error {
 		if err := view.Page().LoadURL(page); err != nil {
 			slog.Warn("loading an artifact", "err", err)
 		}
-	}()
+	})
 	return nil
+}
+
+// SignOut deletes every sign-in cookie Show set and loads about:blank, so
+// that no page stays open, or stays signed in, after a sign-out or a change
+// of server.
+func (w *webPane) SignOut() {
+	if w.view == nil {
+		return
+	}
+	view := w.view
+	w.mu.Lock()
+	hosts := make([]string, 0, len(w.hosts))
+	for h := range w.hosts {
+		hosts = append(hosts, h)
+	}
+	w.hosts, w.server = nil, ""
+	w.mu.Unlock()
+	w.do(func() {
+		for _, h := range hosts {
+			if err := mygo.Cookies.Delete(mygo.Cookie{Name: pocket.CookieName, Domain: h, Path: "/"}); err != nil {
+				slog.Warn("signing the web view out", "err", err)
+			}
+		}
+		if err := view.Page().LoadURL("about:blank"); err != nil {
+			slog.Warn("blanking the artifacts' web view", "err", err)
+		}
+	})
+}
+
+// openExternal opens a link of an artifact in the person's browser. It
+// never waits on the open: the web view's hooks must return at once.
+func openExternal(u string) {
+	go func() {
+		if err := (frostui.Opener{Schemes: []string{"https", "http"}}).OpenURL(u); err != nil {
+			slog.Warn("opening a link of an artifact", "err", err)
+		}
+	}()
 }
