@@ -91,6 +91,7 @@ type App struct {
 	asksSeen map[string]bool
 
 	inboxSel      string
+	deskFile      *deskFile
 	threadSel     string
 	closedOpen    bool
 	boardDoneOpen bool
@@ -216,6 +217,7 @@ func (a *App) reset() {
 	a.current, a.loading = 0, 0
 	a.team = team{}
 	a.desk = desk{}
+	a.deskFile = nil
 	a.closeTerminals()
 	a.core = nil
 	a.lessons, a.wiki, a.arts, a.terms = lessons{}, wiki{}, artifacts{}, terms{}
