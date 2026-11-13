@@ -89,7 +89,12 @@ internal/icons ── the icons Pocket draws itself
   on. Conflicts refresh the same board; a failed supervisor read restores the
   displayed board's choice. An uncertain retry retains its operation key.
 - **Numbers** (⌘5) — the Desk's dashboard: completion, closures, cycle time,
-  workload, PRs, cost and tokens, closures by day, by repository.
+  workload, PRs, cost and tokens, closures by day, by repository. The 7/30/90-day
+  range and GitHub owner/repository choices filter the snapshot. Delivery and PR
+  tiles and repository rows open their records; thread buttons lead to In motion.
+  Unattributed records have their own action. Every drill-down keeps the shown
+  snapshot's scope, and an older response cannot replace a newer filter selection.
+  Coverage limits and metric definitions explain what the totals omit.
 - **Wiki** (⌘6) — the homewiki module's pages, read-only, rendered natively;
   links between pages stay in the wiki, and it reads again as pages change.
 - **Artifacts** (⌘7) — every session's artifacts, newest first: an SVG drawn
@@ -256,6 +261,10 @@ server's facts. The status bar shows do not disturb while it holds.
 - Settings live in the user's config folder (`pocket/settings.json`;
   `POCKET_CONFIG_DIR` picks another). `POCKET_NO_KEYRING=1` keeps the token in
   a file there instead of the keyring, for development.
+
+Historical Numbers records fetch a thread’s detail when it is outside the live
+Desk list, so older closures and their reports remain readable in the inspector.
+
 
 ## References
 

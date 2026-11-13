@@ -422,9 +422,18 @@ func (a *App) boardPane(c *ui.Context) {
 	})
 }
 
-func (a *App) statTile(c *ui.Context, label, value, note string) {
+func (a *App) statTile(c *ui.Context, label, value, note string, action ...func()) {
 	t := c.Theme()
-	ui.Column(c.Key(label)).Grow(1).Basis(0).Gap(2).Padding(frostui.SpaceM).Radius(10).
+	var tile ui.Element
+	if len(action) > 0 {
+		tile = ui.ButtonBase(c.Key(label)).Column().Label("Records for " + label).Cursor(ui.CursorPointer)
+		if tile.Clicked() {
+			action[0]()
+		}
+	} else {
+		tile = ui.Column(c.Key(label))
+	}
+	tile.Grow(1).Basis(0).Gap(2).Padding(frostui.SpaceM).Radius(10).
 		Background(frostui.Panel(t)).BorderWidth(1, 1, 1, 1).BorderColor(t.Border).Children(func() {
 		frostui.Caption(c, label)
 		ui.Text(c, value).FontSize(22).Bold().SingleLine()
@@ -521,32 +530,37 @@ func (a *App) numbersPane(c *ui.Context) {
 					before := idx
 					frostui.PillTabs(c, &idx, []frostui.Tab{{Title: "7 days"}, {Title: "30 days"}, {Title: "90 days"}})
 					if idx != before {
+						a.desk.records = nil
 						a.loadDashboard([]int{7, 30, 90}[idx])
 					}
 				})
+				if a.desk.dashErr != "" {
+					frostui.Problem(c, "Numbers: "+a.desk.dashErr+". Showing the last successful result.").Wrap()
+				}
 				if d == nil {
 					frostui.Loading(c, "Counting…")
 					return
 				}
+				a.numberFilters(c, d)
 				m := d.Totals
 				ui.Grid(c).Columns(4).Gap(frostui.SpaceM).Children(func() {
 					rate := "—"
 					if m.Completion.Rate != nil {
 						rate = fmt.Sprintf("%.1f%%", *m.Completion.Rate*100)
 					}
-					a.statTile(c, "Completion", rate, fmt.Sprintf("%d of %d closures", m.Completion.Success, m.Completion.Denominator))
+					a.statTile(c, "Completion", rate, fmt.Sprintf("%d of %d closures", m.Completion.Success, m.Completion.Denominator), func() { a.openNumberRecords(a.desk.dashShown, "Completion") })
 					week := ""
 					if m.Velocity.PerWeek != nil {
 						week = fmt.Sprintf("%.0f a week", *m.Velocity.PerWeek)
 					}
-					a.statTile(c, "Closed well", fmt.Sprintf("%d", m.Velocity.Successes), week)
+					a.statTile(c, "Closed well", fmt.Sprintf("%d", m.Velocity.Successes), week, func() { a.openNumberRecords(a.desk.dashShown, "Closed well") })
 					cycle := "—"
 					if m.CycleTime.MedianMs != nil {
 						cycle = span(time.Duration(*m.CycleTime.MedianMs) * time.Millisecond)
 					}
-					a.statTile(c, "Cycle time", cycle, "median, start to close")
-					a.statTile(c, "In motion now", fmt.Sprint(m.Workload.Total), fmt.Sprintf("%d open · %d parked", m.Workload.Open, m.Workload.Parked))
-					a.statTile(c, "PRs merged", fmt.Sprint(m.PRs.Merged), fmt.Sprintf("%d opened · %d open now", m.PRs.Created, m.PRs.OpenNow))
+					a.statTile(c, "Cycle time", cycle, "median, start to close", func() { a.openNumberRecords(a.desk.dashShown, "Cycle time") })
+					a.statTile(c, "In motion now", fmt.Sprint(m.Workload.Total), fmt.Sprintf("%d open · %d parked", m.Workload.Open, m.Workload.Parked), func() { a.openNumberRecords(a.desk.dashShown, "In motion now") })
+					a.statTile(c, "PRs merged", fmt.Sprint(m.PRs.Merged), fmt.Sprintf("%d opened · %d open now", m.PRs.Created, m.PRs.OpenNow), func() { a.openNumberRecords(a.desk.dashShown, "PRs merged") })
 					cost := "—"
 					if m.Usage.Cost != nil {
 						cost = fmt.Sprintf("$%.2f", *m.Usage.Cost)
@@ -575,13 +589,17 @@ func (a *App) numbersPane(c *ui.Context) {
 					})
 					ui.Column(c).AlignItems(ui.Stretch).Radius(10).Clip().BorderWidth(1, 1, 1, 1).BorderColor(t.Border).Children(func() {
 						for i, p := range projects {
-							if i == 15 {
-								break
-							}
 							if i > 0 {
 								frostui.RowDivider(c.Key(fmt.Sprint("pd", p.Repo)))
 							}
-							ui.Row(c.Key(p.Repo)).Gap(frostui.SpaceM).AlignItems(ui.Center).Padding(frostui.SpaceS, frostui.SpaceL).
+							row := ui.ButtonBase(c.Key(p.Repo)).Row().Label("Records for " + p.Repo).Cursor(ui.CursorPointer)
+							if row.Clicked() {
+								query := a.desk.dashShown
+								query.Owner = ""
+								query.Repo = p.Repo
+								a.openNumberRecords(query, "All records")
+							}
+							row.Gap(frostui.SpaceM).AlignItems(ui.Center).Padding(frostui.SpaceS, frostui.SpaceL).
 								Background(frostui.Panel(t)).Children(func() {
 								frostui.Mono(c, p.Repo).Grow(1).SingleLine()
 								frostui.Caption(c, fmt.Sprintf("%d closed", p.Metrics.Velocity.Successes)).Width(90)

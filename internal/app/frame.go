@@ -53,6 +53,7 @@ func (a *App) View(c *ui.Context) {
 	})
 	a.settingsDialog(c)
 	a.deskFileDialog(c)
+	a.numberRecordsDialog(c)
 }
 
 func (a *App) mainPane(c *ui.Context) {
@@ -182,6 +183,9 @@ func (a *App) inspectorBody(c *ui.Context) {
 			case "x:motion":
 				if th := a.desk.thread(a.threadSel); th != nil {
 					a.threadContext(c, th)
+					return
+				}
+				if a.numberThreadContext(c) {
 					return
 				}
 				frostui.Muted(c, "Choose a thread to see its PRs, events and reports. Double-click opens its session.").Wrap()

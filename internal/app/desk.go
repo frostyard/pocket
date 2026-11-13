@@ -36,9 +36,14 @@ type desk struct {
 	completedLoading, completedLoaded bool
 	completedErr                      string
 
-	dash        *pocket.Dashboard
-	dashDays    int
-	dashLoading bool
+	dash                         *pocket.Dashboard
+	dashDays                     int
+	dashLoading                  bool
+	dashSeq                      int
+	dashOwner, dashRepo, dashErr string
+	dashShown                    pocket.DashboardQuery
+	records                      *numberRecords
+	recordThread                 *numberThread
 
 	board        *pocket.Board
 	boardLoading bool
@@ -393,23 +398,33 @@ func (a *App) boardChange(op string, row *pocket.BoardRow, launch []pocket.Board
 
 // loadDashboard reads the numbers for the last days days.
 func (a *App) loadDashboard(days int) {
-	if a.desk.dashLoading {
-		return
+	if days < 1 {
+		days = 30
 	}
+	a.desk.dashSeq++
+	seq := a.desk.dashSeq
 	a.desk.dashLoading = true
 	a.desk.dashDays = days
 	now := a.opts.Now().UTC()
 	from := now.AddDate(0, 0, -(days - 1)).Format("2006-01-02")
 	to := now.Format("2006-01-02")
+	query := pocket.DashboardQuery{From: from, To: to, Owner: a.desk.dashOwner, Repo: a.desk.dashRepo}
 	var d *pocket.Dashboard
 	a.request("Reading the numbers", func(ctx context.Context, c *pocket.Client) error {
 		var err error
-		d, err = c.DeskDashboard(ctx, from, to)
+		d, err = c.DeskDashboard(ctx, from, to, query.Owner, query.Repo)
 		return err
 	}, func(err error) {
+		if seq != a.desk.dashSeq {
+			return
+		}
 		a.desk.dashLoading = false
-		if err == nil {
+		if err != nil {
+			a.desk.dashErr = err.Error()
+		} else {
 			a.desk.dash = d
+			a.desk.dashShown = query
+			a.desk.dashErr = ""
 		}
 	})
 }
