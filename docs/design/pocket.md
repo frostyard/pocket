@@ -411,6 +411,11 @@ panes less room.
   when a read fails.
 - macOS shows notifications only from a packaged app (`make app`,
   `make dev`).
+- On Linux, `make install` installs the build of `make app` for the user: the
+  executable with libghostty-vt beside it in `~/.local/lib/pocket`, a link in
+  `~/.local/bin`, and a desktop entry and hicolor icons named
+  `org.frostyard.Pocket`, the app ID `cmd/pocket` gives the windows, so that
+  the desktop groups a window with its launcher.
 - The live terminal test needs the demo server started with
   `POCKET_DEMO_MODULES=<a pi-pocket-team checkout>`, which drops the
   terminal module into its data folder and turns it on.

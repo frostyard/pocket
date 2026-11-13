@@ -1,4 +1,4 @@
-.PHONY: verify verify-static verify-template check ci fmt lint lint-version-check test race cross tidy corrections-base build run app dev snapshot live
+.PHONY: verify verify-static verify-template check ci fmt lint lint-version-check test race cross tidy corrections-base build run app dev install uninstall linux-only refresh-desktop snapshot live
 
 GOCMD ?= go
 
@@ -25,6 +25,22 @@ CROSS_TARGETS ?= linux/amd64 linux/arm64 windows/amd64 windows/arm64 darwin/amd6
 
 # Where make snapshot and make live write the views as PNGs.
 SNAPSHOT_DIR ?= build/snapshots
+
+# Where make install puts Pocket, on Linux: the app in PREFIX/lib/pocket, its
+# command in PREFIX/bin, its desktop entry and icons in the user's data
+# folder. The entry and the icons are named after the app's identifier
+# (mygo.json), which is the app ID of Pocket's windows.
+PREFIX ?= $(HOME)/.local
+DATA_HOME := $(if $(XDG_DATA_HOME),$(XDG_DATA_HOME),$(HOME)/.local/share)
+APP_ID := $(strip $(shell sed -n 's/^ *"identifier": *"\(.*\)",*$$/\1/p' mygo.json))
+INSTALL_APP = $(PREFIX)/lib/pocket
+INSTALL_BIN = $(PREFIX)/bin/pocket
+INSTALL_ENTRY = $(DATA_HOME)/applications/$(APP_ID).desktop
+INSTALL_ICONS = $(DATA_HOME)/icons/hicolor
+# What make app builds for this machine, and the list of the app's files
+# that MyGo writes there.
+APP_OUT = build/mygo/linux-$(shell $(GOCMD) env GOARCH)
+APP_FILES = .mygo-files
 
 # The tests need no display: MyGo's Tester draws on the CPU with Pango and
 # cairo. Unsetting DISPLAY and WAYLAND_DISPLAY proves it on a desktop too.
@@ -147,6 +163,64 @@ app:
 # A development build, packaged so that macOS shows its notifications.
 dev:
 	$(GOCMD) tool mygo dev
+
+# Fail unless this is Linux, where make install and make uninstall work.
+linux-only:
+	@[ "$$(uname -s)" = Linux ] || { echo "make install and make uninstall are for Linux (found $$(uname -s)); on macOS, make app builds Pocket.app"; exit 1; }
+	@test -n "$(APP_ID)" || { echo "mygo.json names no identifier"; exit 1; }
+	@test -n "$(PREFIX)" && test -n "$(HOME)" || { echo "PREFIX and HOME must be set"; exit 1; }
+
+# Install the app for this user, on Linux: the production build of make app
+# (the executable with the terminal's library beside it) in INSTALL_APP, a
+# link to it in PREFIX/bin, the icons in the hicolor theme at the sizes MyGo
+# draws them, and a desktop entry. StartupWMClass is the identifier, which
+# cmd/pocket gives the windows as their app ID. The list of the app's files
+# goes with them, for make uninstall.
+install: linux-only app
+	@test -x $(APP_OUT)/pocket || { echo "make app left no $(APP_OUT)/pocket"; exit 1; }
+	@if [ -e "$(INSTALL_BIN)" ] && [ ! -L "$(INSTALL_BIN)" ]; then echo "$(INSTALL_BIN) is not make install's link: move it away first"; exit 1; fi
+	@mkdir -p "$(INSTALL_APP)" "$(dir $(INSTALL_BIN))" "$(dir $(INSTALL_ENTRY))"
+	@grep -v -x -e pocket.desktop -e pocket.png $(APP_OUT)/$(APP_FILES) > "$(INSTALL_APP)/$(APP_FILES)"
+	@while IFS= read -r f; do \
+		cp -p "$(APP_OUT)/$$f" "$(INSTALL_APP)/$$f" || exit 1; \
+		echo "installed $(INSTALL_APP)/$$f"; \
+	done < "$(INSTALL_APP)/$(APP_FILES)"
+	@ln -sfn "$(INSTALL_APP)/pocket" "$(INSTALL_BIN)"
+	@echo "installed $(INSTALL_BIN)"
+	@for icon in $(APP_OUT)/pocket-*x*.png; do \
+		size=$${icon##*/pocket-}; size=$${size%.png}; \
+		install -Dm644 "$$icon" "$(INSTALL_ICONS)/$$size/apps/$(APP_ID).png" || exit 1; \
+		echo "installed $(INSTALL_ICONS)/$$size/apps/$(APP_ID).png"; \
+	done
+	@printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=Pocket' \
+		'Comment=One window for a team of agents' \
+		'Exec="$(INSTALL_BIN)"' 'Icon=$(APP_ID)' 'Categories=Development;' \
+		'Terminal=false' 'StartupWMClass=$(APP_ID)' > "$(INSTALL_ENTRY)"
+	@echo "installed $(INSTALL_ENTRY)"
+	@$(MAKE) --no-print-directory refresh-desktop
+	@echo "Installed Pocket: open it from the applications menu, or run $(INSTALL_BIN)"
+
+# Remove the files make install wrote, one by one, and nothing else: the
+# settings and the token in the keyring stay.
+uninstall: linux-only
+	@if [ -f "$(INSTALL_APP)/$(APP_FILES)" ]; then \
+		while IFS= read -r f; do rm -f "$(INSTALL_APP)/$$f"; done < "$(INSTALL_APP)/$(APP_FILES)"; \
+		rm -f "$(INSTALL_APP)/$(APP_FILES)"; \
+		rmdir "$(INSTALL_APP)" || echo "left $(INSTALL_APP): it holds files make install did not write"; \
+	fi
+	@if [ -L "$(INSTALL_BIN)" ] && [ "$$(readlink "$(INSTALL_BIN)")" = "$(INSTALL_APP)/pocket" ]; then \
+		rm -f "$(INSTALL_BIN)"; \
+	elif [ -e "$(INSTALL_BIN)" ] || [ -L "$(INSTALL_BIN)" ]; then \
+		echo "left $(INSTALL_BIN): make install did not write it"; \
+	fi
+	@rm -f "$(INSTALL_ENTRY)" "$(INSTALL_ICONS)"/*/apps/$(APP_ID).png
+	@$(MAKE) --no-print-directory refresh-desktop
+	@echo "Removed Pocket from $(PREFIX) and $(DATA_HOME)"
+
+# Tell the desktop about a changed entry or icon, with the tools it has.
+refresh-desktop:
+	@if command -v update-desktop-database >/dev/null 2>&1; then update-desktop-database -q "$(dir $(INSTALL_ENTRY))" || true; fi
+	@if command -v gtk-update-icon-cache >/dev/null 2>&1; then gtk-update-icon-cache -q -t -f "$(INSTALL_ICONS)" || true; fi
 
 # Write the views, light and dark, as PNGs in SNAPSHOT_DIR.
 snapshot:

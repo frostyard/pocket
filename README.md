@@ -37,7 +37,16 @@ make app
 open build/mygo/darwin-*/Pocket.app
 ```
 
-On Linux, `make run` builds and starts it. Paste the sign-in link your Pi Pocket launcher printed (`https://example.org/login?token=…`) or an invite link; Pocket masks the pasted link and keeps the token in the desktop's keyring. Public HTTP servers require confirmation because the token travels in clear text.
+On Linux, `make run` builds and starts it, and `make install` installs it for you alone, with a launcher and its icon in the applications menu:
+
+```sh
+make install     # the app in ~/.local/lib/pocket, the command ~/.local/bin/pocket
+make uninstall   # removes what make install wrote
+```
+
+`PREFIX` (default `~/.local`) moves the app and its command; the desktop entry and the icons go in `$XDG_DATA_HOME` (default `~/.local/share`).
+
+Paste the sign-in link your Pi Pocket launcher printed (`https://example.org/login?token=…`) or an invite link; Pocket masks the pasted link and keeps the token in the desktop's keyring. Public HTTP servers require confirmation because the token travels in clear text.
 
 ## Develop
 
