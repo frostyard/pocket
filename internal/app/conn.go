@@ -89,7 +89,17 @@ func (a *App) reconnectNow() {
 	if a.link.client == nil {
 		return
 	}
-	a.connect(a.link.client.Base.String(), a.link.client.Auth)
+	// Keep the authenticated client: in-flight route reads still belong
+	// to this sign-in, even though the event stream is replaced.
+	a.disconnect()
+	if a.conn.State != frostui.Connecting {
+		a.conn.State = frostui.Reconnecting
+	}
+	a.conn.Reason = ""
+	a.link.failures = 0
+	ctx, cancel := context.WithCancel(context.Background())
+	a.link.cancel = cancel
+	a.openStream(ctx)
 }
 
 // openStream runs one connection on a goroutine; when it ends, it waits
