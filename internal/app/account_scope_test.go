@@ -77,24 +77,25 @@ func leaveWorkInSeven(t *testing.T, a *App, loop *frostuitest.Loop, server, user
 	a.markSeen(7)
 }
 
-// noWorkInSeven fails when session 7 shows the work of another account.
+// noWorkInSeven fails when session 7 shows the work of another account. It
+// reports every leak, not only the first.
 func noWorkInSeven(t *testing.T, a *App) {
 	t.Helper()
 	if a.current != 0 || a.loading != 0 {
-		t.Fatalf("another account restored session %d (current %d)", a.loading, a.current)
+		t.Errorf("another account restored session %d (current %d)", a.loading, a.current)
 	}
 	if a.pinned(7) {
-		t.Fatal("another account shows the pin")
+		t.Error("another account shows the pin")
 	}
 	if st := a.stateOf(a.byID[7]); st != stateFresh {
-		t.Fatalf("session 7 is state %d, want fresh", st)
+		t.Errorf("session 7 is state %d, want fresh", st)
 	}
 	a.open(7) // from now on this account has seen it
 	if a.composer.draft != "" {
-		t.Fatalf("another account shows the draft %q", a.composer.draft)
+		t.Errorf("another account shows the draft %q", a.composer.draft)
 	}
 	if len(a.composer.history) != 0 {
-		t.Fatalf("another account shows the history %v", a.composer.history)
+		t.Errorf("another account shows the history %v", a.composer.history)
 	}
 }
 
