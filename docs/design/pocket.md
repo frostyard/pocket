@@ -63,6 +63,8 @@ internal/icons ── the icons Pocket draws itself
   that option, ⌥Y / ⌥N allow or deny. The right pane shows the chosen item's
   context: a thread's PRs, reports and events, or a session's last steps.
   Events and answered words take at most two lines; hover shows the full text.
+  The right pane's Details heading has its own content row below the window's
+  title bar, so palette and native window controls cannot squeeze it.
   Desk Markdown paths under `reports/`, `desk/`, `plans/` and `decisions/`
   open in a read-only native dialog from asks, reports and events. The file
   route checks containment and size; the reader loads no images.
