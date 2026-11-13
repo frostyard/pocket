@@ -18,7 +18,6 @@ import (
 // composer is the message field's state.
 type composer struct {
 	files              map[int][]*composerFile
-	pendingFiles       []*composerFile
 	picking, queueBusy bool
 	session            int
 	draft              string
@@ -73,7 +72,14 @@ func (cp *composer) resetRequests() {
 	}
 	cp.sending, cp.pendingText, cp.pendingSession = false, "", 0
 	// Uploaded paths belong to the old authenticated server, never a new sign-in.
-	cp.files, cp.pendingFiles = nil, nil
+	for _, files := range cp.files {
+		for _, f := range files {
+			if f.cancel != nil {
+				f.cancel()
+			}
+		}
+	}
+	cp.files = nil
 	cp.picking, cp.queueBusy = false, false
 	cp.answered, cp.answers = nil, nil
 	cp.prompts, cp.promptsFor = nil, 0
@@ -193,7 +199,7 @@ func (a *App) composerView(c *ui.Context) {
 					input.AutoFocus()
 				}
 				ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
-					if a.opts.PickFiles != nil && ui.Button(c, "Attach files").Disabled(cp.picking || !a.canSteer()).Clicked() {
+					if a.opts.PickFiles != nil && a.canAttach(a.current) && ui.Button(c, "Attach files").Disabled(cp.picking).Clicked() {
 						a.pickAttachments()
 					}
 					a.modelChip(c)
@@ -368,7 +374,7 @@ func (a *App) send(text, mode string) {
 		}
 	}
 	cp.sending = true
-	cp.pendingText, cp.pendingSession, cp.pendingFiles = text, id, files
+	cp.pendingText, cp.pendingSession = text, id
 	cp.files[id] = nil
 	var attachments []pocket.Attachment
 	for _, f := range files {
@@ -385,7 +391,7 @@ func (a *App) send(text, mode string) {
 		return err
 	}, func(err error) {
 		cp.sending = false
-		cp.pendingText, cp.pendingSession, cp.pendingFiles = "", 0, nil
+		cp.pendingText, cp.pendingSession = "", 0
 		if err != nil {
 			cp.restoreDraft(id, text, files)
 			a.toast("Not sent: " + err.Error())

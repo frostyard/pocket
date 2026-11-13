@@ -34,7 +34,13 @@ type HeldMessage struct {
 
 // Upload sends raw file bytes, using the same bearer and redirect policy as JSON routes.
 func (c *Client) Upload(ctx context.Context, id int, name, mime string, data []byte) (*Attachment, error) {
-	if len(data) > MaxUpload {
+	return c.UploadReader(ctx, id, name, mime, bytes.NewReader(data), int64(len(data)))
+}
+
+// UploadReader streams a bounded file without keeping its contents in memory.
+// The caller owns and closes reader after this call.
+func (c *Client) UploadReader(ctx context.Context, id int, name, mime string, reader io.Reader, size int64) (*Attachment, error) {
+	if size < 0 || size > MaxUpload {
 		return nil, fmt.Errorf("files can be up to 50 MB")
 	}
 	path := conv(id, "upload?name="+url.QueryEscape(name))
@@ -42,8 +48,8 @@ func (c *Client) Upload(ctx context.Context, id int, name, mime string, data []b
 	if err != nil {
 		return nil, err
 	}
-	req.Body = io.NopCloser(bytes.NewReader(data))
-	req.ContentLength = int64(len(data))
+	req.Body = io.NopCloser(io.LimitReader(reader, size))
+	req.ContentLength = size
 	req.Header.Set("Content-Type", mime)
 	resp, err := c.HTTP.Do(req)
 	if err != nil {

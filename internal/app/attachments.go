@@ -1,15 +1,17 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"mime"
 	"net/http"
-	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
@@ -22,6 +24,7 @@ type composerFile struct {
 	file      pocket.Attachment
 	uploading bool
 	err       string
+	cancel    context.CancelFunc
 }
 
 func (cp *composer) filesFor(id int) []*composerFile {
@@ -63,52 +66,86 @@ func (cp *composer) restoreDraft(id int, text string, files []*composerFile) {
 
 func (a *App) attachFiles(id int, paths []string) {
 	for _, path := range paths {
-		a.uploadAttachment(id, filepath.Base(path), func() ([]byte, error) {
-			info, err := os.Stat(path)
+		a.uploadSource(id, filepath.Base(path), func() (io.ReadCloser, int64, error) {
+			f, err := openUploadFile(path)
 			if err != nil {
-				return nil, err
+				return nil, 0, err
 			}
-			if !info.Mode().IsRegular() {
-				return nil, fmt.Errorf("choose a regular file")
+			info, err := f.Stat()
+			if err == nil && !info.Mode().IsRegular() {
+				err = fmt.Errorf("choose a regular file")
 			}
-			if info.Size() > pocket.MaxUpload {
-				return nil, fmt.Errorf("files can be up to 50 MB")
+			if err == nil && info.Size() > pocket.MaxUpload {
+				err = fmt.Errorf("files can be up to 50 MB")
 			}
-			f, err := os.Open(path)
 			if err != nil {
-				return nil, err
+				_ = f.Close()
+				return nil, 0, err
 			}
-			defer func() { _ = f.Close() }()
-			return io.ReadAll(io.LimitReader(f, pocket.MaxUpload+1))
+			return f, info.Size(), nil
 		})
 	}
 }
 
 func (a *App) uploadAttachment(id int, name string, read func() ([]byte, error)) {
-	if id == 0 || !a.canSteer() {
+	a.uploadSource(id, name, func() (io.ReadCloser, int64, error) {
+		data, err := read()
+		return io.NopCloser(bytes.NewReader(data)), int64(len(data)), err
+	})
+}
+func (a *App) uploadSource(id int, name string, open func() (io.ReadCloser, int64, error)) {
+	if id == 0 || !a.canAttach(id) {
 		return
 	}
 	cp := &a.composer
 	cp.filesFor(id)
-	f := &composerFile{name: name, uploading: true}
+	life, cancel := context.WithCancel(context.Background())
+	f := &composerFile{name: name, uploading: true, cancel: cancel}
 	cp.files[id] = append(cp.files[id], f)
 	var file *pocket.Attachment
-	a.request("Uploading "+name, func(ctx context.Context, c *pocket.Client) error {
-		data, err := read()
+	a.requestWithin(10*time.Minute, "Uploading "+name, func(parent context.Context, c *pocket.Client) error {
+		ctx, stop := context.WithCancel(parent)
+		defer stop()
+		defer cancel()
+		stopWatch := context.AfterFunc(life, stop)
+		defer stopWatch()
+		if life.Err() != nil {
+			return life.Err()
+		}
+		reader, size, err := open()
 		if err != nil {
+			if reader != nil {
+				_ = reader.Close()
+			}
+			return err
+		}
+		defer func() { _ = reader.Close() }()
+		if size < 0 || size > pocket.MaxUpload {
+			return fmt.Errorf("files can be up to 50 MB")
+		}
+		if err = ctx.Err(); err != nil {
 			return err
 		}
 		typ := mime.TypeByExtension(filepath.Ext(name))
+		var body io.Reader = reader
 		if typ == "" {
-			typ = http.DetectContentType(data)
+			head := make([]byte, min(size, 512))
+			n, readErr := io.ReadFull(reader, head)
+			if readErr != nil && readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
+				return readErr
+			}
+			head = head[:n]
+			typ = http.DetectContentType(head)
+			body = io.MultiReader(bytes.NewReader(head), reader)
 		}
-		file, err = c.Upload(ctx, id, name, typ, data)
+		file, err = c.UploadReader(ctx, id, name, typ, body, size)
 		return err
 	}, func(err error) {
 		if !slices.Contains(cp.files[id], f) {
 			return
 		}
 		f.uploading = false
+		f.cancel = nil
 		if err != nil {
 			f.err = err.Error()
 			return
@@ -117,7 +154,29 @@ func (a *App) uploadAttachment(id int, name string, read func() ([]byte, error))
 	})
 }
 
+var remoteWorkspace = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]+://`)
+
+func (a *App) canAttach(id int) bool {
+	if !a.canSteer() {
+		return false
+	}
+	cwd := ""
+	if a.view != nil && id == a.current {
+		cwd = a.view.Conversation.Cwd
+	} else if session := a.byID[id]; session != nil {
+		cwd = session.Cwd
+	}
+	return !remoteWorkspace.MatchString(cwd)
+}
+func (a *App) queueBlocked() bool {
+	return a.hello != nil && a.hello.Server.Collab >= 2 && a.view != nil && a.view.Turns.On && a.view.Turns.Driver != a.hello.User.ID
+}
+
 func (a *App) pasteAttachments(id int, data transfer.Data) bool {
+	if !a.canAttach(id) {
+		a.toast("Attachments require a writable local session")
+		return false
+	}
 	if paths, err := data.Files(); err == nil && len(paths) > 0 {
 		a.attachFiles(id, paths)
 		return true
@@ -130,7 +189,7 @@ func (a *App) pasteAttachments(id int, data transfer.Data) bool {
 }
 
 func (a *App) pickAttachments() {
-	if a.opts.PickFiles == nil || a.composer.picking || !a.canSteer() {
+	if a.opts.PickFiles == nil || a.composer.picking || !a.canAttach(a.current) {
 		return
 	}
 	id := a.current
@@ -165,6 +224,9 @@ func (a *App) attachmentChips(c *ui.Context) {
 				}
 				frostui.Caption(c, label).Tooltip(f.err)
 				if ui.Button(c, "Remove").Label("Remove attachment " + f.name).Clicked() {
+					if f.cancel != nil {
+						f.cancel()
+					}
 					cp.files[a.current] = slices.DeleteFunc(cp.files[a.current], func(each *composerFile) bool { return each == f })
 				}
 			})
@@ -178,6 +240,29 @@ func (a *App) queueAction(submission int, held, action string) {
 		return
 	}
 	id := a.current
+	// Keep the displayed text before Edit can remove it on the server. Even a
+	// timeout or sign-out must leave this local recovery copy available.
+	recovered := ""
+	if action == "edit" && a.view != nil {
+		if held != "" {
+			for _, q := range a.view.Held {
+				if q.Key == held {
+					recovered = q.Text
+					break
+				}
+			}
+		} else {
+			for _, q := range a.view.Inbox {
+				if q.ID == submission {
+					recovered = q.Text
+					break
+				}
+			}
+		}
+		if recovered != "" {
+			cp.restoreDraft(id, recovered, nil)
+		}
+	}
 	cp.queueBusy = true
 	var back *pocket.MessageDraft
 	a.request("Changing queued message", func(ctx context.Context, c *pocket.Client) error {
@@ -205,7 +290,11 @@ func (a *App) queueAction(submission int, held, action string) {
 			for _, f := range back.Attachments {
 				files = append(files, &composerFile{name: f.Name, file: f})
 			}
-			cp.restoreDraft(id, back.Text, files)
+			text := back.Text
+			if text == recovered {
+				text = ""
+			}
+			cp.restoreDraft(id, text, files)
 			a.toast(fmt.Sprintf("Message returned to session %d's draft", id))
 		}
 	})
@@ -214,7 +303,7 @@ func (a *App) queueAction(submission int, held, action string) {
 func (a *App) queueSection(c *ui.Context) {
 	cp := &a.composer
 	if len(a.view.Inbox) > 0 {
-		frostui.SectionHeader(c, frostui.SectionHead{Title: "Queued", Quiet: true})
+		frostui.SectionHeader(c, frostui.SectionHead{Title: "Queued", Aside: fmt.Sprint(len(a.view.Inbox)), Quiet: true})
 		for _, q := range a.view.Inbox {
 			ui.Column(c.Key(q.ID)).Gap(frostui.SpaceXS).AlignItems(ui.Stretch).Children(func() {
 				mode := firstNonEmpty(map[string]string{"steer": "Steer", "followUp": "Queued", "write": "Sending", "interrupt": "Interrupt"}[q.Mode], "Queued")
@@ -223,12 +312,12 @@ func (a *App) queueSection(c *ui.Context) {
 					return
 				}
 				ui.Row(c).Gap(frostui.SpaceS).Children(func() {
-					if q.By == a.hello.User.ID && q.Mode != "write" {
+					if q.By == a.hello.User.ID && q.Mode != "write" && !a.queueBlocked() {
 						if ui.Button(c, "Edit").Disabled(cp.queueBusy).Label(fmt.Sprintf("Edit queued %d", q.ID)).Clicked() {
 							a.queueAction(q.ID, "", "edit")
 						}
 					}
-					if ui.Button(c, "Withdraw").Disabled(cp.queueBusy).Label(fmt.Sprintf("Withdraw queued %d", q.ID)).Clicked() {
+					if (!a.queueBlocked() || q.By == a.hello.User.ID) && ui.Button(c, "Withdraw").Disabled(cp.queueBusy).Label(fmt.Sprintf("Withdraw queued %d", q.ID)).Clicked() {
 						a.queueAction(q.ID, "", "drop")
 					}
 				})
@@ -237,7 +326,7 @@ func (a *App) queueSection(c *ui.Context) {
 	}
 	if len(a.view.Held) > 0 {
 		frostui.SectionHeader(c, frostui.SectionHead{Title: "Held messages", Quiet: true})
-		if a.canSteer() && ui.Button(c, "Send held messages").Disabled(cp.queueBusy).Clicked() {
+		if a.canSteer() && !a.queueBlocked() && ui.Button(c, "Send held messages").Disabled(cp.queueBusy).Clicked() {
 			a.queueAction(0, "", "send")
 		}
 		for _, q := range a.view.Held {
@@ -247,10 +336,10 @@ func (a *App) queueSection(c *ui.Context) {
 					return
 				}
 				ui.Row(c).Gap(frostui.SpaceS).Children(func() {
-					if q.By == a.hello.User.ID && ui.Button(c, "Edit").Disabled(cp.queueBusy).Clicked() {
+					if q.By == a.hello.User.ID && !a.queueBlocked() && ui.Button(c, "Edit").Label("Edit held "+q.Key).Disabled(cp.queueBusy).Clicked() {
 						a.queueAction(0, q.Key, "edit")
 					}
-					if ui.Button(c, "Discard").Disabled(cp.queueBusy).Clicked() {
+					if (!a.queueBlocked() || q.By == a.hello.User.ID) && ui.Button(c, "Discard").Label("Discard held "+q.Key).Disabled(cp.queueBusy).Clicked() {
 						a.queueAction(0, q.Key, "drop")
 					}
 				})

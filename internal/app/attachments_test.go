@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -234,5 +235,151 @@ func TestPostedComposerSendKeepsOriginalSession(t *testing.T) {
 	loop.RunUntil(t, func() bool { return a.composer.drafts[7] == "original message" })
 	if a.composer.draft != "another draft" {
 		t.Fatal("navigation lost active draft")
+	}
+}
+
+func TestUploadCancellationByRemoveAndSignOut(t *testing.T) {
+	for _, remove := range []bool{true, false} {
+		t.Run(map[bool]string{true: "remove", false: "sign-out"}[remove], func(t *testing.T) {
+			a, loop := teamApp(t)
+			a.current = 7
+			a.composer.reset(7)
+			entered, cancelled := make(chan struct{}), make(chan struct{})
+			a.link.client.HTTP = &http.Client{Transport: sessionToolsHTTP(func(r *http.Request) (*http.Response, error) {
+				if r.ContentLength != 10<<20 {
+					t.Errorf("content length %d", r.ContentLength)
+				}
+				close(entered)
+				<-r.Context().Done()
+				close(cancelled)
+				return nil, r.Context().Err()
+			})}
+			// A sparse file exercises the streaming path without allocating its body.
+			path := filepath.Join(t.TempDir(), "large.bin")
+			f, err := os.Create(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = f.Truncate(10 << 20); err != nil {
+				t.Fatal(err)
+			}
+			_ = f.Close()
+			a.attachFiles(7, []string{path})
+			<-entered
+			before := loop.Ran()
+			if remove {
+				tt := ui.NewTesterWith(func(c *ui.Context) { frostui.Adapt(c); a.attachmentChips(c) }, 600, 100, ui.TesterOptions{})
+				tt.Frame()
+				if err = tt.Click("Remove attachment large.bin"); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				a.link.client = nil
+				a.reset()
+			}
+			<-cancelled
+			loop.RunUntil(t, func() bool { return loop.Ran() > before })
+			if len(a.composer.files[7]) != 0 {
+				t.Fatal("cancelled upload returned")
+			}
+		})
+	}
+}
+
+func TestQueuedEditKeepsTextAfterFailureOrSignOut(t *testing.T) {
+	for _, held := range []bool{false, true} {
+		for _, signedOut := range []bool{false, true} {
+			t.Run(fmt.Sprintf("held=%v/signout=%v", held, signedOut), func(t *testing.T) {
+				a, loop := teamApp(t)
+				a.current = 7
+				a.composer.reset(7)
+				a.composer.draft = "existing"
+				a.view.Inbox = []pocket.QueueRow{{ID: 42, By: "u1", Text: "recover this"}}
+				a.view.Held = []pocket.HeldMessage{{Key: "h1", By: "u1", Text: "recover this"}}
+				entered, release := make(chan struct{}), make(chan struct{})
+				a.link.client.HTTP = &http.Client{Transport: sessionToolsHTTP(func(r *http.Request) (*http.Response, error) {
+					close(entered)
+					<-release
+					resp := reply(r, `{"error":"conflict"}`)
+					resp.StatusCode = 409
+					return resp, nil
+				})}
+				key := ""
+				if held {
+					key = "h1"
+				}
+				a.queueAction(42, key, "edit")
+				<-entered
+				if a.composer.draft != "recover this\n\nexisting" {
+					t.Fatal("text not retained before request")
+				}
+				if signedOut {
+					a.link.client = nil
+					a.reset()
+				}
+				before := loop.Ran()
+				close(release)
+				loop.RunUntil(t, func() bool { return loop.Ran() > before })
+				if a.composer.draft != "recover this\n\nexisting" {
+					t.Fatal("failed edit lost recovery copy")
+				}
+			})
+		}
+	}
+}
+
+func TestQueueDriverAndRemoteAttachmentControls(t *testing.T) {
+	a, _ := teamApp(t)
+	a.current = 7
+	a.composer.reset(7)
+	a.hello.Server.Collab = 2
+	a.view.Turns = pocket.Turns{On: true, Driver: "u2"}
+	a.view.Inbox = []pocket.QueueRow{{ID: 42, By: "u1", Mode: "followUp", Text: "mine"}, {ID: 43, By: "u2", Mode: "followUp", Text: "theirs"}}
+	a.view.Held = []pocket.HeldMessage{{Key: "h1", By: "u1", Text: "mine"}, {Key: "h2", By: "u2", Text: "theirs"}}
+	tt := ui.NewTesterWith(func(c *ui.Context) { frostui.Adapt(c); ui.Column(c).Children(func() { a.queueSection(c) }) }, 500, 650, ui.TesterOptions{})
+	tt.Frame()
+	for _, label := range []string{"Edit queued 42", "Withdraw queued 43", "Edit held h1", "Edit held h2", "Discard held h2", "Send held messages"} {
+		if _, ok := tt.Find(label); ok {
+			t.Errorf("blocked control %s visible", label)
+		}
+	}
+	for _, label := range []string{"Withdraw queued 42", "Discard held h1"} {
+		if _, ok := tt.Find(label); !ok {
+			t.Errorf("own withdrawal %s hidden", label)
+		}
+	}
+	a.view.Conversation.Cwd = "ssh://example.org/work"
+	if a.canAttach(7) {
+		t.Fatal("remote upload allowed")
+	}
+	a.view.Conversation.Cwd = "/work"
+	a.hello.User.Role = "viewer"
+	if a.pasteAttachments(7, transfer.New(transfer.NewItem(transfer.Bytes(transfer.PNG, []byte("png"))))) {
+		t.Fatal("viewer paste consumed")
+	}
+	if len(a.pendingToasts) == 0 {
+		t.Fatal("viewer paste silently ignored")
+	}
+}
+
+func TestWithdrawAlreadySentReportsFailure(t *testing.T) {
+	a, loop := teamApp(t)
+	a.current = 7
+	a.link.client.HTTP = &http.Client{Transport: sessionToolsHTTP(func(r *http.Request) (*http.Response, error) { return reply(r, `{"result":"already-sent"}`), nil })}
+	a.queueAction(42, "", "drop")
+	loop.RunUntil(t, func() bool { return !a.composer.queueBusy })
+	if len(a.pendingToasts) == 0 || !strings.Contains(a.pendingToasts[0], "already gone") {
+		t.Fatal("withdraw result lost")
+	}
+}
+
+func TestAttachmentDirectoryRejected(t *testing.T) {
+	a, loop := teamApp(t)
+	a.current = 7
+	a.composer.reset(7)
+	a.attachFiles(7, []string{t.TempDir()})
+	loop.RunUntil(t, func() bool { return !a.composer.files[7][0].uploading })
+	if !strings.Contains(a.composer.files[7][0].err, "regular file") {
+		t.Fatal("directory accepted")
 	}
 }

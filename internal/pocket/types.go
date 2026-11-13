@@ -38,6 +38,7 @@ type Model struct {
 
 // ServerInfo is what hello says of the server.
 type ServerInfo struct {
+	Collab        int    `json:"collab"`
 	PocketVersion string `json:"pocketVersion"`
 	Home          string `json:"home"`
 	DefaultCwd    string `json:"defaultCwd"`
@@ -395,7 +396,13 @@ type Branch struct {
 // ViewUpdate is a "view" event: a whole view (Full) or what changed.
 // Fields left out of an update keep their last value; json.RawMessage
 // fields are nil when left out.
+type Turns struct {
+	On     bool   `json:"on"`
+	Driver string `json:"driver"`
+}
+
 type ViewUpdate struct {
+	Turns        *Turns       `json:"turns"`
 	Full         bool         `json:"full"`
 	Conversation Conversation `json:"conversation"`
 	Entries      []Entry      `json:"entries"`

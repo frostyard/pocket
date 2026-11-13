@@ -9,6 +9,7 @@ import (
 // "view" events by Apply. It belongs to whoever applies them (the UI
 // thread).
 type View struct {
+	Turns        Turns
 	Conversation Conversation
 	Entries      map[int]*Entry
 	Order        []int
@@ -53,6 +54,9 @@ func (v *View) Apply(u *ViewUpdate) error {
 		}
 	}
 	v.Conversation = u.Conversation
+	if u.Turns != nil {
+		v.Turns = *u.Turns
+	}
 	if len(u.Entries) > 0 {
 		v.Rev++
 	}

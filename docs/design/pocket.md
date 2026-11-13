@@ -189,7 +189,8 @@ Approvals and questions dock above the composer.
 
 The composer accepts files from a native picker, file drop, or clipboard files
 and PNG images. Upload chips show progress or failure and can be removed before
-sending. Uploads use the server's 50 MB limit and travel as attachment references
+sending. Disk files stream from a validated open regular file; uploads have a
+ten-minute deadline and cancel on chip removal or sign-out. Uploads use the server's 50 MB limit and travel as attachment references
 with the message; sending waits for every upload. Drafts and uploaded references
 stay with their source session across navigation; sign-out clears remote file
 references. Files accompany ordinary messages, not local slash commands or
@@ -197,8 +198,10 @@ references. Files accompany ordinary messages, not local slash commands or
 
 Queue rows can withdraw messages or take the sender's own message back to the
 composer with its attachments. Returned text is added ahead of any existing
-draft, even if another session is now open. Stop holds the pending queue; the
+draft, even if another session is now open. Edit retains the displayed text before
+the server can remove it, so a timeout or sign-out keeps a recovery copy. Stop holds the pending queue; the
 Held messages section can send it again, edit one's own message or discard one.
+Controls follow the current driver and sender; remote workspaces hide Attach.
 These controls rely on the server for driver permissions and report races where
 a message has already reached Pi.
 

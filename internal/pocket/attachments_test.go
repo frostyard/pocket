@@ -50,16 +50,26 @@ func TestQueueProtocol(t *testing.T) {
 				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"result":"aborted","text":"draft","attachments":[{"path":"/uploads/file"}]}`)), Header: make(http.Header)}, nil
 			})}
 			var err error
+			var draft *MessageDraft
+			var result string
 			switch action {
 			case "withdraw":
-				_, err = c.Withdraw(context.Background(), 7, 42)
+				result, err = c.Withdraw(context.Background(), 7, 42)
 			case "edit-queued":
-				_, err = c.EditQueued(context.Background(), 7, 42)
+				draft, err = c.EditQueued(context.Background(), 7, 42)
 			default:
-				_, err = c.Held(context.Background(), 7, action, "h1")
+				draft, err = c.Held(context.Background(), 7, action, "h1")
 			}
 			if err != nil {
 				t.Fatal(err)
+			}
+
+			if action == "withdraw" {
+				if result != "aborted" {
+					t.Fatal(result)
+				}
+			} else if draft == nil || draft.Text != "draft" || len(draft.Attachments) != 1 || draft.Attachments[0].Path != "/uploads/file" {
+				t.Fatalf("decoded draft %+v", draft)
 			}
 		})
 	}

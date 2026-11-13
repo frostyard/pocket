@@ -51,7 +51,7 @@ them rather than improvising, whichever agent you are. Start a new one from
   `conn.go` (the link), `frame.go` (frame, commands, palette), `sidebar.go`,
   `inbox.go`, `board_actions.go` (board details and actions), `core_memory.go` (Pi Pocket lessons), `motion.go` (In motion, Shift board, Numbers), `numbers.go` (filters and records), `desk.go`,
   `desk_actions.go` (owner thread actions), `desk_extras.go` (supplementary lists),
-  `transcript.go`, `session_tools.go` (find, fork, export and new context), `new_session.go` (server directory prompt), `composer.go`, `attachments.go` (file chips and queue controls), `pages.go`, `session_details.go` (session
+  `transcript.go`, `session_tools.go` (find, fork, export and new context), `new_session.go` (server directory prompt), `composer.go`, `attachments.go` (file chips and queue controls), `upload_file_*.go` (platform file opens), `pages.go`, `session_details.go` (session
   identity and shift goal), `notify.go`, `settings.go`,
   `terminals.go` (the Terminal place, over `pocket.TermConn`),
   `terminal_replay.go` (isolated history rendering), `artifacts.go`,
