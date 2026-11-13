@@ -252,12 +252,39 @@ func (a *App) notify(n pocket.Notification) {
 	// (a reconnect, a second device). Other tags name a session, whose next
 	// run or message is news again.
 	if noteKind(n.Tag) == noteApproval {
-		if a.notified[n.Tag] {
+		if at, ok := a.notified[n.Tag]; ok && a.opts.Now().Sub(at) < 24*time.Hour {
 			return
 		}
-		a.notified[n.Tag] = true
+		a.notified[n.Tag] = a.opts.Now()
+		a.expireApprovalTags()
 	}
 	a.deliver(note{kind: noteKind(n.Tag), title: n.Title, body: n.Body, session: id})
+}
+
+// expireApprovalTags keeps deduplication bounded even when no more events arrive.
+// One UI timer follows the oldest tag; newer tags keep their full day.
+func (a *App) expireApprovalTags() {
+	if a.notifiedTimer || len(a.notified) == 0 {
+		return
+	}
+	now := a.opts.Now()
+	delay := 24 * time.Hour
+	for tag, at := range a.notified {
+		left := 24*time.Hour - now.Sub(at)
+		if left <= 0 {
+			delete(a.notified, tag)
+		} else {
+			delay = min(delay, left)
+		}
+	}
+	if len(a.notified) == 0 {
+		return
+	}
+	a.notifiedTimer = true
+	a.after(delay, func() {
+		a.notifiedTimer = false
+		a.expireApprovalTags()
+	})
 }
 
 // setQuiet turns do not disturb on or off; snooze, when not zero, keeps

@@ -2,7 +2,7 @@
 
 What Pocket delivers, in order: a desktop client of the owner's Pi Pocket
 server that surpasses its web app at a desk. Phases 1 to 4 shipped on
-2026-11-12; phase 5 is next.
+2026-11-12; phase 5 is in progress.
 
 ## Phase 1 — A session, native (done)
 
