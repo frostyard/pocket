@@ -322,26 +322,26 @@ const attachedMarker = "\n\nAttached files (saved on the server):\n"
 // were saved on the server, written there by older servers, and then the file
 // names the server records with the message. A recorded file that the text
 // already named, by its path or by its base name, counts once; within one
-// list, only the same path is a repeat.
+// list, only the same path is a repeat. Names keep their case: Report.pdf
+// and report.pdf are 2 files.
 func attachments(e *pocket.Entry, legacy string) []string {
 	var files []string
 	paths, legacyBases := map[string]bool{}, map[string]bool{}
 	for _, f := range strings.Split(legacy, "\n") {
 		f = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(f), "- "))
-		if f == "" || paths[strings.ToLower(f)] {
+		if f == "" || paths[f] {
 			continue
 		}
-		paths[strings.ToLower(f)], legacyBases[strings.ToLower(baseName(f))] = true, true
+		paths[f], legacyBases[baseName(f)] = true, true
 		files = append(files, f)
 	}
 	if e != nil {
 		for _, f := range e.Files {
 			f = strings.TrimSpace(f)
-			path := strings.ToLower(f)
-			if f == "" || paths[path] || legacyBases[strings.ToLower(baseName(f))] {
+			if f == "" || paths[f] || legacyBases[baseName(f)] {
 				continue
 			}
-			paths[path] = true
+			paths[f] = true
 			files = append(files, f)
 		}
 	}
@@ -378,13 +378,13 @@ func (a *App) userRow(c *ui.Context, it *item) {
 			if len(files) > 0 || images > 0 {
 				ui.Row(c).Gap(frostui.SpaceXS).Wrap().Children(func() {
 					for _, f := range files {
-						pill := frostui.IconPill(c.Key(f), "mail-attachment", baseName(f), frostui.Neutral)
+						pill := frostui.IconPill(c.Key("file:"+f), "mail-attachment", baseName(f), frostui.Neutral)
 						if f != baseName(f) {
 							pill.Tooltip(f)
 						}
 					}
 					if images > 0 {
-						frostui.IconPill(c.Key("images"), "insert-image", plural(images, "image", "images"), frostui.Neutral)
+						frostui.IconPill(c.Key("images:count"), "insert-image", plural(images, "image", "images"), frostui.Neutral)
 					}
 				})
 			}

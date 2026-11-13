@@ -104,3 +104,25 @@ func TestUserRowAttachmentRepeats(t *testing.T) {
 		t.Errorf("data.csv drawn %d times, want 2: %q", n, tt.Texts())
 	}
 }
+
+// File names keep their case: Report.pdf and report.pdf are 2 files, while the
+// exact same name twice is 1.
+func TestUserRowKeepsCaseDistinctFiles(t *testing.T) {
+	_, tt := transcriptTester(t, "user-row-case",
+		&pocket.Entry{ID: 77, Kind: "user", Files: []string{"Report.pdf", "report.pdf", "report.pdf"}},
+		&pocket.Entry{ID: 78, Kind: "user", Text: "Old" + attachedMarker + "- /a/Notes.txt\n- /a/notes.txt"})
+	for _, want := range []string{"Report.pdf", "report.pdf", "Notes.txt", "notes.txt"} {
+		if n := countText(tt, want); n != 1 {
+			t.Errorf("%s drawn %d times, want once: %q", want, n, tt.Texts())
+		}
+	}
+}
+
+// A file named like the image pill's label does not share its identity.
+func TestUserRowFileNamedImages(t *testing.T) {
+	_, tt := transcriptTester(t, "user-row-images-file",
+		&pocket.Entry{ID: 77, Kind: "user", Files: []string{"images"}, Images: 1})
+	if countText(tt, "images") < 1 || !tt.HasText("1 image") {
+		t.Fatalf("row lacks the file or the image count: %q", tt.Texts())
+	}
+}
