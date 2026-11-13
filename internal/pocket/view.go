@@ -3,6 +3,7 @@ package pocket
 import (
 	"encoding/json"
 	"errors"
+	"unicode/utf16"
 )
 
 // View is one session as the client holds it, kept up to date with
@@ -167,7 +168,7 @@ func applyDelta(had []Block, d *LiveMessage) ([]Block, bool) {
 		}
 		base := had[keep]
 		first := rest[0]
-		if base.Type != first.Type || len(base.Text) != *first.From {
+		if base.Type != first.Type || utf16Len(base.Text) != *first.From {
 			return nil, false
 		}
 		base.Text += first.Text
@@ -179,6 +180,24 @@ func applyDelta(had []Block, d *LiveMessage) ([]Block, bool) {
 		out = append(out, b)
 	}
 	return out, true
+}
+
+// utf16Len counts s in UTF-16 code units, the unit of a delta's `from`:
+// the server sets it from a JavaScript string's length (projection.ts
+// deltaMessage), and web/live.js checks it the same way. A byte or rune
+// count differs from it as soon as the text holds non-ASCII characters.
+func utf16Len(s string) int {
+	n := 0
+	for _, r := range s {
+		// An invalid byte ranges as U+FFFD, 1 unit, as a lone surrogate
+		// decoded from JSON does.
+		if utf16.RuneLen(r) == 2 {
+			n += 2
+		} else {
+			n++
+		}
+	}
+	return n
 }
 
 // Rows are the entries a transcript shows, in order: a tool's result is

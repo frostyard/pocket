@@ -148,7 +148,7 @@ func (a *App) findMatches() []int {
 	if q == "" {
 		return nil
 	}
-	if a.tr.search == nil {
+	if a.tr.search == nil || len(a.tr.search) != len(a.tr.items) {
 		a.tr.search = make([]string, len(a.tr.items))
 		for i, it := range a.tr.items {
 			a.tr.search[i] = itemSearchText(it)

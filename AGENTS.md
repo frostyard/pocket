@@ -73,6 +73,10 @@ them rather than improvising, whichever agent you are. Start a new one from
   state and thread-match caches. A new direct mutation of their sources must
   call `invalidateDerived`; `setSessions` and `markSeen` already do. Cache
   pointers belong to the current source snapshots, never to a previous sign-in.
+  The transcript's rows are built again only when the view's `Rev`, its entries
+  or its order change: a live-only update refreshes each folded call's slot and
+  approval and the live row in place, and keeps the search cache over the rows
+  (`internal/app/transcript.go`).
 - **MyGo's rules** (as frostui's): no `ui.Handle` made in a view; state lives
   in structs. `Element.Selected` recolors text for an accent fill, so a card
   that shows selection by its border uses `AccessSelected`.
