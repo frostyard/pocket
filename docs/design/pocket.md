@@ -96,6 +96,20 @@ The places that need a module (Team, the Desk's Shift board and Numbers, the
 Wiki) show only when the server has it; Pocket works against a Pi Pocket
 without the team modules.
 
+Thread details expose the Desk's owner actions: keep, park, wake, attach found work,
+and drop with a required reason. Watches accept a date and optional time in the
+server's timezone and a check of at most 200 characters. A watch can be cleared,
+passed or failed; recently completed non-plan threads can be watched again.
+Due checks appear in the Inbox and In motion. Actions are disabled while a request
+runs, and every completion refreshes the Desk, including a rejected conflict;
+an unsuccessful action keeps its typed reason.
+
+In motion stamps the last look after reading the Desk, retaining the previous
+look as the baseline for fresh row marks throughout the visit. Its folds show
+other authors' PRs, queued issues and completed plans (read on demand); the
+thread pane shows resolved and withdrawn asks with their reasons. Ready PRs
+sort L4, L3, L2, L1/L2, L1, then unknown, oldest label first within a level.
+
 ### A session
 
 Replies stream in as Markdown (`ui/markdown.Stream`, word-paced, faded in).
@@ -158,6 +172,7 @@ server's facts. The status bar shows do not disturb while it holds.
   delegation's worktree `<checkout>--<agent>-<slug>`.
 - **Threads:** the client's goroutines never touch UI state; they post
   functions to the window (`Window.Update`).
+
 
 ## Operational notes
 
