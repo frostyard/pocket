@@ -1,6 +1,7 @@
 package app
 
 import (
+	"net/http"
 	"strconv"
 	"testing"
 	"time"
@@ -12,10 +13,17 @@ import (
 	"github.com/frostyard/pocket/internal/pocket"
 )
 
-// shown records the notifications the app hands to the desktop.
-type shown struct{ titles []string }
+// shown records the notifications the app hands to the desktop, and their
+// click actions.
+type shown struct {
+	titles []string
+	clicks []func()
+}
 
-func (s *shown) Notify(title, body string, _ func()) { s.titles = append(s.titles, title) }
+func (s *shown) Notify(title, body string, onClick func()) {
+	s.titles = append(s.titles, title)
+	s.clicks = append(s.clicks, onClick)
+}
 
 // notifyApp is an app with a team's sessions, a notifier that records,
 // and a clock and timers the test moves.
@@ -32,6 +40,24 @@ func notifyApp(t *testing.T) (*App, *shown, *frostuitest.Loop, *[]func()) {
 
 func done(id int) pocket.Notification {
 	return pocket.Notification{Title: "Pi finished", Body: "done", URL: "/s/" + strconv.Itoa(id), Tag: "done-" + strconv.Itoa(id)}
+}
+
+// signInTo puts the app on another server, as connect does after a sign-in.
+func signInTo(t *testing.T, a *App, server string) {
+	t.Helper()
+	client, err := pocket.NewClient(server, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.HTTP = &http.Client{Transport: snapshotHTTP{}}
+	a.link.client = client
+}
+
+// burst delivers 4 finished runs: the first shows at once, 3 wait.
+func burst(a *App) {
+	for _, id := range []int{1, 2, 3, 4} {
+		a.notify(done(id))
+	}
 }
 
 func TestFinishedRunsNotifyOnlyForYourOwnSessions(t *testing.T) {
@@ -175,6 +201,178 @@ func TestApprovalTagsExpireAfterOneDay(t *testing.T) {
 	a.reset()
 	if len(a.notified) != 0 {
 		t.Fatal("sign-out retained another server's approval tags")
+	}
+}
+
+func TestSignOutDropsAHeldBurst(t *testing.T) {
+	a, rec, _, timers := notifyApp(t)
+	a.settings.Notes().Finished = config.FinishedAll
+	burst(a)
+	if len(rec.titles) != 1 || len(*timers) != 1 {
+		t.Fatalf("shown %v, want the burst's first note and one window", rec.titles)
+	}
+	a.reset() // signed out: the sessions of that burst are gone
+	(*timers)[0]()
+	if len(rec.titles) != 1 {
+		t.Fatalf("a burst of the sign-in Pocket left showed: %v", rec.titles)
+	}
+	if len(a.notes.held) != 0 || a.notes.open {
+		t.Fatal("sign-out kept the queued notes")
+	}
+}
+
+func TestSignOutDoesNotCloseTheNextBurstsWindow(t *testing.T) {
+	a, rec, _, timers := notifyApp(t)
+	a.settings.Notes().Finished = config.FinishedAll
+	burst(a)
+	a.reset()
+	signInTo(t, a, "https://example.org")
+	a.notify(done(1)) // this sign-in's first note shows at once
+	a.notify(done(2)) // and these two wait in its own window
+	a.notify(done(3))
+	if len(rec.titles) != 2 || len(*timers) != 2 {
+		t.Fatalf("shown %v, want the new window's first note", rec.titles)
+	}
+	(*timers)[0]() // the first sign-in's timer
+	if len(rec.titles) != 2 {
+		t.Fatalf("a timer of the sign-in Pocket left ended this window: %v", rec.titles)
+	}
+	(*timers)[1]()
+	if len(rec.titles) != 3 || rec.titles[2] != "2 runs finished" {
+		t.Fatalf("the new sign-in's burst should show as one: %v", rec.titles)
+	}
+}
+
+func TestAnotherSignInsBurstNeverShows(t *testing.T) {
+	a, rec, _, timers := notifyApp(t)
+	a.settings.Notes().Finished = config.FinishedAll
+	burst(a) // session 12 of the first server is not the next one's
+	signInTo(t, a, "https://other.example")
+	(*timers)[0]()
+	if len(rec.titles) != 1 {
+		t.Fatalf("the burst of the sign-in Pocket left showed: %v", rec.titles)
+	}
+	// A note of this sign-in starts a window of its own.
+	a.notify(done(1))
+	if len(rec.titles) != 2 {
+		t.Fatalf("the new sign-in's first note should show at once: %v", rec.titles)
+	}
+}
+
+func TestAnotherSignInsNoteStartsItsOwnWindow(t *testing.T) {
+	a, rec, _, timers := notifyApp(t)
+	a.settings.Notes().Finished = config.FinishedAll
+	burst(a)
+	signInTo(t, a, "https://other.example")
+	a.notify(done(1)) // before the first window's timer runs
+	if len(*timers) != 2 {
+		t.Fatalf("want a window timer for each sign-in, got %d", len(*timers))
+	}
+	(*timers)[0]()
+	if len(rec.titles) != 2 {
+		t.Fatalf("shown %v, want the two first notes only", rec.titles)
+	}
+	(*timers)[1]() // this window held nothing
+	if len(rec.titles) != 2 {
+		t.Fatalf("a dropped burst showed later: %v", rec.titles)
+	}
+}
+
+func TestNotificationClickFollowsItsSignIn(t *testing.T) {
+	a, rec, loop, _ := notifyApp(t)
+	ns := a.settings.Notes()
+	ns.Batch, ns.Finished = false, config.FinishedAll
+	a.notify(done(2))
+	if len(rec.clicks) != 1 {
+		t.Fatalf("shown %v, want one note", rec.titles)
+	}
+	rec.clicks[0]()
+	loop.Flush()
+	if a.current != 2 {
+		t.Fatalf("a click on the sign-in that made the note opened %d, want 2", a.current)
+	}
+	a.open(0)
+	signInTo(t, a, "https://other.example")
+	// The note is still in the desktop's list, but its session 2 is the
+	// first server's; the second server's session 2 is another session.
+	rec.clicks[0]()
+	loop.Flush()
+	if a.current != 0 {
+		t.Fatalf("a click of the sign-in Pocket left opened session %d", a.current)
+	}
+	if a.selected != "x:inbox" {
+		t.Fatalf("selected %q, want the Inbox", a.selected)
+	}
+}
+
+func TestFlushAppliesTheSettingsNow(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*App)
+		quiet  int
+	}{
+		{"every notification off", func(a *App) { a.settings.Notes().Enabled = false }, 0},
+		{"the kind off", func(a *App) { a.settings.Notes().Finished = config.FinishedNone }, 0},
+		{"do not disturb", func(a *App) { a.settings.Notes().DND = true }, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, rec, _, timers := notifyApp(t)
+			a.settings.Notes().Finished = config.FinishedAll
+			burst(a)
+			tc.change(a)
+			(*timers)[0]()
+			if len(rec.titles) != 1 {
+				t.Fatalf("shown %v, want only the note of the burst's start", rec.titles)
+			}
+			if a.notes.quieted != tc.quiet {
+				t.Fatalf("held %d, want %d", a.notes.quieted, tc.quiet)
+			}
+			if len(a.notes.held) != 0 {
+				t.Fatal("the window ended but kept its notes")
+			}
+		})
+	}
+}
+
+func TestFlushHoldsWhenQuietHoursBegin(t *testing.T) {
+	a, rec, _, timers := notifyApp(t)
+	now := a.opts.Now()
+	a.opts.Now = func() time.Time { return now }
+	ns := a.settings.Notes()
+	ns.Finished, ns.Quiet = config.FinishedAll, true // 22:00 to 07:00
+	burst(a)
+	now = time.Date(2026, 11, 12, 23, 0, 0, 0, time.Local) // the window runs into the night
+	(*timers)[0]()
+	if len(rec.titles) != 1 {
+		t.Fatalf("quiet hours showed %v", rec.titles)
+	}
+	if a.notes.quieted != 3 {
+		t.Fatalf("held %d, want 3", a.notes.quieted)
+	}
+}
+
+func TestFlushShowsUrgentApprovalsInQuietTime(t *testing.T) {
+	for _, urgent := range []bool{true, false} {
+		a, rec, _, timers := notifyApp(t)
+		ns := a.settings.Notes()
+		ns.Finished, ns.Urgent = config.FinishedAll, urgent
+		burst(a)
+		a.notify(pocket.Notification{Title: "Pi needs approval", Tag: "approval-a", URL: "/s/2"})
+		a.notify(pocket.Notification{Title: "Pi needs approval again", Tag: "approval-b", URL: "/s/3"})
+		ns.DND = true
+		(*timers)[0]()
+		// 3 finished runs wait, and 2 calls to allow.
+		want, quieted := []string{"Pi finished"}, 5
+		if urgent {
+			want = append(want, "2 calls wait for you")
+			quieted = 3 // the runs; the calls come through
+		}
+		if len(rec.titles) != len(want) || (urgent && rec.titles[1] != want[1]) {
+			t.Fatalf("urgent %v: shown %v, want %v", urgent, rec.titles, want)
+		}
+		if a.notes.quieted != quieted {
+			t.Fatalf("urgent %v: held %d, want %d", urgent, a.notes.quieted, quieted)
+		}
 	}
 }
 

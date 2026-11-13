@@ -26,7 +26,9 @@ type desk struct {
 	at    time.Time
 	err   string
 
-	details                           map[string]*pocket.DeskThreadDetail
+	// details caches thread details for the Desk view in view; each
+	// read of the Desk starts a new cache (nil until a detail is asked).
+	details                           *threadDetails
 	answers                           map[string]string
 	busy                              map[string]bool
 	editors                           map[string]*threadEditor
@@ -55,6 +57,18 @@ type desk struct {
 	boardEditors map[int]*boardEditor
 	boardOpen    map[int]bool
 	boardKeys    map[string]string
+}
+
+// threadDetails are the thread details read for one Desk snapshot, and
+// the reads under way for it. A read answers into the cache it started
+// from, so an answer that comes after a newer Desk read changes nothing.
+type threadDetails struct {
+	m    map[string]*pocket.DeskThreadDetail
+	busy map[string]bool
+}
+
+func newThreadDetails() *threadDetails {
+	return &threadDetails{m: map[string]*pocket.DeskThreadDetail{}, busy: map[string]bool{}}
 }
 
 func (d *desk) thread(id string) *pocket.DeskThread {
@@ -120,29 +134,28 @@ func (a *App) deskChanged() {
 
 // threadDetail returns a thread's reports and events, reading them once.
 func (a *App) threadDetail(id string) *pocket.DeskThreadDetail {
-	if d := a.desk.details[id]; d != nil {
+	if a.desk.details == nil {
+		a.desk.details = newThreadDetails()
+	}
+	cache := a.desk.details
+	if d := cache.m[id]; d != nil {
 		return d
 	}
-	if a.desk.details == nil {
-		a.desk.details = map[string]*pocket.DeskThreadDetail{}
-	}
-	if a.desk.busy == nil {
-		a.desk.busy = map[string]bool{}
-	}
-	key := "detail:" + id
-	if a.desk.busy[key] {
+	if cache.busy[id] {
 		return nil
 	}
-	a.desk.busy[key] = true
+	cache.busy[id] = true
 	var got *pocket.DeskThreadDetail
 	a.request("Reading thread "+id, func(ctx context.Context, c *pocket.Client) error {
 		var err error
 		got, err = c.DeskThread(ctx, id)
 		return err
 	}, func(err error) {
-		delete(a.desk.busy, key)
-		if err == nil {
-			a.desk.details[id] = got
+		delete(cache.busy, id)
+		// A Desk read since then started a new cache, whose own read of
+		// this thread (made as it shows) holds the newer detail.
+		if err == nil && a.desk.details == cache {
+			cache.m[id] = got
 		}
 	})
 	return nil

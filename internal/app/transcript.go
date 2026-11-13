@@ -21,8 +21,14 @@ type transcript struct {
 	list   ui.ListState
 	items  []item
 	search []string
-	rev    int
-	live   int
+	// view is the view items were built from: another one, or another Rev,
+	// means the stored rows must be built again.
+	view *pocket.View
+	rev  int
+	live int
+	// calls holds where each folded call sits, so a live update refreshes
+	// the calls without reading the stored rows. It is built with them.
+	calls []callPos
 	// open holds what the person opened: tool groups, calls, thoughts.
 	open map[string]bool
 	// closed holds what the person closed that opens by itself.
@@ -66,15 +72,68 @@ type call struct {
 	at     time.Time
 }
 
-// viewChanged rebuilds the rows when the view's entries changed.
+// callPos is where one folded call sits in the rows.
+type callPos struct{ item, call int }
+
+// viewChanged rebuilds the rows when the view's entries changed, and
+// otherwise refreshes only what a live update can change.
 func (tr *transcript) viewChanged(a *App) {
 	v := a.view
-	if v.Rev == tr.rev && v.LiveRev == tr.live && tr.items != nil {
+	if v == tr.view && v.Rev == tr.rev && v.LiveRev == tr.live && tr.items != nil {
 		return
 	}
-	tr.rev, tr.live = v.Rev, v.LiveRev
+	if v == tr.view && v.Rev == tr.rev && tr.items != nil {
+		// Only live state moved: a streaming delta changes no stored row.
+		tr.live = v.LiveRev
+		tr.refreshLive(v)
+		return
+	}
+	tr.view, tr.rev, tr.live = v, v.Rev, v.LiveRev
 	tr.items = buildItems(v)
+	tr.calls = callPositions(tr.items)
 	tr.search = nil
+}
+
+// callPositions lists where the folded calls of items sit.
+func callPositions(items []item) []callPos {
+	var out []callPos
+	for i := range items {
+		for j := range items[i].calls {
+			out = append(out, callPos{item: i, call: j})
+		}
+	}
+	return out
+}
+
+// refreshLive updates the live state the rows hold: every call's slot and the
+// approval waiting for it, and the live row at the end. It changes the rows in
+// place, so the stored rows and the search over them stay as they are.
+func (tr *transcript) refreshLive(v *pocket.View) {
+	// A slot and an approval are new pointers on each update, so the rows
+	// must point at the current ones.
+	none := len(v.Live.Tools) == 0 && len(v.Approvals) == 0
+	for _, p := range tr.calls {
+		cl := &tr.items[p.item].calls[p.call]
+		if none {
+			cl.slot, cl.asked = nil, nil
+			continue
+		}
+		cl.slot, cl.asked = v.Slot(cl.block.ID), v.ApprovalFor(cl.block.ID)
+	}
+	busy := v.Live.Busy || v.Live.Limit != nil
+	live := len(tr.items) > 0 && tr.items[len(tr.items)-1].kind == itemLive
+	switch {
+	case busy && !live:
+		tr.items = append(tr.items, item{kind: itemLive, key: "live"})
+		if tr.search != nil {
+			tr.search = append(tr.search, "")
+		}
+	case !busy && live:
+		tr.items = tr.items[:len(tr.items)-1]
+		if n := len(tr.search); n > 0 {
+			tr.search = tr.search[:n-1]
+		}
+	}
 }
 
 // buildItems flattens a view into rows: each assistant message's text and

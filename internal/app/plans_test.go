@@ -573,3 +573,130 @@ func TestPlanReasonLimitsPreventInvalidRequests(t *testing.T) {
 		})
 	}
 }
+
+// A saved form draft belongs to its own form: an action that another part of
+// the page submits never discards it, whether the form was cancelled or
+// dismissed with Escape.
+func TestPlanActionsKeepAnotherFormDraft(t *testing.T) {
+	for _, leave := range []string{"cancel", "escape"} {
+		for _, action := range []string{"marks", "answer", "dismiss", "stop"} {
+			t.Run(leave+"/"+action, func(t *testing.T) {
+				a, loop := teamApp(t)
+				data := testPlanJSON
+				if action == "stop" {
+					data = strings.TrimSuffix(data, "}") + `,"consults":[{"id":"k1","agent":"duncan","state":"running","question":"Check it","canStop":true}]}`
+				}
+				a.link.client.HTTP = &http.Client{Transport: sessionToolsHTTP(func(r *http.Request) (*http.Response, error) {
+					if r.Method == "GET" {
+						return reply(r, data), nil
+					}
+					return reply(r, `{}`), nil
+				})}
+				a.openPlan("T7")
+				loop.RunUntil(t, func() bool { return !a.plan.loading })
+				s := a.plan
+				ask := s.view.Sections[0].Asks[0]
+				a.beginPlanForm("comment", "s1", nil)
+				s.text = "unsent comment"
+				tt := ui.NewTesterWith(func(c *ui.Context) { frostui.Adapt(c); ui.Box(c).Fill(); a.planActionDialog(c) }, 800, 500, ui.TesterOptions{})
+				tt.Frame()
+				switch leave {
+				case "cancel":
+					if err := tt.Click("Cancel action"); err != nil {
+						t.Fatal(err)
+					}
+				case "escape":
+					tt.Key(0, ui.KeyEscape)
+				}
+				tt.Frame()
+				if s.form != "" || s.formTexts["comment:s1"] != "unsent comment" {
+					t.Fatalf("%s did not keep the comment draft: %q %q", leave, s.form, s.formTexts["comment:s1"])
+				}
+				switch action {
+				case "marks":
+					a.planAct("marks:"+ask.ID, map[string]any{"gen": ask.Gen, "marks": map[string]string{"0/r1": "partly"}})
+				case "answer":
+					a.planAct("answer:"+ask.ID, map[string]any{"words": "Small change", "gen": ask.Gen})
+				case "dismiss":
+					a.planAct("dismiss:c1", map[string]any{})
+				case "stop":
+					a.planAct("stop:k1", map[string]any{})
+				}
+				loop.RunUntil(t, func() bool { return !s.busy && !s.loading })
+				if s.err != "" {
+					t.Fatalf("%s failed: %s", action, s.err)
+				}
+				if s.form != "" {
+					t.Fatalf("%s opened a form", action)
+				}
+				a.beginPlanForm("comment", "s1", nil)
+				if s.text != "unsent comment" {
+					t.Fatalf("%s after %s erased the comment draft", action, leave)
+				}
+			})
+		}
+	}
+}
+
+// A successful submission clears the submitted form's draft and leaves
+// another form's draft in place.
+func TestPlanCommentSubmitClearsOnlyItsOwnDraft(t *testing.T) {
+	a, loop := teamApp(t)
+	sent := make(chan struct{}, 1)
+	a.link.client.HTTP = &http.Client{Transport: sessionToolsHTTP(func(r *http.Request) (*http.Response, error) {
+		if r.Method == "GET" {
+			return reply(r, testPlanJSON), nil
+		}
+		sent <- struct{}{}
+		return reply(r, `{}`), nil
+	})}
+	a.openPlan("T7")
+	loop.RunUntil(t, func() bool { return !a.plan.loading })
+	s := a.plan
+	a.beginPlanForm("comment", "s1", nil)
+	s.text = "unsent comment"
+	s.closeForm()
+	a.beginPlanForm("drop", "", nil)
+	s.text = "not yet a reason"
+	s.closeForm()
+	if s.formTexts["comment:s1"] == "" || s.formTexts["drop:"] == "" {
+		t.Fatal("forms did not save their drafts")
+	}
+	a.beginPlanForm("comment", "s1", nil)
+	if s.text != "unsent comment" {
+		t.Fatalf("reopened comment text %q", s.text)
+	}
+	s.text = "Please explain the rollback."
+	tt := ui.NewTesterWith(func(c *ui.Context) { frostui.Adapt(c); ui.Box(c).Fill(); a.planActionDialog(c) }, 800, 500, ui.TesterOptions{})
+	tt.Frame()
+	if err := tt.Click("Submit add comment"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	loop.RunUntil(t, func() bool { return !s.busy && !s.loading })
+	select {
+	case <-sent:
+	default:
+		t.Fatal("comment action not sent")
+	}
+	if s.err != "" {
+		t.Fatal(s.err)
+	}
+	if s.form != "" || s.text != "" {
+		t.Fatalf("submitted form stayed open: %q %q", s.form, s.text)
+	}
+	if _, ok := s.formTexts["comment:s1"]; ok {
+		t.Fatal("submitted comment kept its draft")
+	}
+	if s.formTexts["drop:"] != "not yet a reason" {
+		t.Fatal("submitting a comment erased another form's draft")
+	}
+	a.beginPlanForm("comment", "s1", nil)
+	if s.text != "" {
+		t.Fatalf("submitted comment text returned: %q", s.text)
+	}
+	a.beginPlanForm("drop", "", nil)
+	if s.text != "not yet a reason" {
+		t.Fatalf("drop draft lost: %q", s.text)
+	}
+}
