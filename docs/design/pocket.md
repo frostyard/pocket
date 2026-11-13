@@ -239,6 +239,10 @@ server's facts. The status bar shows do not disturb while it holds.
   `POCKET_CONFIG_DIR` picks another). `POCKET_NO_KEYRING=1` keeps the token in
   a file there instead of the keyring, for development.
 
+Historical Numbers records fetch a thread’s detail when it is outside the live
+Desk list, so older closures and their reports remain readable in the inspector.
+
+
 ## References
 
 - Rationale: [ADR-0004](../adr/0004-build-a-native-client-of-pi-pockets-own-api.md), [ADR-0005](../adr/0005-organize-the-window-around-what-needs-the-owner.md), [ADR-0006](../adr/0006-filter-notifications-in-the-client.md)

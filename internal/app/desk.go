@@ -41,6 +41,7 @@ type desk struct {
 	dashOwner, dashRepo, dashErr string
 	dashShown                    pocket.DashboardQuery
 	records                      *numberRecords
+	recordThread                 *numberThread
 
 	board        *pocket.Board
 	boardLoading bool

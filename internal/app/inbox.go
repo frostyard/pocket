@@ -612,7 +612,7 @@ func peekIcon(l pocket.PeekLine) string {
 
 // threadContext shows a Desk thread: what keeps it open, its PRs, its
 // events and the reports its agents filed.
-func (a *App) threadContext(c *ui.Context, t *pocket.DeskThread) {
+func (a *App) threadContext(c *ui.Context, t *pocket.DeskThread, supplied ...*pocket.DeskThreadDetail) {
 	ui.Column(c).Gap(frostui.SpaceXS).AlignItems(ui.Stretch).Children(func() {
 		ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
 			frostui.Mono(c, t.ID)
@@ -677,7 +677,12 @@ func (a *App) threadContext(c *ui.Context, t *pocket.DeskThread) {
 			})
 		}
 	}
-	d := a.threadDetail(t.ID)
+	var d *pocket.DeskThreadDetail
+	if len(supplied) > 0 {
+		d = supplied[0]
+	} else {
+		d = a.threadDetail(t.ID)
+	}
 	if d != nil && len(d.Reports) > 0 {
 		frostui.SectionHeader(c, frostui.SectionHead{Title: "Reports", Aside: fmt.Sprint(len(d.Reports)), Quiet: true})
 		for i := len(d.Reports) - 1; i >= 0 && i >= len(d.Reports)-3; i-- {
@@ -746,6 +751,8 @@ func threadStateLabel(t *pocket.DeskThread) string {
 		return firstNonEmpty(t.Closed.Outcome, t.Closed.Why)
 	}
 	switch t.Group() {
+	case "closed":
+		return "closed"
 	case "need":
 		return "needs you"
 	case "review":

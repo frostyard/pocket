@@ -177,6 +177,9 @@ func (a *App) inspector(c *ui.Context) {
 					a.threadContext(c, th)
 					return
 				}
+				if a.numberThreadContext(c) {
+					return
+				}
 				frostui.Muted(c, "Choose a thread to see its PRs, events and reports. Double-click opens its session.").Wrap()
 			case "x:wiki":
 				a.wikiContext(c)

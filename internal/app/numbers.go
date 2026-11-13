@@ -161,8 +161,7 @@ func (a *App) numberRecordsDialog(c *ui.Context) {
 								frostui.Mono(c, th.ID+" (no longer on the Desk)")
 							} else if ui.Button(c, th.ID).Clicked() {
 								r.open = false
-								a.goPlace("x:motion")
-								a.threadSel = th.ID
+								a.openNumberThread(th.ID)
 							}
 							frostui.Caption(c, th.Kind+" · "+firstNonEmpty(th.Repo, "unattributed")+" · "+th.State).Wrap()
 						})
@@ -179,8 +178,7 @@ func (a *App) numberRecordsDialog(c *ui.Context) {
 								for _, id := range pr.Threads {
 									if ui.Button(c.Key(pr.Ref+id), id).Clicked() {
 										r.open = false
-										a.goPlace("x:motion")
-										a.threadSel = id
+										a.openNumberThread(id)
 									}
 								}
 							})
@@ -196,4 +194,61 @@ func (a *App) numberRecordsDialog(c *ui.Context) {
 			})
 		})
 	})
+}
+
+// A historical metric can name a thread outside the Desk's seven-day window.
+type numberThread struct {
+	id      string
+	loading bool
+	detail  *pocket.DeskThreadDetail
+	err     string
+}
+
+func (a *App) openNumberThread(id string) {
+	a.goPlace("x:motion")
+	a.threadSel = id
+	if !a.shell.Panes.Shown("inspector") {
+		a.shell.Panes.Toggle("inspector")
+	}
+	if a.desk.thread(id) != nil {
+		a.desk.recordThread = nil
+		return
+	}
+	n := &numberThread{id: id, loading: true}
+	a.desk.recordThread = n
+	var detail *pocket.DeskThreadDetail
+	a.request("Reading historical thread "+id, func(ctx context.Context, c *pocket.Client) error {
+		var err error
+		detail, err = c.DeskThread(ctx, id)
+		return err
+	}, func(err error) {
+		if a.desk.recordThread != n {
+			return
+		}
+		n.loading = false
+		if err != nil {
+			n.err = err.Error()
+		} else {
+			n.detail = detail
+		}
+	})
+}
+
+func (a *App) numberThreadContext(c *ui.Context) bool {
+	n := a.desk.recordThread
+	if n == nil || n.id != a.threadSel {
+		return false
+	}
+	switch {
+	case n.loading:
+		frostui.Loading(c, "Reading "+n.id+"…")
+	case n.err != "":
+		frostui.Problem(c, "Could not read "+n.id+": "+n.err).Wrap()
+		if ui.Button(c, "Read thread again").Clicked() {
+			a.openNumberThread(n.id)
+		}
+	case n.detail != nil:
+		a.threadContext(c, &n.detail.Thread, n.detail)
+	}
+	return true
 }

@@ -88,3 +88,49 @@ func TestNumberRecordsSnapshot(t *testing.T) {
 	}
 	writePNG(t, tt, "numbers-records")
 }
+
+func TestNumberRecordOpensClosedThreadOutsideDesk(t *testing.T) {
+	for _, metric := range []string{"Closed well", "PRs merged"} {
+		t.Run(metric, func(t *testing.T) {
+			a, loop := teamApp(t)
+			a.desk.view = &pocket.DeskView{}
+			var data pocket.DashboardRecords
+			if err := pocket.Decode([]byte(`{"threads":[{"id":"T900","kind":"success","state":"closed"}],"prs":[{"ref":"example/tools#9","state":"MERGED","events":["merged"],"threads":["T900"]}]}`), &data); err != nil {
+				t.Fatal(err)
+			}
+			a.desk.records = &numberRecords{open: true, metric: metric, data: &data}
+			read := make(chan struct{}, 1)
+			a.link.client.HTTP = &http.Client{Transport: numbersHTTP(func(r *http.Request) (*http.Response, error) {
+				if r.URL.Path == "/api/x/desk/threads/T900" {
+					select {
+					case read <- struct{}{}:
+					default:
+					}
+					return reply(r, `{"thread":{"id":"T900","title":"Completed long ago","state":"closed"},"reports":[{"text":"Old completion report"}]}`), nil
+				}
+				return reply(r, `{"threads":[]}`), nil
+			})}
+			tt := ui.NewTesterWith(func(c *ui.Context) { frostui.Adapt(c); ui.Box(c).Fill(); a.numberRecordsDialog(c) }, 800, 650, ui.TesterOptions{})
+			tt.Frame()
+			tt.Click("T900")
+			tt.Frame()
+			loop.RunUntil(t, func() bool {
+				select {
+				case <-read:
+					return true
+				default:
+					return false
+				}
+			})
+			details := ui.NewTesterWith(func(c *ui.Context) { frostui.Adapt(c); a.inspector(c) }, 400, 700, ui.TesterOptions{})
+			loop.RunUntil(t, func() bool { details.Frame(); return details.HasText("Completed long ago") })
+			if a.selected != "x:motion" || a.threadSel != "T900" {
+				t.Fatal("record did not select thread")
+			}
+			if !details.HasText("closed") {
+				t.Fatal("closed thread marked as working")
+			}
+			writePNG(t, details, "numbers-closed-thread")
+		})
+	}
+}
