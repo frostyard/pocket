@@ -377,10 +377,45 @@ func (a *App) author(e *pocket.Entry) (string, bool) {
 
 const attachedMarker = "\n\nAttached files (saved on the server):\n"
 
+// attachments lists the files a person's message carried: those its text says
+// were saved on the server, written there by older servers, and then the file
+// names the server records with the message. A recorded file that the text
+// already named, by its path or by its base name, counts once; within one
+// list, only the same path is a repeat. Names keep their case: Report.pdf
+// and report.pdf are 2 files.
+func attachments(e *pocket.Entry, legacy string) []string {
+	var files []string
+	paths, legacyBases := map[string]bool{}, map[string]bool{}
+	for _, f := range strings.Split(legacy, "\n") {
+		f = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(f), "- "))
+		if f == "" || paths[f] {
+			continue
+		}
+		paths[f], legacyBases[baseName(f)] = true, true
+		files = append(files, f)
+	}
+	if e != nil {
+		for _, f := range e.Files {
+			f = strings.TrimSpace(f)
+			if f == "" || paths[f] || legacyBases[baseName(f)] {
+				continue
+			}
+			paths[f] = true
+			files = append(files, f)
+		}
+	}
+	return files
+}
+
 func (a *App) userRow(c *ui.Context, it *item) {
 	t := c.Theme()
 	name, mine := a.author(it.entry)
-	text, files, _ := strings.Cut(it.text, attachedMarker)
+	text, legacy, _ := strings.Cut(it.text, attachedMarker)
+	files := attachments(it.entry, legacy)
+	images := 0
+	if it.entry != nil {
+		images = it.entry.Images
+	}
 	ui.Row(c).Gap(frostui.SpaceM).AlignItems(ui.Start).Padding(frostui.SpaceM).Radius(10).
 		Background(frostui.Panel(t)).BorderWidth(1, 1, 1, 1).BorderColor(t.Border).Children(func() {
 		frostui.SquareAvatar(c, name, 28)
@@ -395,14 +430,20 @@ func (a *App) userRow(c *ui.Context, it *item) {
 					frostui.Caption(c, clock(it.at))
 				}
 			})
-			markdown.View(c, text, &a.md)
-			if files != "" {
+			// A message can carry only attachments, with no words of its own.
+			if strings.TrimSpace(text) != "" {
+				markdown.View(c, text, &a.md)
+			}
+			if len(files) > 0 || images > 0 {
 				ui.Row(c).Gap(frostui.SpaceXS).Wrap().Children(func() {
-					for _, f := range strings.Split(strings.TrimSpace(files), "\n") {
-						f = strings.TrimSpace(strings.TrimPrefix(f, "- "))
-						if f != "" {
-							frostui.IconPill(c.Key(f), "paperclip", baseName(f), frostui.Neutral)
+					for _, f := range files {
+						pill := frostui.IconPill(c.Key("file:"+f), "mail-attachment", baseName(f), frostui.Neutral)
+						if f != baseName(f) {
+							pill.Tooltip(f)
 						}
+					}
+					if images > 0 {
+						frostui.IconPill(c.Key("images:count"), "insert-image", plural(images, "image", "images"), frostui.Neutral)
 					}
 				})
 			}
