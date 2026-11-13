@@ -9,10 +9,16 @@ import (
 )
 
 // fakeNative is a web view that records what the pane asks of it. While
-// gate is set, SetCookie waits on it, as a native cookie store can.
+// gate is set, SetCookie waits on it, as a native cookie store can; while
+// loadGate is set, a Load of loadPage waits on it before the load runs, as
+// a load waits for MyGo's main thread.
 type fakeNative struct {
-	mu      sync.Mutex
-	gate    chan struct{}
+	mu       sync.Mutex
+	gate     chan struct{}
+	loadGate chan struct{}
+	loadPage string
+	// loading is closed once a Load of loadPage waits on loadGate.
+	loading chan struct{}
 	cookies []WebCookie
 	deleted []WebCookie
 	loads   []string
@@ -38,6 +44,13 @@ func (f *fakeNative) DeleteCookie(c WebCookie) error {
 
 func (f *fakeNative) Load(page string) error {
 	f.mu.Lock()
+	gate, loading := f.loadGate, f.loading
+	if gate != nil && page == f.loadPage {
+		f.mu.Unlock()
+		close(loading)
+		<-gate
+		f.mu.Lock()
+	}
 	defer f.mu.Unlock()
 	f.loads = append(f.loads, page)
 	return nil
@@ -87,6 +100,35 @@ func TestStaleCommitKeepsNewerShow(t *testing.T) {
 	w.Wait()
 	if got := native.lastLoad(); got != pageB {
 		t.Errorf("the view ends on %q, want B's page %q; loads: %q", got, pageB, native.loads)
+	}
+}
+
+// TestStaleCommitDuringNativeLoad is the guard of the cross-review of
+// frostyard/pocket#34, re-review 2: B's load has left the chain but waits
+// for the native side when A's page commits outside the rule. The blank
+// must not land after B.
+func TestStaleCommitDuringNativeLoad(t *testing.T) {
+	w, native := newTestWeb(t)
+	if err := w.Show(pageA, testServer, "tok"); err != nil {
+		t.Fatal(err)
+	}
+	w.Wait()
+	gate, loading := make(chan struct{}), make(chan struct{})
+	native.mu.Lock()
+	native.loadGate, native.loadPage, native.loading = gate, pageB, loading
+	native.mu.Unlock()
+	if err := w.Show(pageB, testServer, "tok"); err != nil {
+		t.Fatal(err)
+	}
+	<-loading // B's load waits for the native side
+	w.Committed(testServer + "/")
+	close(gate)
+	w.Wait()
+	native.mu.Lock()
+	loads := slices.Clone(native.loads)
+	native.mu.Unlock()
+	if len(loads) == 0 || loads[len(loads)-1] != pageB {
+		t.Errorf("the view ends on %q, want B's page %q", loads, pageB)
 	}
 }
 

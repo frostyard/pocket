@@ -15,7 +15,9 @@ type WebNative interface {
 	SetCookie(c WebCookie) error
 	// DeleteCookie deletes the cookie of c's name, domain and path.
 	DeleteCookie(c WebCookie) error
-	// Load loads url in the web view.
+	// Load loads url in the web view. The native load runs on the view's
+	// thread (MyGo's main thread), in the order the calls reach it; a call
+	// made on that thread runs at once.
 	Load(url string) error
 }
 
@@ -23,7 +25,7 @@ type WebNative interface {
 // itself: it signs the view in and out, decides where its page may go, and
 // makes the native calls in order, off the UI thread. A sign-out must not
 // land after a later Show, and a blank for a page that committed outside
-// the rule must not replace a newer Show.
+// the rule must not replace a newer Show (see Committed).
 type ArtifactWeb struct {
 	native WebNative
 	warn   func(what string, err error)
@@ -36,8 +38,6 @@ type ArtifactWeb struct {
 	hosts map[string]bool
 	// last is the tail of the chain of native work: see do.
 	last chan struct{}
-	// loads counts the loads the chain made.
-	loads uint64
 }
 
 // NewArtifactWeb is the pane's logic over native; warn logs a native call
@@ -103,25 +103,21 @@ func (w *ArtifactWeb) Navigate(target string, user bool) Navigation {
 	return ArtifactNavigation(w.signedServer(), target, user)
 }
 
-// Committed is told of every page the view committed to. Reloads and moves
-// in the history do not reach the navigation hook, so a page outside the
-// rule is blanked here, unless a load the chain made after it replaced it
-// already: a stale page must not blank a newer Show.
+// Committed is told of every page the view committed to, on the thread
+// that makes the view's native calls (MyGo's main thread). Reloads and
+// moves in the history do not reach the navigation hook, so a page
+// outside the rule is blanked here, at once, on that thread. A load the
+// chain asks for runs on that thread too: one asked for before the commit
+// ran already, and the blank replaces the page outside the rule; one
+// asked for later runs after the blank, so a stale page never blanks a
+// newer Show.
 func (w *ArtifactWeb) Committed(target string) {
 	if ArtifactPageAllowed(w.signedServer(), target) {
 		return
 	}
-	w.mu.Lock()
-	mark := w.loads
-	w.mu.Unlock()
-	w.do(func() {
-		w.mu.Lock()
-		newer := w.loads != mark
-		w.mu.Unlock()
-		if !newer {
-			w.load("about:blank")
-		}
-	})
+	if err := w.native.Load("about:blank"); err != nil {
+		w.warn("blanking the artifacts' web view", err)
+	}
 }
 
 // Wait returns once the native work asked for so far is done.
@@ -138,11 +134,8 @@ func (w *ArtifactWeb) signedServer() string {
 	return w.server
 }
 
-// load counts the load, then makes it. It runs on the chain.
+// load loads page. It runs on the chain.
 func (w *ArtifactWeb) load(page string) {
-	w.mu.Lock()
-	w.loads++
-	w.mu.Unlock()
 	if err := w.native.Load(page); err != nil {
 		w.warn("loading the artifacts' web view", err)
 	}
