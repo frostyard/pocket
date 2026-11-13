@@ -121,6 +121,18 @@ func (s *planPage) closeForm() {
 	}
 	s.form = ""
 }
+
+// formSubmitKey names the form an action submits: the open form's key when the
+// action is that form's own submit action, and nothing for any other action.
+func (s *planPage) formSubmitKey(action string) string {
+	if s.form == "" {
+		return ""
+	}
+	if action == s.form || strings.HasPrefix(action, s.form+":") {
+		return s.formKey
+	}
+	return ""
+}
 func (a *App) planBodyKey(s *planPage, action string, body map[string]any) {
 	data, _ := json.Marshal(body)
 	known := s.keys[action]
@@ -144,6 +156,8 @@ func (a *App) planAct(action string, body map[string]any) {
 	s.busy = true
 	s.err = ""
 	planID := s.id
+	// Only the form this action submits loses its saved text on success.
+	submitted := s.formSubmitKey(action)
 	a.request("Updating plan", func(ctx context.Context, c *pocket.Client) error {
 		kind, id, found := strings.Cut(action, ":")
 		if found {
@@ -192,9 +206,13 @@ func (a *App) planAct(action string, body map[string]any) {
 				}
 			}
 		}
-		delete(s.formTexts, s.formKey)
-		s.form = ""
-		s.text = ""
+		if submitted != "" {
+			delete(s.formTexts, submitted)
+			if s.form != "" && s.formKey == submitted {
+				s.form = ""
+				s.text = ""
+			}
+		}
 		a.loadPlan()
 		a.loadDesk()
 	})
