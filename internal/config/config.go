@@ -24,6 +24,10 @@ type Settings struct {
 	Widths    map[string]float32 `json:"widths,omitempty"`
 	Collapsed map[string]bool    `json:"collapsed,omitempty"`
 	// Pinned sessions, in order, by conversation ID.
+	//
+	// Legacy: a pin belongs to an account (Accounts), because sessions do.
+	// Pocket reads these once, at the first hello of the server they name,
+	// and then clears them.
 	Pinned []string `json:"pinned,omitempty"`
 	// Notify turned desktop notifications off before Notifications had
 	// its own switch; read once, then left alone.
@@ -37,10 +41,73 @@ type Settings struct {
 	// 1.25 for 125%. Zero is 100%.
 	Zoom float32 `json:"zoom,omitempty"`
 	// LastSession is the conversation shown when Pocket last closed.
+	// Legacy, as Pinned: it moves to the account's entry.
 	LastSession string `json:"lastSession,omitempty"`
 	// Seen is when the person last saw each session, by the server's
 	// clock in milliseconds, keyed by conversation ID.
+	// Legacy, as Pinned: it moves to the account's entry.
 	Seen map[string]int64 `json:"seen,omitempty"`
+	// Accounts is what Pocket keeps about each account it has signed in
+	// to. A conversation ID is its server's, so pins, seen marks and the
+	// last session belong to the account, never to the file.
+	Accounts []AccountPrefs `json:"accounts,omitempty"`
+	// LegacyServer is the server the legacy pins, seen marks and last
+	// session belong to. Pocket writes it when it finds them without one,
+	// and clears it with them: a sign-in to another server replaces
+	// Server, and these are never that server's.
+	LegacyServer string `json:"legacyServer,omitempty"`
+}
+
+// AccountPrefs is what Pocket remembers about 1 account: a server, named
+// by its base URL, and the user signed in to it.
+type AccountPrefs struct {
+	Server string `json:"server"`
+	User   string `json:"user"`
+	// Pinned sessions, in order, by conversation ID.
+	Pinned []string `json:"pinned,omitempty"`
+	// Seen is when the person last saw each session, by the server's
+	// clock in milliseconds, keyed by conversation ID.
+	Seen map[string]int64 `json:"seen,omitempty"`
+	// LastSession is the conversation shown when Pocket last closed.
+	LastSession string `json:"lastSession,omitempty"`
+}
+
+// ClaimLegacy names the server the legacy pins, seen marks and last session
+// belong to, the first time Pocket finds them without a name: their server is
+// the one the file signs in to, before a new sign-in can replace it. It
+// reports whether it found them.
+func (s *Settings) ClaimLegacy() bool {
+	if len(s.Pinned) == 0 && len(s.Seen) == 0 && s.LastSession == "" {
+		return false
+	}
+	if s.LegacyServer == "" {
+		s.LegacyServer = s.Server
+	}
+	return true
+}
+
+// Account returns the settings of the account signed in to server as
+// user, or nil when there are none. Adding an account may move the slice,
+// so a pointer is good only until the next Account or EnsureAccount call:
+// find the entry again on each use instead of keeping it.
+func (s *Settings) Account(server, user string) *AccountPrefs {
+	for i := range s.Accounts {
+		if s.Accounts[i].Server == server && s.Accounts[i].User == user {
+			return &s.Accounts[i]
+		}
+	}
+	return nil
+}
+
+// EnsureAccount returns the settings of the account signed in to server as
+// user, making them when it is the first time, and reports whether it made
+// them.
+func (s *Settings) EnsureAccount(server, user string) (*AccountPrefs, bool) {
+	if p := s.Account(server, user); p != nil {
+		return p, false
+	}
+	s.Accounts = append(s.Accounts, AccountPrefs{Server: server, User: user})
+	return &s.Accounts[len(s.Accounts)-1], true
 }
 
 // Finished says which sessions' finished runs notify.

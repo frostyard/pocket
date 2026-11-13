@@ -127,7 +127,11 @@ type App struct {
 	newSessionDraft *newSessionDraft
 	tr              transcript
 	composer        composer
-	md              markdown.Options
+	// account is the server and user the window shows; pins, seen marks,
+	// the last session and the composer's drafts belong to it. Empty when
+	// nobody is signed in, or before the server says who it is.
+	account accountKey
+	md      markdown.Options
 
 	notified      map[string]time.Time
 	notifiedTimer bool
@@ -153,6 +157,9 @@ func New(opts Options) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Name the server the settings kept before accounts had them, before a
+	// sign-in can replace it (Settings.ClaimLegacy).
+	st.ClaimLegacy()
 	con := frostui.NewConsole(4000)
 	con.SetNotify(frostui.NewWaker(opts.Post, 80*time.Millisecond).Wake)
 	a := &App{
@@ -200,9 +207,11 @@ func (a *App) Close() {
 	a.link.client = nil
 	a.settings.Widths = a.shell.Panes.Layout.Widths
 	a.settings.Collapsed = a.shell.Panes.Layout.Collapsed
-	a.settings.LastSession = ""
-	if a.current != 0 {
-		a.settings.LastSession = fmt.Sprint(a.current)
+	if p := a.accountPrefs(); p != nil {
+		p.LastSession = ""
+		if a.current != 0 {
+			p.LastSession = fmt.Sprint(a.current)
+		}
 	}
 	a.saveSettings()
 }
@@ -231,6 +240,69 @@ func (a *App) saveSettings() {
 	}
 }
 
+// accountKey names the account the window shows: a server's base URL and
+// the user signed in to it. A conversation ID is that server's, so pins,
+// seen marks, the last session and the composer's drafts belong to the key.
+type accountKey struct {
+	server, user string
+}
+
+// set reports whether the key names an account: without one, nobody is
+// signed in, or the server has not said who it is yet.
+func (k accountKey) set() bool { return k.server != "" && k.user != "" }
+
+// accountPrefs is what the settings keep for the account shown, or nil
+// when there is none. A write through it does nothing without an account.
+// Find the entry again on each use: adding an account may move the slice.
+func (a *App) accountPrefs() *config.AccountPrefs {
+	if !a.account.set() {
+		return nil
+	}
+	return a.settings.Account(a.account.server, a.account.user)
+}
+
+// adoptAccount makes the account the stream's hello names the one the
+// window shows, and takes back what belongs to it: its pins, seen marks and
+// last session, and its drafts. The first hello of an account also moves
+// the pins, seen marks and last session that older Pockets kept for the
+// whole file, when they are this server's.
+func (a *App) adoptAccount(user string) {
+	key := a.account
+	if a.link.client != nil {
+		key = accountKey{server: a.link.client.Base.String(), user: user}
+	}
+	if key == a.account {
+		return
+	}
+	a.account = key
+	a.invalidateDerived()
+	if !key.set() {
+		return
+	}
+	p, made := a.settings.EnsureAccount(key.server, key.user)
+	if made {
+		a.migrateLegacyPrefs(p)
+		a.saveSettings()
+	}
+	a.composer.adopt(key)
+}
+
+// migrateLegacyPrefs moves the pins, seen marks and last session that Pocket
+// kept before settings belonged to accounts into p, when they are p's
+// server's. Another server never sees them.
+func (a *App) migrateLegacyPrefs(p *config.AccountPrefs) {
+	if !a.settings.ClaimLegacy() {
+		return
+	}
+	base, err := pocket.ParseServer(a.settings.LegacyServer)
+	if err != nil || base.String() != p.Server {
+		return
+	}
+	p.Pinned, p.Seen, p.LastSession = a.settings.Pinned, a.settings.Seen, a.settings.LastSession
+	a.settings.Pinned, a.settings.Seen, a.settings.LastSession = nil, nil, ""
+	a.settings.LegacyServer = ""
+}
+
 // reset forgets what the server said, as after signing out.
 func (a *App) reset() {
 	a.running, a.background, a.scheduleForm = nil, nil, nil
@@ -238,7 +310,12 @@ func (a *App) reset() {
 	a.scheduleBusy = false
 	a.invalidateDerived()
 	a.stopBrowserWatch()
+	// An unacknowledged send becomes a draft of its session, and the drafts
+	// and history stay with the account they belong to until it signs in
+	// again.
 	a.composer.resetRequests()
+	a.composer.stash()
+	a.account = accountKey{}
 	a.tr = transcript{}
 	a.sessionOp = nil
 	a.newSessionDraft = nil
@@ -286,6 +363,9 @@ func (a *App) handle(ev pocket.Event) {
 		a.hello = &h
 		a.link.streamID = h.Connection
 		a.link.failures = 0
+		// Before the last session is restored: the account decides which
+		// pins, seen marks and drafts the window shows.
+		a.adoptAccount(h.User.ID)
 		if h.Server.Now != 0 {
 			a.skew = time.UnixMilli(int64(h.Server.Now)).Sub(a.opts.Now())
 		}
@@ -310,9 +390,13 @@ func (a *App) handle(ev pocket.Event) {
 			a.loadArtifacts()
 		}
 		if first {
-			if a.current == 0 && a.settings.LastSession != "" {
+			last := ""
+			if p := a.accountPrefs(); p != nil {
+				last = p.LastSession
+			}
+			if a.current == 0 && last != "" {
 				var id int
-				if _, err := fmt.Sscan(a.settings.LastSession, &id); err == nil && id != 0 {
+				if _, err := fmt.Sscan(last, &id); err == nil && id != 0 {
 					a.loading = id
 				}
 			}
@@ -525,9 +609,11 @@ func (a *App) open(id int) {
 	a.switchTo(id)
 	a.loadSessionIdentity()
 	a.loadShiftGoal()
-	a.settings.LastSession = ""
-	if id != 0 {
-		a.settings.LastSession = fmt.Sprint(id)
+	if p := a.accountPrefs(); p != nil {
+		p.LastSession = ""
+		if id != 0 {
+			p.LastSession = fmt.Sprint(id)
+		}
 	}
 }
 
@@ -571,10 +657,14 @@ func (a *App) openAgent(id string) {
 // markSeen notes that the person saw session id as it is now.
 func (a *App) markSeen(id int) {
 	a.invalidateDerived()
-	if a.settings.Seen == nil {
-		a.settings.Seen = map[string]int64{}
+	p := a.accountPrefs()
+	if p == nil {
+		return
 	}
-	a.settings.Seen[fmt.Sprint(id)] = a.serverNow().UnixMilli()
+	if p.Seen == nil {
+		p.Seen = map[string]int64{}
+	}
+	p.Seen[fmt.Sprint(id)] = a.serverNow().UnixMilli()
 }
 
 // state is what a session's row says, as the web app's stateMark.
@@ -606,7 +696,10 @@ func (a *App) computeState(s *pocket.Session) state {
 	case s.Working():
 		return stateWorking
 	}
-	seen := pocket.Millis(a.settings.Seen[fmt.Sprint(s.ID)])
+	var seen pocket.Millis
+	if p := a.accountPrefs(); p != nil {
+		seen = pocket.Millis(p.Seen[fmt.Sprint(s.ID)])
+	}
 	unseen := s.EndedAt != 0 && s.EndedAt > seen && a.serverNow().Sub(s.EndedAt.Time()) < 30*24*time.Hour
 	if s.Failed && (unseen || seen == 0) {
 		return stateFailed

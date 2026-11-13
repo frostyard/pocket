@@ -25,8 +25,12 @@ func requestApp(t *testing.T, transport routeTransport) (*App, *frostuitest.Loop
 		t.Fatal(err)
 	}
 	client.HTTP = &http.Client{Transport: transport}
+	store, err := config.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	a := &App{post: loop.Post, console: frostui.NewConsole(100), focused: true,
-		opts: Options{Now: func() time.Time { return time.Unix(1000, 0) }, Creds: config.Credentials{Dir: t.TempDir()}},
+		opts: Options{Now: func() time.Time { return time.Unix(1000, 0) }, Store: store, Creds: config.Credentials{Dir: store.Dir()}},
 		link: link{client: client}, view: pocket.NewView(), byID: map[int]*pocket.Session{}}
 	return a, loop
 }
@@ -161,6 +165,7 @@ func TestRoute401ReleasesComposerAndRestoresDraft(t *testing.T) {
 	})
 	a.current = 7
 	a.hello = &pocket.Hello{User: pocket.User{ID: "u1", Role: "owner"}}
+	a.adoptAccount("u1")
 	a.composer.session = 7
 	a.composer.answered = map[string]bool{"approval": true}
 	a.composer.promptsFor = 7
@@ -170,9 +175,16 @@ func TestRoute401ReleasesComposerAndRestoresDraft(t *testing.T) {
 	if a.composer.sending || len(a.composer.answered) != 0 || a.composer.promptsFor != 0 || a.tr.earlier {
 		t.Fatal("sign-out retained in-flight UI state")
 	}
-	if a.composer.draft != "unsent words" || a.composer.drafts[7] != "unsent words" {
+	if a.composer.draft != "" || len(a.composer.drafts) != 0 || len(a.composer.history) != 0 {
+		t.Fatal("sign-out kept the drafts of the account it left")
+	}
+	kept := a.composer.kept[accountKey{server: "https://example.org", user: "u1"}]
+	if kept.drafts[7] != "unsent words" {
 		t.Fatal("sign-out lost the unacknowledged send")
 	}
+	// The same account, signed in again, gets it back.
+	a.link.client, _ = pocket.NewClient("https://example.org", "test")
+	a.adoptAccount("u1")
 	a.composer.reset(0)
 	a.composer.reset(7)
 	if a.composer.draft != "unsent words" {
@@ -194,7 +206,8 @@ func TestRetryInitialConnectionRestoresLastSession(t *testing.T) {
 	})
 	a.conn.State = frostui.Connecting
 	a.conn.Reason = "previous failure"
-	a.settings.LastSession = "42"
+	prefs, _ := a.settings.EnsureAccount("https://example.org", "u1")
+	prefs.LastSession = "42"
 	client := a.link.client
 	a.reconnectNow()
 	<-started
@@ -202,7 +215,7 @@ func TestRetryInitialConnectionRestoresLastSession(t *testing.T) {
 	if a.conn.State != frostui.Connecting || a.conn.Reason != "" || a.link.client != client {
 		t.Fatal("retry abandoned the initial connection or authenticated client")
 	}
-	a.handle(pocket.Event{Name: "hello", Data: []byte(`{"connection":"test"}`)})
+	a.handle(pocket.Event{Name: "hello", Data: []byte(`{"connection":"test","user":{"id":"u1"}}`)})
 	if a.loading != 42 {
 		t.Fatalf("restored session %d, want 42", a.loading)
 	}
