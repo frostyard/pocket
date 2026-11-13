@@ -18,6 +18,9 @@ import (
 
 // motionGroups orders the threads' groups as the page shows them.
 var motionGroups = []struct{ id, title, icon string }{
+	{"need", "Waiting on you", "alarm-clock"},
+	{"found", "Found work", "pocket-desk"},
+	{"stale", "Gone quiet", "pocket-pin"},
 	{"working", "Agents at work", "pocket-agent"},
 	{"odrade", "With the supervisor", "pocket-desk"},
 	{"review", "In review", "pocket-eye"},
@@ -27,6 +30,9 @@ var motionGroups = []struct{ id, title, icon string }{
 }
 
 func motionGroup(t *pocket.DeskThread) string {
+	if dueWatch(t) {
+		return "need"
+	}
 	g := t.Group()
 	if g == "working" && t.Next == "odrade" {
 		return "odrade"
@@ -117,6 +123,7 @@ func (a *App) motionPane(c *ui.Context) {
 					frostui.Empty(c, "pocket-sparkle", "Nothing in motion", "No run is at work. Start a session, or give an agent a task.")
 				}
 				if v != nil {
+					a.deskExtras(c, v)
 					a.closedThreads(c, v)
 				}
 			})
@@ -157,11 +164,17 @@ func (a *App) threadRow(c *ui.Context, th *pocket.DeskThread) {
 		ui.Column(c).Grow(1).Gap(2).AlignItems(ui.Stretch).Children(func() {
 			ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
 				frostui.Mono(c, th.ID).TextColor(t.TextMuted)
+				if a.desk.seenReady && th.LastEventAt > a.desk.seenBefore {
+					frostui.Pill(c, "new", frostui.Accent)
+				}
 				frostui.Strong(c, th.Title).SingleLine().Grow(1)
+				if dueWatch(th) {
+					frostui.Pill(c, "check due", frostui.Warning)
+				}
 				for _, pr := range th.PRs {
 					if pr.State == "OPEN" || pr.Ready {
 						tone := frostui.Accent
-						if pr.Ready {
+						if pr.Ready || pr.Next == "brian" {
 							tone = frostui.Success
 						}
 						frostui.Pill(c.Key(pr.Ref), shortRef(pr.Ref), tone)

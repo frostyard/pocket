@@ -49,6 +49,7 @@ them rather than improvising, whichever agent you are. Start a new one from
   `mergeView`). `internal/app` is the window: `app.go` (state, events),
   `conn.go` (the link), `frame.go` (frame, commands, palette), `sidebar.go`,
   `inbox.go`, `board_actions.go` (board details and actions), `core_memory.go` (Pi Pocket lessons), `motion.go` (In motion, Shift board, Numbers), `desk.go`,
+  `desk_actions.go` (owner thread actions), `desk_extras.go` (supplementary lists),
   `transcript.go`, `composer.go`, `pages.go`, `session_details.go` (session
   identity and shift goal), `notify.go`, `settings.go`,
   `terminals.go` (the Terminal place, over `pocket.TermConn`),
