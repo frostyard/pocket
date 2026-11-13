@@ -84,6 +84,7 @@ type DeskThread struct {
 	} `json:"events"`
 	Supervisor int        `json:"supervisor,omitempty"`
 	HasSession bool       `json:"hasSession"`
+	Session    *int       `json:"session,omitempty"`
 	Watch      *DeskWatch `json:"watch,omitempty"`
 	Asleep     bool       `json:"asleep"`
 	Closed     *struct {

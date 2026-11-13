@@ -66,7 +66,9 @@ internal/icons ── the icons Pocket draws itself
 - **In motion** (⌘2) — every thread under way, grouped by who moves it next
   (agents at work, with the supervisor, in review, plans, watching, parked),
   each with what its session does now from the server's peek feed, and runs
-  at work that no thread holds. Double-click opens the thread's session.
+  at work that no thread holds. Double-click opens the thread's bound session. The optional Desk `session`
+  field is authoritative, even when that session is missing locally; only older
+  modules without the field use the title-and-agent fallback.
 - **Team** (⌘3) — the lessons agents want to keep, to approve, edit or
   discard (a change to an approved one shows old and new), and the roster.
   Each agent's page has a task card, its sessions, its lessons (forget,
