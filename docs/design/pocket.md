@@ -141,6 +141,33 @@ internal/icons ── the icons Pocket draws itself
   it may not write the desktop's clipboard (OSC 52) or read it, and only the
   web and mail links it prints open with the system; a shell that exits shows
   its code, and one that goes or stops taking keys says it is disconnected.
+- **Arrakis** (⌘9) — the team as one drawn scene, a desert under an eclipse,
+  that fits the pane at any size and never scrolls. The eclipse's disc counts
+  what the Inbox counts, and its ring is every open Desk thread by who moves
+  it next (the owner, the supervisor, agents, review, watching), or without a
+  Desk the sessions that move; a click on it opens the Inbox. Each named
+  agent is a figure on the dunes, the supervisor under the eclipse: a
+  glowglobe while a run is at work (small lights for its subagents), a
+  thumper while it calls for the owner (a call to allow, a question, a Desk
+  ask), embers for a failed run, water for a finished run not yet read. Under
+  the name a line says the most pressing thing, from the same peek feed as In
+  motion. A click chooses a figure, whose asks and sessions the right pane
+  lists; a double click goes where it presses most (the Inbox at its ask, or
+  its session); J/K walk the figures. Sessions of no named agent stand small
+  on the far ridge while something about them moves, seven at most, and
+  stand in for the team on a server without one. A worm passes while runs
+  are at work, a run that ends blows spice, and the wind rises while runs
+  fail. The sky follows the device's clock, or stays day, dusk or night. An
+  agent named after a person of the books wears that person's title and
+  faction (`internal/app/arrakis_cast.go`). It is a view of what the window
+  already knows ([ADR-0005](../adr/0005-organize-the-window-around-what-needs-the-owner.md)):
+  it adds no route and asks the server for nothing
+  ([ADR-0004](../adr/0004-build-a-native-client-of-pi-pockets-own-api.md)).
+  The view builds an immutable scene and a `Draw` paints it from the frame
+  clock (`internal/app/arrakis_scene.go`): 30 frames a second on a GPU, 8
+  where the window draws on the CPU, none while the desktop asks for less
+  motion or the place is out of sight. Dune and its people belong to the
+  estate of Frank Herbert; this is an unofficial fan work.
 - **Sessions** — pinned sessions and recent ones that no other session
   started; delegations nest under the session that started them. ⌘P finds
   any session. A pin belongs to the account signed in: another server or
