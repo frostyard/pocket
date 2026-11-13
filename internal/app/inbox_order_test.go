@@ -86,7 +86,8 @@ func TestThreadContextClampsLongTextSnapshot(t *testing.T) {
 		At   pocket.Millis `json:"at"`
 		Text string        `json:"text"`
 	}{Text: strings.Repeat("Long event words. ", 40)})
-	a.desk.details = map[string]*pocket.DeskThreadDetail{"T1": {}}
+	a.desk.details = newThreadDetails()
+	a.desk.details.m["T1"] = &pocket.DeskThreadDetail{}
 	tt := ui.NewTesterWith(func(c *ui.Context) {
 		frostui.Adapt(c)
 		ui.Column(c).Width(240).Gap(12).AlignItems(ui.Stretch).Children(func() { a.threadContext(c, thread) })
