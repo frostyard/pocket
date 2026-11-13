@@ -20,6 +20,8 @@ Docs are split by the question they answer:
 - [0005 — Organize the window around what needs the owner](adr/0005-organize-the-window-around-what-needs-the-owner.md)
 - [0006 — Filter notifications in the client](adr/0006-filter-notifications-in-the-client.md)
 
+- [0007 — Render terminal history before attaching](adr/0007-render-terminal-history-before-attaching.md)
+
 ### Org-wide decisions
 
 - [Org-wide decisions (frostyard/core ADRs)](org-adrs.md)

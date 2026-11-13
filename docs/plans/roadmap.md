@@ -47,6 +47,9 @@ server that surpasses its web app at a desk. Phases 1 to 4 shipped on
   inspector (not yet implemented; [#20](https://github.com/frostyard/pocket/issues/20)).
 - The terminal module's shells in a Terminal place, with Ghostty's emulator
   (done, 2026-11-12).
+- Terminal history is rendered without replies on attachment
+  ([ADR-0007](../adr/0007-render-terminal-history-before-attaching.md),
+  [design](../design/pocket.md#the-protocol)).
 - **Done when:** the owner uses Pocket for a full working day without opening
   the web app.
 

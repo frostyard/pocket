@@ -125,6 +125,7 @@ func (a *App) attach(id string) *openTerm {
 		return nil
 	}
 	conn := a.link.client.OpenTerminal(id)
+	conn.Replay = terminalReplay
 	ot := &openTerm{conn: conn, code: -1}
 	opts := a.termOptions(conn)
 	opts.OnTitle = func(title string) {
