@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/egoist/mygo/transfer"
@@ -381,5 +382,113 @@ func TestAttachmentDirectoryRejected(t *testing.T) {
 	loop.RunUntil(t, func() bool { return !a.composer.files[7][0].uploading })
 	if !strings.Contains(a.composer.files[7][0].err, "regular file") {
 		t.Fatal("directory accepted")
+	}
+}
+
+// queueSteps answers the queue's requests in order, one step per request. A
+// nil step fails the request at the transport, as a lost answer does.
+type queueSteps struct {
+	mu    sync.Mutex
+	steps []func(*http.Request) (*http.Response, error)
+}
+
+func (s *queueSteps) RoundTrip(r *http.Request) (*http.Response, error) {
+	s.mu.Lock()
+	var step func(*http.Request) (*http.Response, error)
+	if len(s.steps) > 0 {
+		step = s.steps[0]
+		s.steps = s.steps[1:]
+	}
+	s.mu.Unlock()
+	if step == nil {
+		return nil, fmt.Errorf("connection reset by the server")
+	}
+	return step(r)
+}
+
+func queueConflict(r *http.Request) (*http.Response, error) {
+	resp := reply(r, `{"error":"conflict"}`)
+	resp.StatusCode = http.StatusConflict
+	return resp, nil
+}
+
+func queueReturned(r *http.Request) (*http.Response, error) {
+	return reply(r, `{"text":"queued message","attachments":[{"path":"/uploads/example","name":"example.txt"}]}`), nil
+}
+
+func TestQueuedEditRetryRecoversOneCopy(t *testing.T) {
+	for _, held := range []bool{false, true} {
+		t.Run(fmt.Sprintf("held=%v", held), func(t *testing.T) {
+			a, loop := teamApp(t)
+			a.current = 7
+			a.composer.reset(7)
+			a.composer.draft = "existing draft"
+			a.view.Inbox = []pocket.QueueRow{{ID: 42, By: "u1", Text: "queued message"}}
+			a.view.Held = []pocket.HeldMessage{{Key: "h1", By: "u1", Text: "queued message"}}
+			a.link.client.HTTP = &http.Client{Transport: &queueSteps{steps: []func(*http.Request) (*http.Response, error){
+				queueConflict, queueConflict,
+			}}}
+			key := ""
+			if held {
+				key = "h1"
+			}
+			for range 2 {
+				a.queueAction(42, key, "edit")
+				loop.RunUntil(t, func() bool { return !a.composer.queueBusy })
+			}
+			if a.composer.draft != "queued message\n\nexisting draft" {
+				t.Fatalf("a retried edit copied its message twice: %q", a.composer.draft)
+			}
+			a.link.client = nil
+			a.reset()
+			if len(a.composer.queueRecovered) != 0 {
+				t.Fatal("sign-out kept a queue recovery marker")
+			}
+		})
+	}
+}
+
+func TestQueuedEditRecoversEqualTextOfAnotherMessage(t *testing.T) {
+	a, loop := teamApp(t)
+	a.current = 7
+	a.composer.reset(7)
+	a.composer.draft = "existing draft"
+	// Two messages read the same: identity, not text, decides what was copied.
+	a.view.Inbox = []pocket.QueueRow{{ID: 42, By: "u1", Text: "same words"}, {ID: 43, By: "u1", Text: "same words"}}
+	a.link.client.HTTP = &http.Client{Transport: &queueSteps{steps: []func(*http.Request) (*http.Response, error){
+		queueConflict, queueConflict,
+	}}}
+	a.queueAction(42, "", "edit")
+	loop.RunUntil(t, func() bool { return !a.composer.queueBusy })
+	a.queueAction(43, "", "edit")
+	loop.RunUntil(t, func() bool { return !a.composer.queueBusy })
+	if a.composer.draft != "same words\n\nsame words\n\nexisting draft" {
+		t.Fatalf("a message with the same text was treated as one already copied: %q", a.composer.draft)
+	}
+}
+
+func TestQueuedEditAfterLostAnswerKeepsOneCopy(t *testing.T) {
+	a, loop := teamApp(t)
+	a.current = 7
+	a.composer.reset(7)
+	a.composer.draft = "existing draft"
+	a.view.Inbox = []pocket.QueueRow{{ID: 42, By: "u1", Text: "queued message"}}
+	// The first answer is lost; the server may have removed the message, so the
+	// retry must copy it once and still take the attachments of its answer.
+	a.link.client.HTTP = &http.Client{Transport: &queueSteps{steps: []func(*http.Request) (*http.Response, error){
+		nil, queueReturned,
+	}}}
+	for range 2 {
+		a.queueAction(42, "", "edit")
+		loop.RunUntil(t, func() bool { return !a.composer.queueBusy })
+	}
+	if a.composer.draft != "queued message\n\nexisting draft" {
+		t.Fatalf("the retried edit copied its message twice: %q", a.composer.draft)
+	}
+	if len(a.composer.files[7]) != 1 || a.composer.files[7][0].file.Path != "/uploads/example" {
+		t.Fatal("the answer's attachments were not restored")
+	}
+	if len(a.composer.queueRecovered) != 0 {
+		t.Fatal("the recovery marker survived the edit")
 	}
 }

@@ -459,7 +459,7 @@ func (a *App) agentTaskCard(c *ui.Context, p *pocket.Persona) {
 				if repo == "Default place" {
 					repo = ""
 				}
-				a.startAgentTask(source, p, strings.TrimSpace(d.task), repo)
+				a.startAgentTask(source, p, strings.TrimSpace(d.task), repo, "")
 				d.task = ""
 			}
 		})

@@ -234,6 +234,35 @@ func (a *App) attachmentChips(c *ui.Context) {
 	})
 }
 
+// queueKey names one queued message: a submission in a session, or a held
+// message's key. Identity, never text: two messages can read the same.
+type queueKey struct {
+	session    int
+	submission int
+	held       string
+}
+
+// queuedText is the queued message shown for submission, or for held key.
+func (a *App) queuedText(submission int, held string) string {
+	if a.view == nil {
+		return ""
+	}
+	if held != "" {
+		for _, q := range a.view.Held {
+			if q.Key == held {
+				return q.Text
+			}
+		}
+		return ""
+	}
+	for _, q := range a.view.Inbox {
+		if q.ID == submission {
+			return q.Text
+		}
+	}
+	return ""
+}
+
 func (a *App) queueAction(submission int, held, action string) {
 	cp := &a.composer
 	if cp.queueBusy || !a.canSteer() {
@@ -241,26 +270,20 @@ func (a *App) queueAction(submission int, held, action string) {
 	}
 	id := a.current
 	// Keep the displayed text before Edit can remove it on the server. Even a
-	// timeout or sign-out must leave this local recovery copy available.
+	// timeout or sign-out must leave this local recovery copy available, so the
+	// key holds it: a retried Edit of the same message copies it only once.
+	key := queueKey{session: id, submission: submission, held: held}
 	recovered := ""
-	if action == "edit" && a.view != nil {
-		if held != "" {
-			for _, q := range a.view.Held {
-				if q.Key == held {
-					recovered = q.Text
-					break
-				}
+	if action == "edit" {
+		if text, ok := cp.queueRecovered[key]; ok {
+			recovered = text
+		} else if text := a.queuedText(submission, held); text != "" {
+			if cp.queueRecovered == nil {
+				cp.queueRecovered = map[queueKey]string{}
 			}
-		} else {
-			for _, q := range a.view.Inbox {
-				if q.ID == submission {
-					recovered = q.Text
-					break
-				}
-			}
-		}
-		if recovered != "" {
-			cp.restoreDraft(id, recovered, nil)
+			cp.queueRecovered[key] = text
+			recovered = text
+			cp.restoreDraft(id, text, nil)
 		}
 	}
 	cp.queueBusy = true
@@ -284,6 +307,10 @@ func (a *App) queueAction(submission int, held, action string) {
 		if err != nil {
 			a.toast("Queue action failed: " + err.Error())
 			return
+		}
+		if action == "edit" {
+			// The message is in the draft now: a later Edit of it starts over.
+			delete(cp.queueRecovered, key)
 		}
 		if action == "edit" && back != nil {
 			var files []*composerFile
