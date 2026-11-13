@@ -408,6 +408,7 @@ type ViewUpdate struct {
 	Viewers      []string     `json:"viewers"`
 	Approvals    []Approval   `json:"approvals"`
 	// Sent only when they change: nil keeps the last value.
+	Schedules *[]Schedule          `json:"schedules"`
 	Subagents *[]Subagent          `json:"subagents"`
 	Authors   *map[string]string   `json:"authors"`
 	Decisions *map[string]Decision `json:"decisions"`
