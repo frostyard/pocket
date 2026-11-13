@@ -134,13 +134,16 @@ func acceptsReplacement(t *testing.T, a *App, loop *frostuitest.Loop, s *fakeStr
 }
 
 // lateSwitchFailureIgnored answers the old switch with an error after the
-// connection it named was replaced: it must not reconnect again.
+// connection it named was replaced: it must not reconnect again. The
+// callback logs either way, so the test waits for it, not for a time.
 func lateSwitchFailureIgnored(t *testing.T, a *App, loop *frostuitest.Loop, f *fakeStreams, answer chan error) {
 	t.Helper()
 	gen := a.link.gen
 	answer <- errors.New("connection gone")
-	loop.Settle(50 * time.Millisecond)
-	if a.link.gen != gen {
+	loop.RunUntil(t, func() bool {
+		return len(a.console.Lines(nil, "superseded session switch")) > 0 || len(a.console.Lines(nil, "Switching sessions failed")) > 0
+	})
+	if a.link.gen != gen || len(a.console.Lines(nil, "Switching sessions failed")) > 0 {
 		t.Fatal("a late switch failure from a replaced connection reconnected the link")
 	}
 	select {
@@ -150,54 +153,88 @@ func lateSwitchFailureIgnored(t *testing.T, a *App, loop *frostuitest.Loop, f *f
 	}
 }
 
-func TestSwitchLostAcknowledgmentAutomaticReconnect(t *testing.T) {
-	var timers []func()
-	a, loop, f, first, answer := connectAndSwitch(t)
-	a.opts.After = func(_ time.Duration, fn func()) { timers = append(timers, fn) }
-	_ = first.w.Close() // the stream drops before "switched" arrives
-	loop.RunUntil(t, func() bool { return len(timers) == 1 })
-	timers[0]()
-	acceptsReplacement(t, a, loop, f.next(t, loop), "c2")
-	lateSwitchFailureIgnored(t, a, loop, f, answer)
+// reconnectModes lose the connection (or the sign-in) in each way the
+// issue names, and return the replacement stream.
+var reconnectModes = []struct {
+	name   string
+	reopen func(t *testing.T, a *App, loop *frostuitest.Loop, f *fakeStreams, first *fakeStream, timers *[]func()) *fakeStream
+}{
+	{"automatic", func(t *testing.T, a *App, loop *frostuitest.Loop, f *fakeStreams, first *fakeStream, timers *[]func()) *fakeStream {
+		_ = first.w.Close() // the stream drops before "switched" arrives
+		loop.RunUntil(t, func() bool { return len(*timers) == 1 })
+		(*timers)[0]()
+		return f.next(t, loop)
+	}},
+	{"manual", func(t *testing.T, a *App, loop *frostuitest.Loop, f *fakeStreams, _ *fakeStream, _ *[]func()) *fakeStream {
+		a.reconnectNow()
+		return f.next(t, loop)
+	}},
+	{"sign-in-again", func(t *testing.T, a *App, loop *frostuitest.Loop, f *fakeStreams, _ *fakeStream, _ *[]func()) *fakeStream {
+		a.signedOut("signed out")
+		if a.link.switching != 0 {
+			t.Fatal("signing out must forget the pending switch")
+		}
+		client, err := pocket.NewClient("https://example.org", "new-test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		client.HTTP = &http.Client{Transport: routeTransport(f.transport)}
+		a.link.client = client
+		a.current, a.loading = 7, 7
+		a.reconnectNow()
+		return f.next(t, loop)
+	}},
 }
 
-func TestSwitchLostAcknowledgmentManualReconnect(t *testing.T) {
-	a, loop, f, _, answer := connectAndSwitch(t)
-	a.reconnectNow()
-	acceptsReplacement(t, a, loop, f.next(t, loop), "c2")
-	lateSwitchFailureIgnored(t, a, loop, f, answer)
-}
-
-func TestSwitchLostAcknowledgmentSignInAgain(t *testing.T) {
-	a, loop, f, _, answer := connectAndSwitch(t)
-	a.signedOut("signed out")
-	if a.link.switching != 0 {
-		t.Fatal("signing out must forget the pending switch")
+// The switch POST succeeds, its "switched" event is lost with the
+// connection, and the replacement connection's full view must show.
+func TestSwitchSucceededAcknowledgmentLost(t *testing.T) {
+	for i, mode := range reconnectModes {
+		t.Run(mode.name, func(t *testing.T) {
+			var timers []func()
+			a, loop, f, first, answer := connectAndSwitch(t)
+			a.opts.After = func(_ time.Duration, fn func()) { timers = append(timers, fn) }
+			answer <- nil // the server took the switch
+			acceptsReplacement(t, a, loop, mode.reopen(t, a, loop, f, first, &timers), fmt.Sprintf("c%d", i+2))
+		})
 	}
-	client, err := pocket.NewClient("https://example.org", "new-test")
-	if err != nil {
+}
+
+// The switch POST answers with an error only after the connection was
+// replaced: the replacement's view shows, and the late failure is ignored.
+func TestSwitchLateFailureAfterReconnect(t *testing.T) {
+	for i, mode := range reconnectModes {
+		t.Run(mode.name, func(t *testing.T) {
+			var timers []func()
+			a, loop, f, first, answer := connectAndSwitch(t)
+			a.opts.After = func(_ time.Duration, fn func()) { timers = append(timers, fn) }
+			acceptsReplacement(t, a, loop, mode.reopen(t, a, loop, f, first, &timers), fmt.Sprintf("c%d", i+2))
+			lateSwitchFailureIgnored(t, a, loop, f, answer)
+		})
+	}
+}
+
+// An event the old connection queued before the reconnect, run after the
+// replacement connection cleared the pending switch, stays ignored.
+func TestSwitchOldConnectionEventsStayIgnored(t *testing.T) {
+	a, loop, f, first, answer := connectAndSwitch(t)
+	answer <- nil
+	first.send(t, "view", strings.Replace(fullView7, `"text":"hi"`, `"text":"old"`, 1))
+	// An io.Pipe write returns only once the reader took it, and the
+	// stream reads again only after it posted the event before: so the
+	// old view now waits in the UI queue.
+	if _, err := fmt.Fprint(first.w, ": ping\n\n"); err != nil {
 		t.Fatal(err)
 	}
-	client.HTTP = &http.Client{Transport: routeTransport(f.transport)}
-	a.link.client = client
-	a.current, a.loading = 7, 7
 	a.reconnectNow()
-	acceptsReplacement(t, a, loop, f.next(t, loop), "c3")
-	lateSwitchFailureIgnored(t, a, loop, f, answer)
-}
-
-// Events of the old connection stay ignored after the replacement opens.
-func TestSwitchOldConnectionEventsStayIgnored(t *testing.T) {
-	a, loop, f, first, _ := connectAndSwitch(t)
-	a.reconnectNow()
-	second := f.next(t, loop)
-	second.send(t, "hello", `{"connection":"c2"}`)
-	loop.RunUntil(t, func() bool { return a.link.streamID == "c2" })
-	// The old stream was cancelled: whatever it still carries is dropped.
-	_, _ = fmt.Fprintf(first.w, "event: view\ndata: %s\n\n", strings.Replace(fullView7, `"text":"hi"`, `"text":"old"`, 1))
-	second.send(t, "view", fullView7)
-	loop.RunUntil(t, func() bool { return a.view.Conversation.ID == 7 })
-	loop.Settle(20 * time.Millisecond)
+	if a.link.switching != 0 {
+		t.Fatal("the reconnect must clear the pending switch")
+	}
+	loop.Flush() // the old view runs now, with no switch to gate it
+	if len(a.view.Rows()) != 0 {
+		t.Fatalf("the old connection's view was applied: %+v", a.view.Rows())
+	}
+	acceptsReplacement(t, a, loop, f.next(t, loop), "c2")
 	if rows := a.view.Rows(); len(rows) != 1 || rows[0].Text != "hi" {
 		t.Fatalf("rows = %+v", rows)
 	}

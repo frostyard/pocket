@@ -214,6 +214,7 @@ func (a *App) switchTo(id int) {
 			// A later switch, a new connection or a new sign-in owns
 			// the link now.
 			if a.link.switchSeq != seq || a.link.gen != gen || a.link.client != client {
+				a.console.Add(frostui.LevelInfo, "link", "Ignored a superseded session switch that failed: "+err.Error())
 				return
 			}
 			a.console.Add(frostui.LevelWarn, "link", "Switching sessions failed, reconnecting: "+err.Error())

@@ -316,7 +316,10 @@ panes less room.
   request; localhost and literal private or loopback addresses are exempt.
 - **Events:** one SSE connection per window
   (`/api/events?p=5&embedder=notify`); the session shown changes in place
-  with `/api/switch`. Live messages come as deltas, a whole view brings only
+  with `/api/switch`; until its `switched` event, that connection's session
+  events are about the session left. A new connection names the session
+  shown itself, so it starts with no pending switch, and a switch answer
+  from an older connection or sign-in is ignored. Live messages come as deltas, a whole view brings only
   the newest rows (earlier ones load on demand), light entries are made
   whole in the next update. `pocket.View.Apply` is a port of the web app's
   `mergeView`. Peeks (`/api/peeks`) give each waiting or working session's
