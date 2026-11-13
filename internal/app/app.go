@@ -47,6 +47,7 @@ type Options struct {
 
 // App is the window's state.
 type App struct {
+	browser  *browserWatch
 	opts     Options
 	post     func(func())
 	settings config.Settings
@@ -170,6 +171,7 @@ func (a *App) Start() {
 
 // Close stops the link and keeps the layout.
 func (a *App) Close() {
+	a.stopBrowserWatch()
 	a.closeTerminals()
 	a.disconnect()
 	a.link.client = nil
@@ -208,6 +210,7 @@ func (a *App) saveSettings() {
 
 // reset forgets what the server said, as after signing out.
 func (a *App) reset() {
+	a.stopBrowserWatch()
 	a.composer.resetRequests()
 	a.tr = transcript{}
 	a.hello = nil
@@ -468,6 +471,7 @@ func (a *App) open(id int) {
 		a.selected = sessionKey(id)
 		return
 	}
+	a.stopBrowserWatch()
 	a.current = id
 	a.details = nil
 	a.view = pocket.NewView()
