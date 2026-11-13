@@ -43,16 +43,18 @@ them rather than improvising, whichever agent you are. Start a new one from
 
 - **Layout.** `cmd/pocket` is the program (window, keyring, notifications,
   badge). `internal/pocket` is the server's client and holds no UI:
-  `client.go`, `api.go`, `desk.go` (routes), `stream.go` and `sse.go` (the
+  `client.go`, `api.go`, `desk.go`, `extras.go` (routes), `types.go` (wire
+  types), `terminal.go` (shell transport), `stream.go` and `sse.go` (the
   event stream), `view.go` (`View.Apply`, the port of the web app's
   `mergeView`). `internal/app` is the window: `app.go` (state, events),
   `conn.go` (the link), `frame.go` (frame, commands, palette), `sidebar.go`,
   `inbox.go`, `motion.go` (In motion, Shift board, Numbers), `desk.go`,
   `transcript.go`, `composer.go`, `pages.go`, `notify.go`, `settings.go`,
-  `terminals.go` (the Terminal place, over `pocket.TermConn`), `webnav.go`
-  (where the artifact web view may go, and its cookie) and `webpane.go`
-  (`ArtifactWeb`: the web view's sign-in, sign-out and native calls, in
-  order, over the `WebNative` that `cmd/pocket` gives it).
+  `terminals.go` (the Terminal place, over `pocket.TermConn`), `artifacts.go`,
+  `refs.go`, `wiki.go`, `teampage.go`, `signin.go`, `webnav.go` (where the
+  artifact web view may go, and its cookie) and `webpane.go` (`ArtifactWeb`:
+  the web view's sign-in, sign-out and native calls, in order, over the
+  `WebNative` that `cmd/pocket` gives it).
   `internal/config` holds settings and credentials; `internal/icons` the
   icons Pocket draws.
 - **UI thread.** `App` and everything in it belong to the UI thread. Work
@@ -71,6 +73,9 @@ them rather than improvising, whichever agent you are. Start a new one from
   `desk.ts`) before relying on it. `pocket.Decode` and `Client.Drift` keep the
   rest of an answer when one field has an unexpected shape: never make such a
   field fatal.
+- **Desk asks.** Keep a thread's asks in server filing order. Drafts and
+  notification identity use `askKey` (id and generation), so reopening a
+  plan ask never reuses an earlier answer draft.
 - **Notifications** go through `deliver` in `internal/app/notify.go`, never
   straight to `Options.Notify`
   ([ADR-0006](docs/adr/0006-filter-notifications-in-the-client.md)).
