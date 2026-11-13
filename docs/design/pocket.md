@@ -119,7 +119,9 @@ server's facts. The status bar shows do not disturb while it holds.
 - **Sign-in:** the owner's link (`/login?token=…`) carries the token; an
   invite (`/join/…`) is redeemed for one. The token goes in the keyring
   (service `org.frostyard.Pocket`) and on every request as a bearer token,
-  with `X-Pocket: 1`.
+  with `X-Pocket: 1`. The sign-in field masks the link. Public HTTP links
+  require a clear-text credential warning and confirmation before any
+  request; localhost and literal private or loopback addresses are exempt.
 - **Events:** one SSE connection per window
   (`/api/events?p=5&embedder=notify`); the session shown changes in place
   with `/api/switch`. Live messages come as deltas, a whole view brings only
