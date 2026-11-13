@@ -303,6 +303,8 @@ func (a *App) leaveOtherAccount(user string) bool {
 	}
 	a.console.Add(frostui.LevelWarn, "link", "This sign-in now names another user; showing that user's sessions from the start")
 	client := *a.link.client
+	// The artifact page and its sign-in cookie are the old user's.
+	a.signOutWeb()
 	a.reset()
 	a.link.client = &client
 	return true

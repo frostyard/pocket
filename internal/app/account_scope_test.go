@@ -241,3 +241,28 @@ func TestAccountChangeOnTheSameSignIn(t *testing.T) {
 		t.Fatal("the first user's pin did not come back")
 	}
 }
+
+// TestAccountChangeSignsOutTheWebView checks that the artifact page the
+// first user had open, with its sign-in cookie, does not outlive a hello
+// that names another user, while a reconnect of the same user keeps it.
+func TestAccountChangeSignsOutTheWebView(t *testing.T) {
+	web := &fakeWeb{}
+	a, loop := scopeApp(t, t.TempDir())
+	a.opts.Web = web
+	signInTo(t, a, loop, serverOne, "u1")
+	a.arts.shown = "https://example.org/a/1/x/1"
+
+	a.conn.State = frostui.Connected
+	helloAs(a, "u1") // the same user reconnects
+	if web.signs != 0 || a.arts.shown == "" {
+		t.Fatalf("a reconnect of the same user signed out the web view (%d) or forgot its page", web.signs)
+	}
+
+	helloAs(a, "u2")
+	if web.signs != 1 {
+		t.Errorf("SignOut ran %d times, want once", web.signs)
+	}
+	if a.arts.shown != "" {
+		t.Errorf("the first user's artifact page is still the shown one: %q", a.arts.shown)
+	}
+}
