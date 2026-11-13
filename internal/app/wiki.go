@@ -22,6 +22,11 @@ type wiki struct {
 	reading bool
 	md      markdown.Options
 	ready   bool
+	// err is a failed read of the pages, and pageErr of the page shown:
+	// they keep a redraw from reading again, until Try again, a refresh or
+	// an event clears them.
+	err     string
+	pageErr string
 }
 
 // loadWiki reads the wiki's pages, and the page shown again.
@@ -29,7 +34,7 @@ func (a *App) loadWiki() {
 	if a.wiki.loading {
 		return
 	}
-	a.wiki.loading = true
+	a.wiki.loading, a.wiki.err = true, ""
 	var w *pocket.Wiki
 	var on bool
 	a.request("Reading the wiki", func(ctx context.Context, c *pocket.Client) error {
@@ -39,6 +44,7 @@ func (a *App) loadWiki() {
 	}, func(err error) {
 		a.wiki.loading = false
 		if err != nil {
+			a.wiki.err = err.Error()
 			return
 		}
 		a.wiki.on, a.wiki.data = on, w
@@ -56,7 +62,7 @@ func (a *App) loadWiki() {
 
 // readWikiPage reads one page and shows it.
 func (a *App) readWikiPage(p string) {
-	a.wiki.sel = p
+	a.wiki.sel, a.wiki.pageErr = p, ""
 	a.wiki.reading = true
 	var page *pocket.WikiPage
 	a.request("Reading "+p, func(ctx context.Context, c *pocket.Client) error {
@@ -65,7 +71,13 @@ func (a *App) readWikiPage(p string) {
 		return err
 	}, func(err error) {
 		a.wiki.reading = false
-		if err == nil && a.wiki.sel == p {
+		if err != nil {
+			if a.wiki.sel == p {
+				a.wiki.pageErr = err.Error()
+			}
+			return
+		}
+		if a.wiki.sel == p {
 			a.wiki.page = page
 		}
 	})
@@ -110,17 +122,19 @@ func (a *App) wikiPane(c *ui.Context) {
 		a.wiki.ready = true
 		a.wiki.md = markdown.Options{OnLink: a.wikiLink}
 	}
-	if a.wiki.data == nil && !a.wiki.loading {
+	if a.wiki.data == nil && !a.wiki.loading && a.wiki.err == "" {
 		a.loadWiki()
 	}
-	if a.wiki.page == nil && !a.wiki.reading && a.wiki.sel != "" {
+	if a.wiki.page == nil && !a.wiki.reading && a.wiki.sel != "" && a.wiki.pageErr == "" {
 		a.readWikiPage(a.wiki.sel)
 	}
 	ui.Row(c).Grow(1).AlignItems(ui.Stretch).Background(t.Background).Children(func() {
 		ui.Scroll(c).Width(250).Background(frostui.Chrome(t)).Children(func() {
 			ui.Column(c).Padding(frostui.SpaceM, frostui.SpaceS).Gap(2).AlignItems(ui.Stretch).Children(func() {
 				if a.wiki.data == nil {
-					frostui.Loading(c, "Reading the wiki…")
+					if a.wiki.err == "" {
+						frostui.Loading(c, "Reading the wiki…")
+					}
 					return
 				}
 				section := ""
@@ -137,6 +151,23 @@ func (a *App) wikiPane(c *ui.Context) {
 		ui.Scroll(c).Grow(1).Children(func() {
 			ui.Column(c).AlignItems(ui.Center).Padding(frostui.SpaceXL).Children(func() {
 				ui.Column(c).MaxWidth(860).FillWidth().Gap(frostui.SpaceM).AlignItems(ui.Stretch).Children(func() {
+					if a.wiki.err != "" {
+						frostui.Problem(c, "Reading the wiki: "+a.wiki.err).Wrap()
+						if ui.Button(c, "Try again").Clicked() {
+							a.loadWiki()
+						}
+						// A failed refresh keeps the pages read before it.
+						if a.wiki.data == nil {
+							return
+						}
+					}
+					if a.wiki.pageErr != "" {
+						frostui.Problem(c, "Reading "+a.wiki.sel+": "+a.wiki.pageErr).Wrap()
+						if ui.Button(c, "Try again").Clicked() {
+							a.readWikiPage(a.wiki.sel)
+						}
+						return
+					}
 					pg := a.wiki.page
 					if pg == nil {
 						frostui.Loading(c, "Opening the page…")
