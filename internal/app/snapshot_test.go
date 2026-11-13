@@ -47,6 +47,7 @@ func teamApp(t testing.TB) (*App, *frostuitest.Loop) {
 	a.conn = frostui.Connection{State: frostui.Connected, Host: "pocket.example.ts.net", Daemon: "Pi Pocket"}
 	a.hello = &pocket.Hello{User: pocket.User{ID: "u1", Name: "Brian", Role: "owner"},
 		Server: pocket.ServerInfo{PocketVersion: "0.28.1", Home: "/home/team"}}
+	a.adoptAccount(a.hello.User.ID) // the account the hello names
 	a.team = team{on: true, supervisor: &pocket.Supervisor{Found: true, ConversationID: 1, Asks: 2}, agents: []pocket.Persona{
 		{ID: "odrade", Name: "Odrade", Role: "supervisor", Home: "/home/team/agents/odrade", Model: "anthropic/claude-opus-5-5"},
 		{ID: "duncan", Name: "Duncan", Role: "agent", Home: "/home/team/agents/duncan", Model: "anthropic/claude-sonnet-5-5",

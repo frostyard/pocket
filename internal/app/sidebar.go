@@ -209,14 +209,27 @@ func (a *App) setUpSidebar() {
 	l.Rename = func(item, name string) { a.rename(keySession(item), name) }
 }
 
-func (a *App) pinned(id int) bool { return slices.Contains(a.settings.Pinned, strconv.Itoa(id)) }
+// pinned reports whether the account shown pins session id.
+func (a *App) pinned(id int) bool {
+	p := a.accountPrefs()
+	if p == nil {
+		return false
+	}
+	return slices.Contains(p.Pinned, strconv.Itoa(id))
+}
 
+// togglePin pins session id, or unpins it, for the account shown. Without
+// an account there is nothing to pin it on.
 func (a *App) togglePin(id int) {
+	p := a.accountPrefs()
+	if p == nil {
+		return
+	}
 	key := strconv.Itoa(id)
-	if i := slices.Index(a.settings.Pinned, key); i >= 0 {
-		a.settings.Pinned = slices.Delete(a.settings.Pinned, i, i+1)
+	if i := slices.Index(p.Pinned, key); i >= 0 {
+		p.Pinned = slices.Delete(p.Pinned, i, i+1)
 	} else {
-		a.settings.Pinned = append(a.settings.Pinned, key)
+		p.Pinned = append(p.Pinned, key)
 	}
 	a.saveSettings()
 }
@@ -304,8 +317,12 @@ func (a *App) sections() []frostui.SourceSection[string] {
 		}
 		out = append(out, frostui.SourceSection[string]{ID: "agents", Title: "Team", Items: agents})
 	}
+	var pins []string
+	if p := a.accountPrefs(); p != nil {
+		pins = p.Pinned
+	}
 	var pinned []string
-	for _, id := range a.settings.Pinned {
+	for _, id := range pins {
 		var n int
 		if _, err := fmt.Sscan(id, &n); err == nil {
 			if s := a.byID[n]; s != nil && !s.Archived {
