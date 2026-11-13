@@ -86,6 +86,11 @@
       "glob": "internal/pocket/terminal.go",
       "level": "L2",
       "why": "security: authenticated shell input and terminal replay boundary"
+    },
+    {
+      "glob": "internal/app/board_actions.go",
+      "level": "L2",
+      "why": "destructive operations: owner controls drop or resolve shift board rows"
     }
   ]
 }

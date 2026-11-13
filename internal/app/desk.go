@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -35,6 +37,13 @@ type desk struct {
 	board        *pocket.Board
 	boardLoading bool
 	boardBusy    bool
+	boardChosen  int
+	boardDirty   bool
+	boardErr     string
+	boardLoaded  bool
+	boardEditors map[int]*boardEditor
+	boardOpen    map[int]bool
+	boardKeys    map[string]string
 }
 
 func (d *desk) thread(id string) *pocket.DeskThread {
@@ -238,39 +247,89 @@ func boardKey(now time.Time) string {
 // loadBoard reads the shift board.
 func (a *App) loadBoard() {
 	if a.desk.boardLoading {
+		a.desk.boardDirty = true
 		return
 	}
 	a.desk.boardLoading = true
+	chosen := a.desk.boardChosen
+	client := a.link.client
 	var b *pocket.Board
 	a.request("Reading the board", func(ctx context.Context, c *pocket.Client) error {
 		var err error
-		b, err = c.DeskBoard(ctx, 0)
+		b, err = c.DeskBoard(ctx, chosen)
 		return err
 	}, func(err error) {
+		if a.link.client != client || a.desk.boardChosen != chosen {
+			return
+		}
 		a.desk.boardLoading = false
+		a.desk.boardLoaded = true
 		if err == nil {
 			a.desk.board = b
+			a.desk.boardErr = ""
+		} else {
+			a.desk.boardErr = err.Error()
+			if a.desk.board != nil && a.desk.board.Supervisor != nil {
+				a.desk.boardChosen = *a.desk.board.Supervisor
+			}
+		}
+		if a.desk.boardDirty {
+			a.desk.boardDirty = false
+			a.loadBoard()
 		}
 	})
 }
 
 // boardOp picks, unpicks or launches.
 func (a *App) boardOp(op string, row *pocket.BoardRow, launch []pocket.BoardRow) {
+	a.boardChange(op, row, launch, nil, "")
+}
+
+func (a *App) boardChange(op string, row *pocket.BoardRow, launch []pocket.BoardRow, fields map[string]any, thread string) {
+	if a.desk.boardBusy || a.desk.boardLoading {
+		return
+	}
 	b := a.desk.board
 	if b == nil || b.Supervisor == nil {
 		a.toast("The board has no supervisor yet")
 		return
 	}
 	sup := *b.Supervisor
-	key := boardKey(a.opts.Now())
+	if a.desk.boardChosen != 0 && a.desk.boardChosen != sup {
+		return
+	}
+	fingerprint, _ := json.Marshal([]any{sup, op, row, launch, fields, thread})
+	signature := string(fingerprint)
+	if a.desk.boardKeys == nil {
+		a.desk.boardKeys = map[string]string{}
+	}
+	key := a.desk.boardKeys[signature]
+	if key == "" {
+		key = boardKey(a.opts.Now())
+		a.desk.boardKeys[signature] = key
+	}
+	client := a.link.client
 	a.desk.boardBusy = true
 	a.console.Add(frostui.LevelCommand, "board", op)
 	a.request("Board: "+op, func(ctx context.Context, c *pocket.Client) error {
-		return c.BoardOp(ctx, sup, op, key, row, launch)
+		return c.BoardOp(ctx, sup, op, key, row, launch, fields, thread)
 	}, func(err error) {
+		if a.link.client != client {
+			return
+		}
 		a.desk.boardBusy = false
+		var api *pocket.APIError
+		if err == nil || (errors.As(err, &api) && api.Status == 409) {
+			delete(a.desk.boardKeys, signature)
+		}
+		if err != nil {
+			a.toast("Board unchanged: " + err.Error())
+		}
+		a.loadBoard()
 		if err == nil {
-			a.loadBoard()
+			if row != nil {
+				delete(a.desk.boardEditors, row.ID)
+			}
 			if op == "launch" {
 				a.toast(plural(len(launch), "shift launched", "shifts launched"))
 			}

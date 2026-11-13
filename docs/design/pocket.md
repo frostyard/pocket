@@ -74,7 +74,13 @@ internal/icons ── the icons Pocket draws itself
   the sidebar or by its avatar anywhere, says its role, model, home and
   repositories.
 - **Shift board** (⌘4) — the night-shift goal board: limits, rows by state,
-  Pick / Unpick, Launch picks.
+  Pick / Unpick, Launch picks, and a supervisor choice when several are live.
+  Row details show the task, objective, stop condition, worker and PR check.
+  Proposed and picked rows can change their maximum rounds and deadline; those
+  and waiting rows can be dropped. Failed rows reopen, and unknown rows can be
+  linked to a thread or marked failed. Forms retain the revision they opened
+  on. Conflicts refresh the same board; a failed supervisor read restores the
+  displayed board's choice. An uncertain retry retains its operation key.
 - **Numbers** (⌘5) — the Desk's dashboard: completion, closures, cycle time,
   workload, PRs, cost and tokens, closures by day, by repository.
 - **Wiki** (⌘6) — the homewiki module's pages, read-only, rendered natively;
