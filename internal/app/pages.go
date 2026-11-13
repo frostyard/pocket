@@ -127,7 +127,6 @@ func (a *App) inspectorPane(c *ui.Context) {
 					a.subagentRow(c.Key(sa.ConversationID), sa)
 				}
 			}
-			a.queueSection(c)
 		})
 	})
 }

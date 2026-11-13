@@ -271,6 +271,7 @@ func (a *App) conversationPane(c *ui.Context) {
 			})
 		}
 		a.approvalsDock(c)
+		a.queueDock(c)
 		a.composerView(c)
 	})
 }

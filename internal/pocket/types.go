@@ -372,6 +372,8 @@ type QueueRow struct {
 	Text    string   `json:"text,omitempty"`
 	Reports []string `json:"reports,omitempty"`
 	Label   string   `json:"label,omitempty"`
+	// Summary is the label's second line: an input an extension presents.
+	Summary string `json:"summary,omitempty"`
 }
 
 // Decision is who allowed or denied a tool call.
