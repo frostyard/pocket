@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf16"
@@ -151,4 +152,92 @@ func TestServerOutputCannotWriteTheClipboard(t *testing.T) {
 	if got := run(false); got != "local-secret" {
 		t.Errorf("the server's output wrote the desktop's clipboard: %q", got)
 	}
+}
+
+// replayShell serves history once, then a live query after the test permits it.
+// Seeing the second poll proves the emulator consumed all replay bytes; a typed
+// marker queued afterward proves any earlier replies have drained too.
+type replayShell struct {
+	mu          sync.Mutex
+	polls       int
+	inputs      []string
+	afterReplay chan struct{}
+	live        chan struct{}
+	typed       chan struct{}
+	answered    chan struct{}
+}
+
+func (s *replayShell) RoundTrip(r *http.Request) (*http.Response, error) {
+	if strings.HasSuffix(r.URL.Path, "/input") {
+		var body struct {
+			Data string `json:"data"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			return nil, err
+		}
+		s.mu.Lock()
+		s.inputs = append(s.inputs, body.Data)
+		s.mu.Unlock()
+		switch body.Data {
+		case "typed":
+			close(s.typed)
+		case "\x1b[1;1R":
+			select {
+			case s.answered <- struct{}{}:
+			default:
+			}
+		}
+		return reply(r, `{}`), nil
+	}
+	if r.URL.Path != "/api/x/terminal/poll" {
+		return reply(r, `{}`), nil
+	}
+	s.mu.Lock()
+	s.polls++
+	n := s.polls
+	s.mu.Unlock()
+	var output string
+	switch n {
+	case 1:
+		output = "history prompt\r\n\x1b[6n\x1b[c\x1b]10;?\x07\x1b[>0q\x1b[H"
+	case 2:
+		close(s.afterReplay)
+		select {
+		case <-s.live:
+		case <-r.Context().Done():
+			return nil, r.Context().Err()
+		}
+		output = "\x1b[6n"
+	default:
+		<-r.Context().Done()
+		return nil, r.Context().Err()
+	}
+	body, _ := json.Marshal(map[string]any{"terminals": map[string]any{"shell": map[string]any{"data": output, "from": n - 1, "to": n}}})
+	return reply(r, string(body)), nil
+}
+
+func TestTerminalReplayDoesNotWriteHistoricalReplies(t *testing.T) {
+	cachedEmulator(t)
+	a, _ := teamApp(t)
+	server := &replayShell{afterReplay: make(chan struct{}), live: make(chan struct{}), typed: make(chan struct{}), answered: make(chan struct{}, 1)}
+	a.link.client.HTTP = &http.Client{Transport: server}
+	ot := a.attach("shell")
+	if ot == nil {
+		t.Fatalf("attach failed: %s", a.terms.libErr)
+	}
+	t.Cleanup(func() { _ = ot.term.Close() })
+	<-server.afterReplay
+	if !strings.Contains(ot.term.Text(), "history prompt") {
+		t.Fatal("history was not restored")
+	}
+	ot.term.Send([]byte("typed"))
+	<-server.typed
+	server.mu.Lock()
+	got := append([]string(nil), server.inputs...)
+	server.mu.Unlock()
+	if len(got) != 1 || got[0] != "typed" {
+		t.Fatalf("history wrote into live shell: %q", got)
+	}
+	close(server.live)
+	<-server.answered
 }
