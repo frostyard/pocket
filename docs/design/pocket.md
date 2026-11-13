@@ -2,7 +2,8 @@
 
 Living document. Rationale: [ADR-0004](../adr/0004-build-a-native-client-of-pi-pockets-own-api.md),
 [ADR-0005](../adr/0005-organize-the-window-around-what-needs-the-owner.md),
-[ADR-0006](../adr/0006-filter-notifications-in-the-client.md).
+[ADR-0006](../adr/0006-filter-notifications-in-the-client.md),
+[ADR-0007](../adr/0007-render-terminal-history-before-attaching.md).
 Contracts: none of its own; Pocket speaks Pi Pocket's protocol (below).
 Built in: [roadmap](../plans/roadmap.md).
 
@@ -149,7 +150,11 @@ server's facts. The status bar shows do not disturb while it holds.
   it stops polling, and the module ends the shell 60 s later; End ends it at
   once. The emulator's library (libghostty-vt) is packaged by `mygo build`, and
   downloaded once into the user's cache under `go run` and `go test`; it needs
-  macOS 13 (`mygo.json`). A thread's session is matched
+  macOS 13 (`mygo.json`). On attachment, the first poll is rendered in a
+  temporary emulator that discards replies. Its screen and scrollback snapshot
+  reaches the live emulator; subsequent polls pass through unchanged. Historical
+  queries therefore cannot write into the shell ([ADR-0007](../adr/0007-render-terminal-history-before-attaching.md)).
+  A replay-render failure ends the attachment. A thread's session is matched
   by title. A session's agent comes from its folder: an agent's home, or a
   delegation's worktree `<checkout>--<agent>-<slug>`.
 - **Threads:** the client's goroutines never touch UI state; they post

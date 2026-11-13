@@ -18,6 +18,7 @@ Pocket is a desktop app for people who run a team of agents on a [Pi Pocket](htt
 - **Sessions, native.** Replies stream in as Markdown, tool calls fold away, approvals dock above the composer, `@agent` starts a task. [Design](docs/design/pocket.md#a-session)
 - **The team.** Lessons to approve, a page for each named agent, the shift board and the Desk's numbers. [Design](docs/design/pocket.md#places)
 - **Wiki and artifacts.** The homelab wiki and every session's pages, documents and pictures, read in the app. On systems without a web view, pages open in your browser using its own sign-in. [Design](docs/design/pocket.md#places)
+- **Terminal.** Server shells retain their screen on attachment without replaying historical query replies into the live shell. [Design](docs/design/pocket.md#the-protocol)
 - **Calm notifications.** By kind, bursts gathered into one, do not disturb and quiet hours, without changing what your phone gets. [Design](docs/design/pocket.md#notifications-and-settings)
 
 ## Requirements
