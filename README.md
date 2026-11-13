@@ -13,7 +13,7 @@ Pocket is a desktop app for people who run a team of agents on a [Pi Pocket](htt
 
 ## What it does
 
-- **Inbox.** Calls to allow, Pi's questions, the Desk's decisions and PRs ready to merge, in one queue, with decisions grouped by thread in filing order, each answered on its card, keyboard first. Review pending lessons from both named agents and Pi Pocket memory. [Design](docs/design/pocket.md#places)
+- **Inbox.** Calls to allow, Pi's questions, the Desk's decisions and PRs ready to merge, in one queue, with decisions grouped by thread in filing order, each answered on its card, keyboard first. Desk report links open in a native reader. Review pending lessons from both named agents and Pi Pocket memory. [Design](docs/design/pocket.md#places)
 - **In motion.** Every thread at work, grouped by who moves it next, with what each agent does right now. [Design](docs/design/pocket.md#places)
 - **Sessions, native.** Replies stream in as Markdown, tool calls fold away, approvals dock above the composer, `@agent` starts a task. [Design](docs/design/pocket.md#a-session)
 - **The team.** Lessons to approve, a page for each named agent, the shift board and the Desk's numbers. [Design](docs/design/pocket.md#places)

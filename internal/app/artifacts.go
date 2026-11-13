@@ -124,6 +124,8 @@ func (a *App) scheduleArtifactRefresh() {
 // reference opens the artifact, a web or mail address the browser.
 func (a *App) followLink(dest string) {
 	switch {
+	case strings.HasPrefix(dest, "deskfile:"):
+		a.openDeskFile(strings.TrimPrefix(dest, "deskfile:"))
 	case strings.HasPrefix(dest, "artifact:"):
 		id, hint, _ := strings.Cut(strings.TrimPrefix(dest, "artifact:"), "#")
 		var prefer []int
