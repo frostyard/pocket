@@ -150,6 +150,15 @@ sort L4, L3, L2, L1/L2, L1, then unknown, oldest label first within a level.
 
 ### A session
 
+Find (⌘F / Ctrl F) searches loaded transcript rows, including folded text,
+commands and literal tool output; Previous/Next reveal the matching row.
+Search text is cached until the transcript changes. Search earlier
+messages fills more of the active context on demand. The session menu and
+palette also offer Fork (from the latest finished reply), Export (complete
+Markdown through the native save dialog), and New context (with confirmation;
+the transcript stays in history). Pending operations keep their source session,
+and a late fork never moves the user away from a different session.
+
 Replies stream in as Markdown (`ui/markdown.Stream`, word-paced, faded in).
 Thoughts fold to one line. Tool calls fold into one line per run of calls,
 which opens to each call, which opens to its output or diff; a run at work,

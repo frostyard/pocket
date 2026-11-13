@@ -54,14 +54,15 @@ func run() error {
 		web = pane
 	}
 	a, err := app.New(app.Options{
-		Version: version,
-		Post:    p.post,
-		Store:   store,
-		Creds:   creds(store.Dir()),
-		Notify:  notifier{win: func() *mygo.Window { return win }},
-		Web:     web,
-		Quit:    mygo.App.Quit,
-		Badge:   mygo.App.SetBadgeCount,
+		Version:  version,
+		SaveFile: saveFile,
+		Post:     p.post,
+		Store:    store,
+		Creds:    creds(store.Dir()),
+		Notify:   notifier{win: func() *mygo.Window { return win }},
+		Web:      web,
+		Quit:     mygo.App.Quit,
+		Badge:    mygo.App.SetBadgeCount,
 		Raise: func() {
 			if win != nil {
 				win.Restore()

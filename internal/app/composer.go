@@ -171,9 +171,12 @@ func (a *App) composerView(c *ui.Context) {
 				if busy {
 					placeholder = "Pi is working. Enter queues a message, " + keys("Ctrl") + "+Enter steers it now."
 				}
-				ui.TextAreaBase(c.Key(fmt.Sprint("composer", a.current)), &cp.draft).Lines(1, 12).Placeholder(placeholder).
-					Label("Message").AutoFocus().Bind(&cp.field).
+				input := ui.TextAreaBase(c.Key(fmt.Sprint("composer", a.current)), &cp.draft).Lines(1, 12).Placeholder(placeholder).
+					Label("Message").Bind(&cp.field).
 					OnTextKey(func(k ui.TextKey) bool { return a.composerKey(k) })
+				if !a.tr.find.open {
+					input.AutoFocus()
+				}
 				ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
 					a.modelChip(c)
 					if a.view.Plan.On {

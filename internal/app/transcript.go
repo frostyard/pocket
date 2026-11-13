@@ -17,10 +17,12 @@ import (
 
 // transcript is the conversation pane's state.
 type transcript struct {
-	list  ui.ListState
-	items []item
-	rev   int
-	live  int
+	find   sessionFind
+	list   ui.ListState
+	items  []item
+	search []string
+	rev    int
+	live   int
 	// open holds what the person opened: tool groups, calls, thoughts.
 	open map[string]bool
 	// closed holds what the person closed that opens by itself.
@@ -72,6 +74,7 @@ func (tr *transcript) viewChanged(a *App) {
 	}
 	tr.rev, tr.live = v.Rev, v.LiveRev
 	tr.items = buildItems(v)
+	tr.search = nil
 }
 
 // buildItems flattens a view into rows: each assistant message's text and
@@ -185,6 +188,7 @@ func (a *App) conversationPane(c *ui.Context) {
 		tr.open, tr.closed = map[string]bool{}, map[string]bool{}
 	}
 	ui.Column(c).Grow(1).AlignItems(ui.Stretch).Background(t.Background).Children(func() {
+		a.findBar(c)
 		if a.loading == a.current && len(tr.items) == 0 {
 			frostui.Loading(c, "Opening the session…").Grow(1)
 		} else {
@@ -194,7 +198,11 @@ func (a *App) conversationPane(c *ui.Context) {
 			ui.List(c, &tr.list, len(tr.items), func(i int) {
 				ui.Column(c).AlignItems(ui.Center).Children(func() {
 					ui.Column(c).MaxWidth(860).FillWidth().AlignItems(ui.Stretch).Children(func() {
-						a.itemView(c, &tr.items[i])
+						if tr.find.open && tr.find.picked == tr.items[i].key {
+							ui.Column(c).FillWidth().BorderWidth(2, 2, 2, 2).BorderColor(t.Accent).Padding(4).Children(func() { a.itemView(c, &tr.items[i]) })
+						} else {
+							a.itemView(c, &tr.items[i])
+						}
 					})
 				})
 			}).Grow(1).Padding(frostui.SpaceL, frostui.SpaceXL).Gap(frostui.SpaceM).Justify(ui.End).Children(func() {
@@ -264,15 +272,18 @@ func (a *App) loadEarlier() {
 		return
 	}
 	a.tr.earlier = true
-	id := a.current
+	id, view := a.current, a.view
 	var got []pocket.Entry
 	a.request("Loading earlier messages", func(ctx context.Context, cl *pocket.Client) error {
 		var err error
 		got, err = cl.Context(ctx, id, before, 60)
 		return err
 	}, func(err error) {
+		if id != a.current || a.view != view {
+			return
+		}
 		a.tr.earlier = false
-		if err != nil || id != a.current {
+		if err != nil {
 			return
 		}
 		a.view.AddEarlier(got)
