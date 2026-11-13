@@ -33,6 +33,12 @@ type composer struct {
 	sending        bool
 	pendingText    string
 	pendingSession int
+	// pendingTasks are the @agent commands whose task creation waits, so a
+	// failure or a sign-out puts each command back in its session's draft once.
+	pendingTasks []*taskRecovery
+	// queueRecovered are the queued messages already copied into a draft, by
+	// session and queued message, so a retried Edit copies one only once.
+	queueRecovered map[queueKey]string
 	field          ui.Handle
 	// sel is the suggestion chosen with the arrows.
 	sel int
@@ -119,8 +125,17 @@ func (cp *composer) reset(id int) {
 	cp.sel = 0
 }
 
+// taskRecovery is one @agent command whose task creation waits: the command
+// text and the session it came from, so a failure puts the command back there.
+type taskRecovery struct {
+	text    string
+	session int
+}
+
 // resetRequests releases state whose completion will be discarded on sign-out.
-// Keep an unacknowledged send as a draft in its original session.
+// Keep an unacknowledged send, and the command of a task that did not start, as
+// a draft in its original session. The queue's recovery markers go with the
+// view they were read from.
 func (cp *composer) resetRequests() {
 	if cp.pendingText != "" {
 		if cp.drafts == nil {
@@ -140,6 +155,10 @@ func (cp *composer) resetRequests() {
 			cp.draft = draft
 		}
 	}
+	for _, t := range cp.pendingTasks {
+		cp.restoreDraft(t.session, t.text, nil)
+	}
+	cp.pendingTasks = nil
 	cp.sending, cp.pendingText, cp.pendingSession = false, "", 0
 	// Uploaded paths belong to the old authenticated server, never a new sign-in.
 	for _, files := range cp.files {
@@ -151,6 +170,7 @@ func (cp *composer) resetRequests() {
 	}
 	cp.files = nil
 	cp.picking, cp.queueBusy = false, false
+	cp.queueRecovered = nil
 	cp.answered, cp.answers = nil, nil
 	cp.prompts, cp.promptsFor = nil, 0
 }
@@ -439,7 +459,7 @@ func (a *App) send(text, mode string) {
 	if strings.HasPrefix(text, "@") && a.team.on {
 		name, task, _ := strings.Cut(text[1:], " ")
 		if p := a.team.agent(name); p != nil && strings.TrimSpace(task) != "" {
-			a.startAgentTask(id, p, strings.TrimSpace(task), "")
+			a.startAgentTask(id, p, strings.TrimSpace(task), "", text)
 			return
 		}
 	}
@@ -508,11 +528,24 @@ func (a *App) stop() {
 	a.request("Stopping", func(ctx context.Context, c *pocket.Client) error { return c.Abort(ctx, id) }, nil)
 }
 
-// startAgentTask starts a linked session as agent p from session source,
-// and opens it.
-func (a *App) startAgentTask(source int, p *pocket.Persona, task, repository string) {
+// startAgentTask starts a linked session as agent p from session source, and
+// opens it. command is the @agent text the composer sent, which goes back into
+// its session's draft if the task cannot start; the agent page's form sends
+// none. Each call is one command with one idempotency key: a retry by the
+// person is a new command.
+func (a *App) startAgentTask(source int, p *pocket.Persona, task, repository, command string) {
+	cp := &a.composer
 	key := newRequestID()
 	agent := p.ID
+	// Where the person is now, not source: the agent page starts a task from
+	// another session and stays on the page. A late answer opens the new
+	// session only where the person still is.
+	current, view, selected := a.current, a.view, a.selected
+	var pending *taskRecovery
+	if command != "" {
+		pending = &taskRecovery{text: command, session: source}
+		cp.pendingTasks = append(cp.pendingTasks, pending)
+	}
 	var started int
 	a.toast(fmt.Sprintf("Starting %s…", p.Name))
 	a.request("Starting "+p.Name, func(ctx context.Context, c *pocket.Client) error {
@@ -520,10 +553,24 @@ func (a *App) startAgentTask(source int, p *pocket.Persona, task, repository str
 		started, err = c.TeamStart(ctx, source, agent, task, key, repository, true)
 		return err
 	}, func(err error) {
-		if err == nil && started != 0 {
+		cp.pendingTasks = slices.DeleteFunc(cp.pendingTasks, func(t *taskRecovery) bool { return t == pending })
+		if err != nil {
+			if pending != nil {
+				cp.restoreDraft(pending.session, pending.text, nil)
+			}
+			a.toast("Task not started: " + err.Error())
+			return
+		}
+		if started == 0 {
+			return
+		}
+		// Open it only where the person still is: the same session, view and place.
+		if a.current == current && a.view == view && a.selected == selected {
 			a.loading = started
 			a.open(started)
+			return
 		}
+		a.toast(fmt.Sprintf("%s started in session %d", p.Name, started))
 	})
 }
 

@@ -265,7 +265,10 @@ ordinary messages, not local slash commands or `@agent` task creation.
 Queue rows can withdraw messages or take the sender's own message back to the
 composer with its attachments. Returned text is added ahead of any existing
 draft, even if another session is now open. Edit retains the displayed text before
-the server can remove it, so a timeout or sign-out keeps a recovery copy. Stop holds the pending queue; the
+the server can remove it, so a timeout or sign-out keeps a recovery copy. The copy
+is kept by the message's identity, not by its text, and only once: a retried Edit does not
+add the same message again, while another message with the same words still does. An Edit that succeeds
+clears the marker; sign-out clears every marker with the view. Stop holds the pending queue; the
 Held messages section can send it again, edit one's own message or discard one.
 Controls follow the current driver and sender; remote workspaces hide Attach.
 These controls rely on the server for driver permissions and report races where
@@ -274,7 +277,15 @@ a message has already reached Pi.
 The composer: Enter sends, Shift Enter breaks the line, ⌘Enter steers a run
 that is working, Up brings the last message back, Esc stops the run, `/`
 completes commands, templates and skills, `@agent task` starts a linked
-session as that agent. The right pane: model and thinking, folder, branch,
+session as that agent. A task being created keeps its command as a pending
+state of the source session: a failure, or a sign-out that drops the answer,
+puts the whole `@agent task` text back ahead of what the person typed
+meanwhile, and a retry sends a new command with a new idempotency key. When
+the task starts while the person still looks at the same session, view and
+place where they sent it, Pocket opens the new session; the agent page counts
+as that place, even though the task links to another session. Otherwise Pocket
+names the new session in a toast
+and stays where the person went. The right pane: model and thinking, folder, branch,
 spend, speed, cache, context used, subagents, the queue. Its identity menu
 reads the team's binding, chooses an agent or clears it, and can pin an
 identity inferred from the folder with “Keep this identity”. A Shift section
