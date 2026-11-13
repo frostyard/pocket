@@ -47,35 +47,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends fonts-dejavu-core libpangocairo-1.0-0
+      # make ci also runs make cross: it builds and vets every target of the
+      # Makefile's CROSS_TARGETS, so no other job repeats that build.
       - run: make ci BASE="$BASE"
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || '' }}
-
-  # Each target on a runner of its own, so a failure names its platform.
-  # The Makefile's CROSS_TARGETS lists the same targets.
-  cross-build:
-    name: cross-build (${{ matrix.target }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - linux/amd64
-          - linux/arm64
-          - windows/amd64
-          - windows/arm64
-          - darwin/amd64
-          - darwin/arm64
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-      - run: make cross CROSS_TARGETS="$TARGET"
-        env:
-          TARGET: ${{ matrix.target }}
