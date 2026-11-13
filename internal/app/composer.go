@@ -56,12 +56,10 @@ func (cp *composer) reset(id int) {
 }
 
 // taskRecovery is one @agent command whose task creation waits: the command
-// text and the session and view it came from, so a failure puts the command
-// back there and a late answer does not navigate.
+// text and the session it came from, so a failure puts the command back there.
 type taskRecovery struct {
 	text    string
 	session int
-	view    *pocket.View
 }
 
 // resetRequests releases state whose completion will be discarded on sign-out.
@@ -469,10 +467,13 @@ func (a *App) startAgentTask(source int, p *pocket.Persona, task, repository, co
 	cp := &a.composer
 	key := newRequestID()
 	agent := p.ID
-	view, selected := a.view, a.selected
+	// Where the person is now, not source: the agent page starts a task from
+	// another session and stays on the page. A late answer opens the new
+	// session only where the person still is.
+	current, view, selected := a.current, a.view, a.selected
 	var pending *taskRecovery
 	if command != "" {
-		pending = &taskRecovery{text: command, session: source, view: view}
+		pending = &taskRecovery{text: command, session: source}
 		cp.pendingTasks = append(cp.pendingTasks, pending)
 	}
 	var started int
@@ -494,7 +495,7 @@ func (a *App) startAgentTask(source int, p *pocket.Persona, task, repository, co
 			return
 		}
 		// Open it only where the person still is: the same session, view and place.
-		if a.current == source && a.view == view && a.selected == selected {
+		if a.current == current && a.view == view && a.selected == selected {
 			a.loading = started
 			a.open(started)
 			return

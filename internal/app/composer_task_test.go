@@ -184,3 +184,52 @@ func TestLateAgentTaskDoesNotLeaveAnotherPlace(t *testing.T) {
 		t.Fatalf("the created session was not named: %v", a.pendingToasts)
 	}
 }
+
+// TestAgentPageTaskOpensTheNewSession checks the agent page's task form: it
+// starts a task from another session while the person stays on the page, so
+// the new session opens even though no session is current.
+func TestAgentPageTaskOpensTheNewSession(t *testing.T) {
+	a, loop := teamApp(t)
+	a.openAgent("duncan")
+	p := a.team.agent("duncan")
+	source := a.taskSource()
+	if p == nil || source == 0 || a.current != 0 {
+		t.Fatalf("agent page fixture: agent %v source %d current %d", p != nil, source, a.current)
+	}
+	entered, release := make(chan struct{}), make(chan struct{})
+	a.link.client.HTTP = &http.Client{Transport: startTaskHTTP(t, source, entered, release, http.StatusOK, `{"session":99}`)}
+	a.startAgentTask(source, p, "fix the CI", "", "")
+	<-entered
+	before := loop.Ran()
+	close(release)
+	loop.RunUntil(t, func() bool { return loop.Ran() > before })
+	if a.current != 99 {
+		t.Fatalf("the agent page's task did not open its session: current %d, toasts %v", a.current, a.pendingToasts)
+	}
+	if slices.Contains(a.pendingToasts, "Duncan started in session 99") {
+		t.Fatal("the task opened nowhere and was only announced")
+	}
+}
+
+// TestAgentPageTaskLateAnswerOnlyToasts checks that leaving the agent page
+// before the answer keeps the person where they went.
+func TestAgentPageTaskLateAnswerOnlyToasts(t *testing.T) {
+	a, loop := teamApp(t)
+	a.openAgent("duncan")
+	p := a.team.agent("duncan")
+	source := a.taskSource()
+	entered, release := make(chan struct{}), make(chan struct{})
+	a.link.client.HTTP = &http.Client{Transport: startTaskHTTP(t, source, entered, release, http.StatusOK, `{"session":99}`)}
+	a.startAgentTask(source, p, "fix the CI", "", "")
+	<-entered
+	a.goPlace("x:inbox")
+	before := loop.Ran()
+	close(release)
+	loop.RunUntil(t, func() bool { return loop.Ran() > before })
+	if a.current != 0 || a.selected != "x:inbox" {
+		t.Fatalf("a late task answer left the Inbox: current %d, selected %q", a.current, a.selected)
+	}
+	if !slices.Contains(a.pendingToasts, "Duncan started in session 99") {
+		t.Fatalf("the created session was not named: %v", a.pendingToasts)
+	}
+}

@@ -257,8 +257,10 @@ session as that agent. A task being created keeps its command as a pending
 state of the source session: a failure, or a sign-out that drops the answer,
 puts the whole `@agent task` text back ahead of what the person typed
 meanwhile, and a retry sends a new command with a new idempotency key. When
-the task starts while the person still looks at the source session and view,
-Pocket opens the new session; otherwise it names the new session in a toast
+the task starts while the person still looks at the same session, view and
+place where they sent it, Pocket opens the new session; the agent page counts
+as that place, even though the task links to another session. Otherwise Pocket
+names the new session in a toast
 and stays where the person went. The right pane: model and thinking, folder, branch,
 spend, speed, cache, context used, subagents, the queue. Its identity menu
 reads the team's binding, chooses an agent or clears it, and can pin an

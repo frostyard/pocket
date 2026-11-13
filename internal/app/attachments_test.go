@@ -492,3 +492,48 @@ func TestQueuedEditAfterLostAnswerKeepsOneCopy(t *testing.T) {
 		t.Fatal("the recovery marker survived the edit")
 	}
 }
+
+// TestQueuedEditRetriesKeepDraftEditAndAttachmentsOnce walks one Edit through
+// a conflict, an ambiguous failure and a success, with the person editing the
+// recovered text between attempts: the retries add no second copy of the
+// message, keep that edit and the attachment already in the composer, and add
+// the answer's attachments exactly once.
+func TestQueuedEditRetriesKeepDraftEditAndAttachmentsOnce(t *testing.T) {
+	for _, held := range []bool{false, true} {
+		t.Run(fmt.Sprintf("held=%v", held), func(t *testing.T) {
+			a, loop := teamApp(t)
+			a.current = 7
+			a.composer.reset(7)
+			a.composer.draft = "existing draft"
+			a.composer.filesFor(7)
+			a.composer.files[7] = []*composerFile{{name: "earlier.txt", file: pocket.Attachment{Path: "/uploads/earlier", Name: "earlier.txt"}}}
+			a.view.Inbox = []pocket.QueueRow{{ID: 42, By: "u1", Text: "queued message"}}
+			a.view.Held = []pocket.HeldMessage{{Key: "h1", By: "u1", Text: "queued message"}}
+			a.link.client.HTTP = &http.Client{Transport: &queueSteps{steps: []func(*http.Request) (*http.Response, error){
+				queueConflict, nil, queueReturned,
+			}}}
+			key := ""
+			if held {
+				key = "h1"
+			}
+			a.queueAction(42, key, "edit")
+			loop.RunUntil(t, func() bool { return !a.composer.queueBusy })
+			// The person writes on in the recovered text between attempts.
+			a.composer.draft += " more"
+			a.queueAction(42, key, "edit")
+			loop.RunUntil(t, func() bool { return !a.composer.queueBusy })
+			a.queueAction(42, key, "edit")
+			loop.RunUntil(t, func() bool { return !a.composer.queueBusy })
+			if a.composer.draft != "queued message\n\nexisting draft more" {
+				t.Fatalf("the retries copied the message again or lost the person's edit: %q", a.composer.draft)
+			}
+			files := a.composer.files[7]
+			if len(files) != 2 || files[0].file.Path != "/uploads/example" || files[1].file.Path != "/uploads/earlier" {
+				t.Fatalf("attachments after the retries: %+v", files)
+			}
+			if len(a.composer.queueRecovered) != 0 {
+				t.Fatalf("the recovery marker survived the edit: %v", a.composer.queueRecovered)
+			}
+		})
+	}
+}
