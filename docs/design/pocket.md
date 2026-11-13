@@ -97,6 +97,12 @@ internal/icons ── the icons Pocket draws itself
   own navigation opens nothing, though MyGo on Linux counts a script's link
   click as a person's. Signing out, or signing in to another server, deletes
   the cookie and blanks the view.
+  The version menu follows the latest by default, or pins an older version per
+  artifact; SVG caches, web previews and browser links all use that selection.
+  These are standalone artifact pages. The server omits its parent-frame bridge
+  for top-level documents, so per-person saved state (the `artifact-state` API)
+  and follow-up messages need the web app's session iframe. The native preview
+  does not expose those APIs or broaden its `/a/` cookie to provide that bridge.
 - **Terminal** (⌘8) — shells on the server, as the owner, through
   pi-pocket-team's terminal module, drawn by Ghostty's emulator (MyGo's
   terminal plugin): tabs of the shells (four at most, the module's cap), a new
@@ -114,6 +120,20 @@ internal/icons ── the icons Pocket draws itself
 The places that need a module (Team, the Desk's Shift board and Numbers, the
 Wiki) show only when the server has it; Pocket works against a Pi Pocket
 without the team modules.
+
+Thread details expose the Desk's owner actions: keep, park, wake, attach found work,
+and drop with a required reason. Watches accept a date and optional time in the
+server's timezone and a check of at most 200 characters. A watch can be cleared,
+passed or failed; recently completed non-plan threads can be watched again.
+Due checks appear in the Inbox and In motion. Actions are disabled while a request
+runs, and every completion refreshes the Desk, including a rejected conflict;
+an unsuccessful action keeps its typed reason.
+
+In motion stamps the last look after reading the Desk, retaining the previous
+look as the baseline for fresh row marks throughout the visit. Its folds show
+other authors' PRs, queued issues and completed plans (read on demand); the
+thread pane shows resolved and withdrawn asks with their reasons. Ready PRs
+sort L4, L3, L2, L1/L2, L1, then unknown, oldest label first within a level.
 
 ### A session
 
@@ -183,6 +203,7 @@ server's facts. The status bar shows do not disturb while it holds.
   delegation's worktree `<checkout>--<agent>-<slug>`.
 - **Threads:** the client's goroutines never touch UI state; they post
   functions to the window (`Window.Update`).
+
 
 ## Operational notes
 
