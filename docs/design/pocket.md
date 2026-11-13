@@ -63,6 +63,9 @@ internal/icons ── the icons Pocket draws itself
   that option, ⌥Y / ⌥N allow or deny. The right pane shows the chosen item's
   context: a thread's PRs, reports and events, or a session's last steps.
   Events and answered words take at most two lines; hover shows the full text.
+  Desk Markdown paths under `reports/`, `desk/`, `plans/` and `decisions/`
+  open in a read-only native dialog from asks, reports and events. The file
+  route checks containment and size; the reader loads no images.
 - **In motion** (⌘2) — every thread under way, grouped by who moves it next
   (agents at work, with the supervisor, in review, plans, watching, parked),
   each with what its session does now from the server's peek feed, and runs
