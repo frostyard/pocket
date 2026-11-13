@@ -357,6 +357,9 @@ func (a *App) reportRow(c *ui.Context, it *item) {
 
 // disclosureRow is a quiet line that opens to show body.
 func (a *App) disclosureRow(c *ui.Context, key, icon, title, aside string, body func()) {
+	if a.tr.open == nil {
+		a.tr.open = map[string]bool{}
+	}
 	t := c.Theme()
 	open := a.tr.open[key]
 	ui.Column(c).AlignItems(ui.Stretch).Radius(8).BorderWidth(1, 1, 1, 1).BorderColor(t.Border).Children(func() {
