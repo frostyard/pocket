@@ -265,6 +265,20 @@ func (a *App) loadBoard() {
 		a.desk.boardLoading = false
 		a.desk.boardLoaded = true
 		if err == nil {
+			oldSup, newSup := 0, 0
+			if a.desk.board != nil && a.desk.board.Supervisor != nil {
+				oldSup = *a.desk.board.Supervisor
+			}
+			if b.Supervisor != nil {
+				newSup = *b.Supervisor
+			}
+			if oldSup != newSup {
+				a.desk.boardEditors = nil
+				a.desk.boardOpen = nil
+			}
+			if a.desk.boardChosen != 0 {
+				a.desk.boardChosen = newSup
+			}
 			a.desk.board = b
 			a.desk.boardErr = ""
 		} else {
@@ -296,9 +310,10 @@ func (a *App) boardChange(op string, row *pocket.BoardRow, launch []pocket.Board
 	}
 	sup := *b.Supervisor
 	if a.desk.boardChosen != 0 && a.desk.boardChosen != sup {
+		a.toast("Wait for the chosen supervisor's board to load")
 		return
 	}
-	fingerprint, _ := json.Marshal([]any{sup, op, row, launch, fields, thread})
+	fingerprint, _ := json.Marshal([]any{sup, pocket.BoardBody(op, row, launch, fields, thread)})
 	signature := string(fingerprint)
 	if a.desk.boardKeys == nil {
 		a.desk.boardKeys = map[string]string{}
@@ -311,8 +326,11 @@ func (a *App) boardChange(op string, row *pocket.BoardRow, launch []pocket.Board
 	client := a.link.client
 	a.desk.boardBusy = true
 	a.console.Add(frostui.LevelCommand, "board", op)
+	var result *pocket.BoardResult
 	a.request("Board: "+op, func(ctx context.Context, c *pocket.Client) error {
-		return c.BoardOp(ctx, sup, op, key, row, launch, fields, thread)
+		var err error
+		result, err = c.BoardOp(ctx, sup, op, key, row, launch, fields, thread)
+		return err
 	}, func(err error) {
 		if a.link.client != client {
 			return
@@ -323,15 +341,24 @@ func (a *App) boardChange(op string, row *pocket.BoardRow, launch []pocket.Board
 			delete(a.desk.boardKeys, signature)
 		}
 		if err != nil {
-			a.toast("Board unchanged: " + err.Error())
+			if errors.As(err, &api) {
+				a.toast("Board unchanged: " + err.Error())
+			} else {
+				a.toast("Board request failed; it may have been applied: " + err.Error())
+			}
 		}
 		a.loadBoard()
 		if err == nil {
 			if row != nil {
 				delete(a.desk.boardEditors, row.ID)
 			}
-			if op == "launch" {
-				a.toast(plural(len(launch), "shift launched", "shifts launched"))
+			if result != nil {
+				if result.Text != "" {
+					a.toast(result.Text)
+				}
+				if len(result.Pass) > 0 {
+					a.toast("Launch pass: " + strings.Join(result.Pass, "; "))
+				}
 			}
 		}
 	})

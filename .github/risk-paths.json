@@ -91,6 +91,16 @@
       "glob": "internal/app/board_actions.go",
       "level": "L2",
       "why": "destructive operations: owner controls drop or resolve shift board rows"
+    },
+    {
+      "glob": "internal/app/desk.go",
+      "level": "L2",
+      "why": "destructive operations: dispatches Desk and board drop and close requests"
+    },
+    {
+      "glob": "internal/pocket/desk.go",
+      "level": "L2",
+      "why": "destructive operations: sends Desk drop and close requests"
     }
   ]
 }

@@ -394,10 +394,10 @@ func (c *Client) DeskBoard(ctx context.Context, supervisor int) (*Board, error) 
 	return &out, err
 }
 
-// BoardOp picks, unpicks or launches rows of supervisor's board. key
-// makes a retry act once ("<ms>-<random>").
-func (c *Client) BoardOp(ctx context.Context, supervisor int, op, key string, row *BoardRow, launch []BoardRow, fields map[string]any, thread string) error {
-	body := map[string]any{"op": op, "key": key}
+// BoardBody is the exact operation payload before its retry key. It excludes
+// display-only row facts, so a refresh cannot change an uncertain retry's key.
+func BoardBody(op string, row *BoardRow, launch []BoardRow, fields map[string]any, thread string) map[string]any {
+	body := map[string]any{"op": op}
 	if row != nil {
 		body["row"], body["rev"] = row.ID, row.Rev
 	}
@@ -421,11 +421,24 @@ func (c *Client) BoardOp(ctx context.Context, supervisor int, op, key string, ro
 		}
 		body["rows"] = rows
 	}
-	err := c.Post(ctx, "/api/x/desk/board/"+strconv.Itoa(supervisor), body, nil)
+	return body
+}
+
+type BoardResult struct {
+	Text string   `json:"text"`
+	Pass []string `json:"pass"`
+}
+
+// BoardOp sends one revision-checked owner operation with its retry key.
+func (c *Client) BoardOp(ctx context.Context, supervisor int, op, key string, row *BoardRow, launch []BoardRow, fields map[string]any, thread string) (*BoardResult, error) {
+	body := BoardBody(op, row, launch, fields, thread)
+	body["key"] = key
+	var out BoardResult
+	err := c.Post(ctx, "/api/x/desk/board/"+strconv.Itoa(supervisor), body, &out)
 	if err != nil {
-		return fmt.Errorf("board %s: %w", op, err)
+		return nil, fmt.Errorf("board %s: %w", op, err)
 	}
-	return nil
+	return &out, nil
 }
 
 // DeskFile reads one exported Markdown file. The server validates the path,

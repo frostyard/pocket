@@ -55,7 +55,11 @@ func TestBoardOperationsMatchOwnerRoutePayloads(t *testing.T) {
 			if op == "resolve" {
 				thread = "T12"
 			}
-			if err := c.BoardOp(context.Background(), 7, op, "123-test-key", &row, []BoardRow{row}, fields, thread); err != nil {
+			var launch []BoardRow
+			if op == "launch" {
+				launch = []BoardRow{row}
+			}
+			if _, err := c.BoardOp(context.Background(), 7, op, "123-test-key", &row, launch, fields, thread); err != nil {
 				t.Fatal(err)
 			}
 		})

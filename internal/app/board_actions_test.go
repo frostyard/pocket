@@ -2,7 +2,10 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -98,4 +101,84 @@ func TestBoardDetailsAndActionsSnapshot(t *testing.T) {
 		t.Fatal("editor did not capture displayed revision")
 	}
 	writePNG(t, tt, "board-row-details")
+}
+
+func TestBoardFallbackFollowsReturnedSupervisor(t *testing.T) {
+	a, loop := teamApp(t)
+	sup := 8
+	a.desk.board = &pocket.Board{Supervisor: &sup}
+	a.desk.boardChosen = 8
+	a.desk.boardEditors = map[int]*boardEditor{2: {action: "drop"}}
+	posts := make(chan string, 1)
+	a.link.client.HTTP = &http.Client{Transport: boardHTTP(func(r *http.Request) (*http.Response, error) {
+		if r.Method == "POST" {
+			posts <- r.URL.Path
+			return reply(r, `{"text":"Picked"}`), nil
+		}
+		return reply(r, `{"supervisor":7,"supervisors":[7],"rows":[{"id":2,"rev":1,"state":"proposed"}]}`), nil
+	})}
+	a.loadBoard()
+	loop.RunUntil(t, func() bool { return !a.desk.boardLoading })
+	if a.desk.boardChosen != 7 || len(a.desk.boardEditors) != 0 {
+		t.Fatal("fallback did not follow supervisor and clear old forms")
+	}
+	a.boardOp("pick", &a.desk.board.Rows[0], nil)
+	loop.RunUntil(t, func() bool { return !a.desk.boardBusy && !a.desk.boardLoading })
+	select {
+	case path := <-posts:
+		if path != "/api/x/desk/board/7" {
+			t.Fatalf("posted to %s", path)
+		}
+	default:
+		t.Fatal("fallback silently dropped the operation")
+	}
+}
+
+func TestBoardRetryKeyIgnoresDisplayFactsAndShowsLaunchPass(t *testing.T) {
+	a, loop := teamApp(t)
+	sup := 7
+	a.desk.board = &pocket.Board{Supervisor: &sup, Rows: []pocket.BoardRow{{ID: 2, Rev: 3, State: "picked"}}}
+	keys := make(chan string, 2)
+	calls := 0
+	a.link.client.HTTP = &http.Client{Transport: boardHTTP(func(r *http.Request) (*http.Response, error) {
+		if r.Method == "POST" {
+			var body struct{ Key string }
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Error(err)
+			}
+			keys <- body.Key
+			calls++
+			if calls == 1 {
+				return nil, fmt.Errorf("connection closed")
+			}
+			return reply(r, `{"text":"Rows queued","pass":["Check failed; rows wait for the next sweep"]}`), nil
+		}
+		return reply(r, `{"supervisor":7,"rows":[{"id":2,"rev":3,"state":"picked","changedAt":123,"next":"agent","threadState":"open"}]}`), nil
+	})}
+	a.boardOp("launch", nil, a.desk.board.Rows)
+	loop.RunUntil(t, func() bool { return !a.desk.boardBusy && !a.desk.boardLoading })
+	a.boardOp("launch", nil, a.desk.board.Rows)
+	loop.RunUntil(t, func() bool { return !a.desk.boardBusy && !a.desk.boardLoading })
+	if first, second := <-keys, <-keys; first != second || first == "" {
+		t.Fatal("display refresh changed the uncertain retry key")
+	}
+	notices := strings.Join(a.pendingToasts, "\n")
+	if !strings.Contains(notices, "may have been applied") || !strings.Contains(notices, "Check failed") {
+		t.Fatalf("missing operation notices: %s", notices)
+	}
+}
+
+func TestBoardControlsFollowRowState(t *testing.T) {
+	for state, want := range map[string][]string{"proposed": {"Edit limits", "Drop…"}, "picked": {"Edit limits", "Drop…"}, "waiting": {"Drop…"}, "failed": {"Reopen"}, "unknown": {"Resolve…"}, "starting": {}, "launched": {}, "dropped": {}} {
+		t.Run(state, func(t *testing.T) {
+			a, _ := teamApp(t)
+			tt := ui.NewTesterWith(func(c *ui.Context) { frostui.Adapt(c); a.boardRowDetails(c, pocket.BoardRow{ID: 2, State: state}) }, 600, 500, ui.TesterOptions{})
+			tt.Frame()
+			for _, label := range []string{"Edit limits", "Drop…", "Reopen", "Resolve…"} {
+				if tt.HasText(label) != slices.Contains(want, label) {
+					t.Errorf("%s availability in %s", label, state)
+				}
+			}
+		})
+	}
 }

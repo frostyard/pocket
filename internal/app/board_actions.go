@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/frostyard/frostui"
@@ -101,18 +102,20 @@ func (a *App) boardRowDetails(c *ui.Context, r pocket.BoardRow) {
 		case "edit":
 			frostui.Caption(c, "Maximum rounds")
 			ui.TextInput(c, &e.max).Label("Maximum rounds").Placeholder("Maximum rounds").Disabled(busy)
-			frostui.Caption(c, "Until (server time)")
-			ui.TextInput(c, &e.until).Label("Until").Placeholder("Until (server time)").Disabled(busy)
+			frostui.Caption(c, "Until (HH:MM, server time)")
+			ui.TextInput(c, &e.until).Label("Until").Placeholder("Until (HH:MM, server time)").Disabled(busy)
 			max, err := strconv.Atoi(strings.TrimSpace(e.max))
-			if ui.PrimaryButton(c, "Save limits").Disabled(busy || err != nil || max < 1 || strings.TrimSpace(e.until) == "").Clicked() {
+			_, untilErr := time.Parse("15:04", strings.TrimSpace(e.until))
+			if ui.PrimaryButton(c, "Save limits").Disabled(busy || err != nil || max < 1 || max > 100 || untilErr != nil).Clicked() {
 				a.boardChange("edit", &e.row, nil, map[string]any{"max": max, "until": strings.TrimSpace(e.until)}, "")
 			}
 		case "drop":
-			frostui.Body(c, "Remove this row from the work waiting to launch?").Wrap()
+			frostui.Body(c, "Drop this row? Dropped rows cannot be reopened.").Wrap()
 			if ui.PrimaryButton(c, "Confirm drop").Disabled(busy).Clicked() {
 				a.boardChange("drop", &e.row, nil, nil, "")
 			}
 		case "resolve":
+			frostui.Muted(c, "Link the thread that launched. If none launched, mark this row failed so it can be reopened.").Wrap()
 			ui.TextInput(c, &e.thread).Label("Launched thread").Placeholder("Thread id, such as T12").Disabled(busy)
 			ui.Row(c).Gap(frostui.SpaceS).Wrap().Children(func() {
 				if ui.PrimaryButton(c, "Link thread").Disabled(busy || strings.TrimSpace(e.thread) == "").Clicked() {
