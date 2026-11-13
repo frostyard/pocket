@@ -26,7 +26,9 @@ type link struct {
 	// switchSeq numbers switches, as the web app does.
 	switchSeq int
 	// switching is the seq of the switch the server has not confirmed
-	// yet: session events until then are about the session left.
+	// yet: session events until then are about the session left. It
+	// belongs to one connection (gen): a new connection names the current
+	// session itself, so it starts with none.
 	switching int
 	failures  int
 }
@@ -73,6 +75,7 @@ func (a *App) disconnect() {
 	}
 	a.link.gen++
 	a.link.streamID = ""
+	a.link.switching = 0
 }
 
 // sameServer reports whether prev and next are signed in to the same
@@ -106,6 +109,10 @@ func (a *App) reconnectNow() {
 // and opens the next, as long as ctx lives.
 func (a *App) openStream(ctx context.Context) {
 	a.link.gen++
+	// The new connection opens on a.current: a switch the old one did
+	// not confirm no longer gates anything, and its events are dropped
+	// by gen.
+	a.link.switching = 0
 	gen := a.link.gen
 	client := a.link.client
 	opts := pocket.StreamOptions{Tab: a.link.tab, Conversation: a.current, Notify: true}
@@ -149,13 +156,11 @@ func (a *App) streamEnded(ctx context.Context, retry time.Duration, err error) {
 	}
 	a.conn.Reason = fmt.Sprintf("%s; trying again in %s", reason, wait.Round(time.Second))
 	a.console.Add(frostui.LevelWarn, "link", a.conn.Reason)
-	time.AfterFunc(wait, func() {
-		a.post(func() {
-			if ctx.Err() != nil {
-				return
-			}
-			a.openStream(ctx)
-		})
+	a.after(wait, func() {
+		if ctx.Err() != nil {
+			return
+		}
+		a.openStream(ctx)
 	})
 }
 
@@ -197,7 +202,7 @@ func (a *App) switchTo(id int) {
 	a.link.switchSeq++
 	seq := a.link.switchSeq
 	a.link.switching = seq
-	client, stream := a.link.client, a.link.streamID
+	client, stream, gen := a.link.client, a.link.streamID, a.link.gen
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
@@ -206,7 +211,10 @@ func (a *App) switchTo(id int) {
 			return
 		}
 		a.post(func() {
-			if a.link.switchSeq != seq {
+			// A later switch, a new connection or a new sign-in owns
+			// the link now.
+			if a.link.switchSeq != seq || a.link.gen != gen || a.link.client != client {
+				a.console.Add(frostui.LevelInfo, "link", "Ignored a superseded session switch that failed: "+err.Error())
 				return
 			}
 			a.console.Add(frostui.LevelWarn, "link", "Switching sessions failed, reconnecting: "+err.Error())

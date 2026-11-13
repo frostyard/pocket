@@ -345,6 +345,7 @@ func (a *App) reset() {
 	a.plan, a.newPlan = nil, nil
 	a.hello = nil
 	a.notified = map[string]time.Time{}
+	a.notes.reset()
 	a.sessions = nil
 	a.byID = map[int]*pocket.Session{}
 	a.view = pocket.NewView()

@@ -183,7 +183,9 @@ the form changes. A 409 reloads the plan, retains draft text and asks the owner
 to review the new state before reopening the action; failed reads disable writes.
 The page follows Desk change events and refreshes after an action or on request;
 reads coalesce while another read or action is running. Reopening the same plan
-keeps its drafts, with separate text for each form. Unedited criterion cells
+keeps its drafts, with separate text for each form; a successful action clears
+the text of the form it submitted, and an action from elsewhere on the page
+leaves every saved form text alone. Unedited criterion cells
 follow the latest server marks; an answer with no mark edits leaves marks alone.
 New plan reuses a pending or failed creation’s replay key across dialog closure,
 so reopening it cannot start a duplicate.
@@ -203,18 +205,22 @@ default. Creation errors keep the entered path available to correct.
 
 Find (⌘F / Ctrl F) searches loaded transcript rows, including folded text,
 commands and literal tool output; Previous/Next reveal the matching row.
-Search text is cached until the transcript changes. Search earlier
-messages fills more of the active context on demand. The session menu and
-palette also offer Fork (from the latest finished reply), Export (complete
-Markdown through the native save dialog), and New context (with confirmation;
-the transcript stays in history). Pending operations keep their source session,
-and a late fork never moves the user away from a different session.
+Search earlier messages fills more of the active context on demand. The
+session menu and palette also offer Fork (from the latest finished reply),
+Export (complete Markdown through the native save dialog), and New context
+(with confirmation; the transcript stays in history). Pending operations keep
+their source session, and a late fork never moves the user away from a
+different session.
 
 Replies stream in as Markdown (`ui/markdown.Stream`, word-paced, faded in).
-Thoughts fold to one line. Tool calls fold into one line per run of calls,
-which opens to each call, which opens to its output or diff; a run at work,
-or one waiting for the owner, opens by itself. Messages machines write
-(subagent answers, `[desk]` and `[shift]` notes) fold to their first line.
+A streaming reply changes no stored row, so it does not build the transcript
+again: the rows are built once per conversation revision, and a live update
+refreshes what they hold of the live state in place (each folded call's slot
+and approval, and the row for the run at work); the search text cached over
+the rows stays. Thoughts fold to one line. Tool calls fold into one line per
+run of calls, which opens to each call, which opens to its output or diff; a
+run at work, or one waiting for the owner, opens by itself. Messages machines
+write (subagent answers, `[desk]` and `[shift]` notes) fold to their first line.
 Approvals and questions dock above the composer.
 
 The inspector opens Changes and files in a native sheet. Changes show the
@@ -297,8 +303,11 @@ UI thread and rejects frames larger than 16 million pixels.
 
 Every notification passes `deliver` (`internal/app/notify.go`): the kinds the
 owner chose, do not disturb (now, snoozed, quiet hours; calls to allow may
-come through), and bursts gathered into one. Approval notification tags expire after a day
-and clear on sign-out. The Settings dialog
+come through), and bursts gathered into one. A burst belongs to the sign-in that
+started it: when its window ends the settings and the clock are read again, so a
+kind turned off or do not disturb begun in the meantime holds it. Sign-out drops
+it, and a click never opens another sign-in's session. Approval notification
+tags expire after a day and clear on sign-out. The Settings dialog
 (`internal/app/settings.go`, ⌘,) holds those choices, the theme, the zoom and
 the server's facts. The status bar shows do not disturb while it holds.
 
@@ -320,7 +329,10 @@ panes less room.
   request; localhost and literal private or loopback addresses are exempt.
 - **Events:** one SSE connection per window
   (`/api/events?p=5&embedder=notify`); the session shown changes in place
-  with `/api/switch`. Live messages come as deltas, a whole view brings only
+  with `/api/switch`; until its `switched` event, that connection's session
+  events are about the session left. A new connection names the session
+  shown itself, so it starts with no pending switch, and a switch answer
+  from an older connection or sign-in is ignored. Live messages come as deltas, a whole view brings only
   the newest rows (earlier ones load on demand), light entries are made
   whole in the next update. `pocket.View.Apply` is a port of the web app's
   `mergeView`. Peeks (`/api/peeks`) give each waiting or working session's
