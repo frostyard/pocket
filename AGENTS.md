@@ -71,6 +71,9 @@ them rather than improvising, whichever agent you are. Start a new one from
   `desk.ts`) before relying on it. `pocket.Decode` and `Client.Drift` keep the
   rest of an answer when one field has an unexpected shape: never make such a
   field fatal.
+- **Sign-in.** Mask the link field. Require confirmation before sending a
+  credential over public HTTP; only localhost and literal loopback/private
+  addresses bypass that warning. Never resolve DNS to waive it.
 - **Desk asks.** Keep a thread's asks in server filing order. Drafts and
   notification identity use `askKey` (id and generation), so reopening a
   plan ask never reuses an earlier answer draft.
