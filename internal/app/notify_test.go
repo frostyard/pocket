@@ -42,8 +42,8 @@ func done(id int) pocket.Notification {
 	return pocket.Notification{Title: "Pi finished", Body: "done", URL: "/s/" + strconv.Itoa(id), Tag: "done-" + strconv.Itoa(id)}
 }
 
-// signInTo puts the app on another server, as connect does after a sign-in.
-func signInTo(t *testing.T, a *App, server string) {
+// switchServerTo puts the app on another server, as connect does after a sign-in.
+func switchServerTo(t *testing.T, a *App, server string) {
 	t.Helper()
 	client, err := pocket.NewClient(server, "test")
 	if err != nil {
@@ -226,7 +226,7 @@ func TestSignOutDoesNotCloseTheNextBurstsWindow(t *testing.T) {
 	a.settings.Notes().Finished = config.FinishedAll
 	burst(a)
 	a.reset()
-	signInTo(t, a, "https://example.org")
+	switchServerTo(t, a, "https://example.org")
 	a.notify(done(1)) // this sign-in's first note shows at once
 	a.notify(done(2)) // and these two wait in its own window
 	a.notify(done(3))
@@ -247,7 +247,7 @@ func TestAnotherSignInsBurstNeverShows(t *testing.T) {
 	a, rec, _, timers := notifyApp(t)
 	a.settings.Notes().Finished = config.FinishedAll
 	burst(a) // session 12 of the first server is not the next one's
-	signInTo(t, a, "https://other.example")
+	switchServerTo(t, a, "https://other.example")
 	(*timers)[0]()
 	if len(rec.titles) != 1 {
 		t.Fatalf("the burst of the sign-in Pocket left showed: %v", rec.titles)
@@ -263,7 +263,7 @@ func TestAnotherSignInsNoteStartsItsOwnWindow(t *testing.T) {
 	a, rec, _, timers := notifyApp(t)
 	a.settings.Notes().Finished = config.FinishedAll
 	burst(a)
-	signInTo(t, a, "https://other.example")
+	switchServerTo(t, a, "https://other.example")
 	a.notify(done(1)) // before the first window's timer runs
 	if len(*timers) != 2 {
 		t.Fatalf("want a window timer for each sign-in, got %d", len(*timers))
@@ -292,7 +292,7 @@ func TestNotificationClickFollowsItsSignIn(t *testing.T) {
 		t.Fatalf("a click on the sign-in that made the note opened %d, want 2", a.current)
 	}
 	a.open(0)
-	signInTo(t, a, "https://other.example")
+	switchServerTo(t, a, "https://other.example")
 	// The note is still in the desktop's list, but its session 2 is the
 	// first server's; the second server's session 2 is another session.
 	rec.clicks[0]()

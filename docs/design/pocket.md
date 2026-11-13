@@ -134,7 +134,8 @@ internal/icons ── the icons Pocket draws itself
   its code, and one that goes or stops taking keys says it is disconnected.
 - **Sessions** — pinned sessions and recent ones that no other session
   started; delegations nest under the session that started them. ⌘P finds
-  any session.
+  any session. A pin belongs to the account signed in: another server or
+  user, which numbers its sessions differently, sees none of them.
 
 The places that need a module (Team, the Desk's Shift board and Numbers, the
 Wiki) show only when the server has it; Pocket works against a Pi Pocket
@@ -241,8 +242,11 @@ sending. Disk files stream from a validated open regular file; uploads have a
 ten-minute deadline and cancel on chip removal or sign-out. Uploads use the server's 50 MB limit and travel as attachment references
 with the message; sending waits for every upload. Drafts and uploaded references
 stay with their source session across navigation; sign-out clears remote file
-references. Files accompany ordinary messages, not local slash commands or
-`@agent` task creation.
+references. A draft or an Up-arrow history entry belongs to its account, the
+server's base URL and the user signed in there: a session ID is that server's,
+so sign-out keeps them in memory for the account that comes back, and neither
+another server nor another user on the same server sees them. Files accompany
+ordinary messages, not local slash commands or `@agent` task creation.
 
 Queue rows can withdraw messages or take the sender's own message back to the
 composer with its attachments. Returned text is added ahead of any existing
@@ -397,8 +401,14 @@ panes less room.
   Set `POCKET_TEST_SERVER` and `POCKET_TEST_TOKEN`, and `POCKET_DEMO_SERVER`
   and `POCKET_DEMO_TOKEN`, to their addresses and tokens.
 - Settings live in the user's config folder (`pocket/settings.json`;
-  `POCKET_CONFIG_DIR` picks another). `POCKET_NO_KEYRING=1` keeps the token in
-  a file there instead of the keyring, for development.
+  `POCKET_CONFIG_DIR` picks another). `server` is the one Pocket connects to;
+  the pins, the seen marks and the last session are kept per account under
+  `accounts` (that server's base URL and the user), because a session ID is its
+  server's. Pocket turns the pins, seen marks and last session an older version
+  kept for the whole file into the entry of the server they name, at that
+  server's first hello, and never gives them to another server.
+  `POCKET_NO_KEYRING=1` keeps the token in a file there instead of the keyring,
+  for development.
 
 Historical Numbers records fetch a thread’s detail when it is outside the live
 Desk list, so older closures and their reports remain readable in the inspector.

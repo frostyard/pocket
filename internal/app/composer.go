@@ -23,9 +23,16 @@ type composer struct {
 	draft              string
 	drafts             map[int]string
 	history            []string
-	sending            bool
-	pendingText        string
-	pendingSession     int
+	// owner is the account the drafts and history belong to; empty when
+	// nobody is signed in.
+	owner accountKey
+	// kept is what each account left behind when the window signed out of
+	// it, until it signs in again. Drafts never go to the disk, so another
+	// server or user never sees them.
+	kept           map[accountKey]composerKept
+	sending        bool
+	pendingText    string
+	pendingSession int
 	// pendingTasks are the @agent commands whose task creation waits, so a
 	// failure or a sign-out puts each command back in its session's draft once.
 	pendingTasks []*taskRecovery
@@ -42,6 +49,69 @@ type composer struct {
 	// approval and field.
 	answers  map[string]map[string]string
 	answered map[string]bool
+}
+
+// composerKept is what the composer held for 1 account when the window left
+// it.
+type composerKept struct {
+	drafts  map[int]string
+	history []string
+}
+
+// adopt takes the drafts and history of account key, after moving the ones
+// held now to the account they belong to. The same account, signed in
+// again, gets its own back; another server or user gets nothing.
+func (cp *composer) adopt(key accountKey) {
+	if cp.owner == key {
+		return
+	}
+	session := cp.session
+	cp.stash()
+	cp.session = session // the session shown stays; its text is the new account's
+	kept := cp.kept[key]
+	if cp.kept != nil {
+		delete(cp.kept, key)
+	}
+	cp.owner = key
+	cp.drafts, cp.history = kept.drafts, kept.history
+	if cp.drafts == nil {
+		cp.drafts = map[int]string{}
+	}
+	cp.draft = cp.drafts[cp.session]
+}
+
+// stash moves the drafts and history held now to kept, under the account
+// they belong to, and empties the composer: the field's text is the draft of
+// the session shown. What was held before any account signed in is dropped,
+// because it belongs to no server.
+func (cp *composer) stash() {
+	if cp.drafts == nil {
+		cp.drafts = map[int]string{}
+	}
+	cp.drafts[cp.session] = cp.draft
+	if cp.owner.set() && cp.holdsDrafts() {
+		if cp.kept == nil {
+			cp.kept = map[accountKey]composerKept{}
+		}
+		cp.kept[cp.owner] = composerKept{drafts: cp.drafts, history: cp.history}
+	}
+	cp.owner = accountKey{}
+	cp.session, cp.draft, cp.sel = 0, "", 0
+	cp.drafts, cp.history = map[int]string{}, nil
+}
+
+// holdsDrafts reports whether the composer holds a draft or a history entry
+// worth keeping.
+func (cp *composer) holdsDrafts() bool {
+	if len(cp.history) > 0 {
+		return true
+	}
+	for _, d := range cp.drafts {
+		if d != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // reset keeps the draft of the session left and takes the one of id.

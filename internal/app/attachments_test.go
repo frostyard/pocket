@@ -315,8 +315,15 @@ func TestQueuedEditKeepsTextAfterFailureOrSignOut(t *testing.T) {
 					t.Fatal("text not retained before request")
 				}
 				if signedOut {
+					key := a.account
 					a.link.client = nil
 					a.reset()
+					// The text waits for the account it belongs to.
+					if a.composer.kept[key].drafts[7] != "recover this\n\nexisting" {
+						t.Fatal("sign-out lost the recovery copy")
+					}
+					a.composer.adopt(key)
+					a.composer.reset(7)
 				}
 				before := loop.Ran()
 				close(release)
