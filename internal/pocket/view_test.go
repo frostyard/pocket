@@ -74,6 +74,55 @@ func TestLiveDeltasGrowTheMessage(t *testing.T) {
 	}
 }
 
+// The server counts a delta's `from` in UTF-16 code units (a JavaScript
+// string's length), not in UTF-8 bytes or runes.
+func TestLiveDeltaOffsetsCountUTF16Units(t *testing.T) {
+	cases := []struct {
+		name, kind, had string
+		from            int
+		ok              bool
+	}{
+		{"ascii", "text", "Hel", 3, true},
+		{"latin", "text", "café", 4, true},
+		{"cjk", "text", "你好", 2, true},
+		{"emoji", "text", "🙂", 2, true},
+		{"mixed", "text", "ok 你好 🙂 é", 10, true},
+		{"thinking cjk", "thinking", "想一想", 3, true},
+		{"thinking emoji", "thinking", "a🙂b", 4, true},
+		{"emoji as runes", "text", "🙂", 1, false},
+		{"cjk as bytes", "text", "你好", 6, false},
+		{"short", "text", "café", 3, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			had := []Block{{Type: c.kind, Text: c.had}}
+			keep := 0
+			from := c.from
+			got, ok := applyDelta(had, &LiveMessage{Keep: &keep, Blocks: []Block{{Type: c.kind, From: &from, Text: "!"}}})
+			if ok != c.ok {
+				t.Fatalf("ok = %v, want %v", ok, c.ok)
+			}
+			if ok && (len(got) != 1 || got[0].Text != c.had+"!" || got[0].Type != c.kind) {
+				t.Fatalf("blocks = %+v", got)
+			}
+		})
+	}
+}
+
+// The same through View.Apply, as a streamed update arrives.
+func TestLiveDeltaAfterNonASCIIDoesNotResync(t *testing.T) {
+	v := NewView()
+	if err := v.Apply(update(t, `{"full":true,"conversation":{"id":1},"entries":[],"order":[],"approvals":[],"live":{"busy":true,"generation":{"attempt":1,"message":{"blocks":[{"type":"text","text":"你好 🙂"}]}}}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.Apply(update(t, `{"conversation":{"id":1},"entries":[],"approvals":[],"live":{"busy":true,"generation":{"attempt":1,"message":{"keep":0,"blocks":[{"type":"text","from":5,"text":"!"}]}}}}`)); err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if got := v.Live.Generation.Message.Blocks[0].Text; got != "你好 🙂!" {
+		t.Fatalf("text = %q", got)
+	}
+}
+
 func TestPartialEntryDoesNotReplaceWhole(t *testing.T) {
 	v := NewView()
 	_ = v.Apply(update(t, `{"full":true,"conversation":{"id":1},"entries":[{"id":5,"kind":"toolResult","callId":"a","text":"whole"}],"order":[5],"live":{"busy":false},"approvals":[]}`))
