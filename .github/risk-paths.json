@@ -76,6 +76,16 @@
       "glob": "mygo.json",
       "level": "L1",
       "why": "publication: the app's identifier and signing settings for mygo build"
+    },
+    {
+      "glob": "internal/app/terminal_replay.go",
+      "level": "L2",
+      "why": "security: isolates historical terminal queries from live shell input"
+    },
+    {
+      "glob": "internal/pocket/terminal.go",
+      "level": "L2",
+      "why": "security: authenticated shell input and terminal replay boundary"
     }
   ]
 }
