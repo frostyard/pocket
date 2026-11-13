@@ -21,6 +21,9 @@ type WebPane interface {
 	View() ui.NativeWebView
 	// Show loads url, signed in to server with token.
 	Show(url, server, token string) error
+	// SignOut deletes every sign-in cookie Show set and loads about:blank.
+	// It is safe when nothing is signed in.
+	SignOut()
 }
 
 // artifacts is the Artifacts place's state.
@@ -42,6 +45,17 @@ type artifacts struct {
 
 func artifactKey(x *pocket.Artifact) string {
 	return strconv.Itoa(x.Session) + "/" + x.ID
+}
+
+// signOutWeb signs the web view out: it deletes the sign-in cookie it set
+// and blanks the page, so that no artifact page stays open, or stays signed
+// in, after the person signs out or changes server. The next preview shows
+// its page again.
+func (a *App) signOutWeb() {
+	if a.opts.Web != nil {
+		a.opts.Web.SignOut()
+	}
+	a.arts.shown = ""
 }
 
 // loadArtifacts reads the artifacts of every session.

@@ -78,9 +78,17 @@ internal/icons ── the icons Pocket draws itself
   links between pages stay in the wiki, and it reads again as pages change.
 - **Artifacts** (⌘7) — every session's artifacts, newest first: an SVG drawn
   natively, an HTML or Markdown page in a web view signed in as the owner
-  (the `pocket_auth` cookie for the server's host alone), or in the browser
-  where the system has no web view. The system browser uses its own sign-in;
-  Pocket does not sign it in.
+  (the `pocket_auth` cookie for the server's host and its `/a/` pages
+  alone), or in the browser where the system has no web view. The system
+  browser uses its own sign-in; Pocket does not sign it in. The web view
+  loads only the server's `/a/` pages, which the server sandboxes, and
+  `about:blank`: any other page of the server would load signed in as the
+  owner. A page that lands elsewhere all the same (a reload or a move in the
+  history, which the navigation hook does not see) is blanked, and gets no
+  cookie. Another web link a person clicks opens in the browser; a script's
+  own navigation opens nothing, though MyGo on Linux counts a script's link
+  click as a person's. Signing out, or signing in to another server, deletes
+  the cookie and blanks the view.
 - **Terminal** (⌘8) — shells on the server, as the owner, through
   pi-pocket-team's terminal module, drawn by Ghostty's emulator (MyGo's
   terminal plugin): tabs of the shells (four at most, the module's cap), a new
@@ -128,7 +136,9 @@ server's facts. The status bar shows do not disturb while it holds.
 - **Sign-in:** the owner's link (`/login?token=…`) carries the token; an
   invite (`/join/…`) is redeemed for one. The token goes in the keyring
   (service `org.frostyard.Pocket`) and on every request as a bearer token,
-  with `X-Pocket: 1`.
+  with `X-Pocket: 1`. The sign-in field masks the link. Public HTTP links
+  require a clear-text credential warning and confirmation before any
+  request; localhost and literal private or loopback addresses are exempt.
 - **Events:** one SSE connection per window
   (`/api/events?p=5&embedder=notify`); the session shown changes in place
   with `/api/switch`. Live messages come as deltas, a whole view brings only

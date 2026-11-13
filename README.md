@@ -36,7 +36,7 @@ make app
 open build/mygo/darwin-*/Pocket.app
 ```
 
-On Linux, `make run` builds and starts it. Paste the sign-in link your Pi Pocket launcher printed (`https://example.org/login?token=…`) or an invite link; Pocket keeps the token in the desktop's keyring.
+On Linux, `make run` builds and starts it. Paste the sign-in link your Pi Pocket launcher printed (`https://example.org/login?token=…`) or an invite link; Pocket masks the pasted link and keeps the token in the desktop's keyring. Public HTTP servers require confirmation because the token travels in clear text.
 
 ## Develop
 
