@@ -187,6 +187,17 @@ or one waiting for the owner, opens by itself. Messages machines write
 (subagent answers, `[desk]` and `[shift]` notes) fold to their first line.
 Approvals and questions dock above the composer.
 
+The inspector opens Changes and files in a native sheet. Changes show the
+repository, added/removed counts and files edited in this session; selecting a
+change loads frostui’s `DiffView`. Files has a filtered path list and an explicit
+path field, with read-only text, image and folder previews. The server’s truncated
+previews are labeled. Downloads use a native save dialog, preserve the bytes and
+fail above 64 MB; raster previews are limited to 16 MB and 16 million pixels.
+Revert requires a destructive confirmation, captures the source session and
+reports busy/conflict errors without discarding the preview. New files are
+explicitly described as deleted; renamed files remain for Git to undo. Viewers
+do not receive file controls. The server remains the permission authority.
+
 The composer accepts files from a native picker, file drop, or clipboard files
 and PNG images. Upload chips show progress or failure and can be removed before
 sending. Disk files stream from a validated open regular file; uploads have a

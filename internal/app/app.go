@@ -52,6 +52,7 @@ type Options struct {
 
 // App is the window's state.
 type App struct {
+	files        *sessionFiles
 	running      *runningState
 	background   *backgroundState
 	scheduleForm *scheduleForm
@@ -151,7 +152,6 @@ func New(opts Options) (*App, error) {
 		byID: map[int]*pocket.Session{}, view: pocket.NewView(), peeks: map[int]*pocket.Peek{},
 		notified: map[string]time.Time{}, focused: true,
 	}
-	a.shell.Dialogs = &a.dialogs
 	a.shell.Console.Title = "Activity"
 	a.shell.Console.Subtitle = "what Pocket and the server did"
 	a.shell.Console.EmptyNote = "The connection and every command Pocket sends show here."
@@ -226,6 +226,7 @@ func (a *App) saveSettings() {
 // reset forgets what the server said, as after signing out.
 func (a *App) reset() {
 	a.running, a.background, a.scheduleForm = nil, nil, nil
+	a.files = nil
 	a.scheduleBusy = false
 	a.invalidateDerived()
 	a.stopBrowserWatch()
@@ -498,6 +499,7 @@ func (a *App) open(id int) {
 	a.stopBrowserWatch()
 	a.current = id
 	a.background, a.scheduleForm = nil, nil
+	a.files = nil
 	a.details = nil
 	a.view = pocket.NewView()
 	a.tr = transcript{}

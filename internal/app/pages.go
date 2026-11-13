@@ -113,6 +113,9 @@ func (a *App) inspectorPane(c *ui.Context) {
 				meter(c, "Budget", fmt.Sprintf("$%.2f of $%.2f", v.Conversation.Spend.Spent, *b), v.Conversation.Spend.Spent / *b, frostui.Accent)
 			}
 
+			if a.canSteer() && ui.Button(c, "Changes and files").Clicked() {
+				a.openSessionFiles()
+			}
 			a.browserWatchPane(c)
 			if ui.Button(c, "Background tasks").Clicked() {
 				a.openBackground()

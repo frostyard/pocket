@@ -41,6 +41,9 @@ server that surpasses its web app at a desk. Phases 1 to 4 shipped on
 
 ## Phase 5 — Polish from daily use
 
+- Native changes and file previews, downloads and confirmed reverts
+  ([design](../design/pocket.md#a-session); implemented 2026-11-12).
+
 - File attachments by picker, drop and clipboard, plus queued/held message
   controls ([design](../design/pocket.md#a-session); implemented 2026-11-12).
 - Hover hints on the sidebar's agent rows, with frostui v0.6.0's
