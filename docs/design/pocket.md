@@ -63,13 +63,17 @@ internal/icons ── the icons Pocket draws itself
   that option, ⌥Y / ⌥N allow or deny. The right pane shows the chosen item's
   context: a thread's PRs, reports and events, or a session's last steps.
   Events and answered words take at most two lines; hover shows the full text.
+  The right pane's Details heading has its own content row below the window's
+  title bar, so palette and native window controls cannot squeeze it.
   Desk Markdown paths under `reports/`, `desk/`, `plans/` and `decisions/`
   open in a read-only native dialog from asks, reports and events. The file
   route checks containment and size; the reader loads no images.
 - **In motion** (⌘2) — every thread under way, grouped by who moves it next
   (agents at work, with the supervisor, in review, plans, watching, parked),
   each with what its session does now from the server's peek feed, and runs
-  at work that no thread holds. Double-click opens the thread's session.
+  at work that no thread holds. Double-click opens the thread's bound session. The optional Desk `session`
+  field is authoritative, even when that session is missing locally; only older
+  modules without the field use the title-and-agent fallback.
 - **Team** (⌘3) — the lessons agents want to keep, to approve, edit or
   discard (a change to an approved one shows old and new), and the roster.
   Each agent's page has a task card, its sessions, its lessons (forget,
@@ -77,9 +81,20 @@ internal/icons ── the icons Pocket draws itself
   the sidebar or by its avatar anywhere, says its role, model, home and
   repositories.
 - **Shift board** (⌘4) — the night-shift goal board: limits, rows by state,
-  Pick / Unpick, Launch picks.
+  Pick / Unpick, Launch picks, and a supervisor choice when several are live.
+  Row details show the task, objective, stop condition, worker and PR check.
+  Proposed and picked rows can change their maximum rounds and deadline; those
+  and waiting rows can be dropped. Failed rows reopen, and unknown rows can be
+  linked to a thread or marked failed. Forms retain the revision they opened
+  on. Conflicts refresh the same board; a failed supervisor read restores the
+  displayed board's choice. An uncertain retry retains its operation key.
 - **Numbers** (⌘5) — the Desk's dashboard: completion, closures, cycle time,
-  workload, PRs, cost and tokens, closures by day, by repository.
+  workload, PRs, cost and tokens, closures by day, by repository. The 7/30/90-day
+  range and GitHub owner/repository choices filter the snapshot. Delivery and PR
+  tiles and repository rows open their records; thread buttons lead to In motion.
+  Unattributed records have their own action. Every drill-down keeps the shown
+  snapshot's scope, and an older response cannot replace a newer filter selection.
+  Coverage limits and metric definitions explain what the totals omit.
 - **Wiki** (⌘6) — the homewiki module's pages, read-only, rendered natively;
   links between pages stay in the wiki, and it reads again as pages change.
 - **Artifacts** (⌘7) — every session's artifacts, newest first: an SVG drawn
@@ -163,6 +178,19 @@ night-shift goal exists. Both read on session entry and reconnect, and on
 their matching module events; late answers for a session left are discarded.
 Shift controls remain `/team-shift status`, `stop` and `resume` in the composer.
 
+The session inspector can watch the agent's browser read-only. Watching is
+explicit, uses authenticated GETs for its state and JPEG frames, and stops when
+the session changes, the watch is closed or Pocket signs out. Long polls wait
+up to 25 seconds for a newer frame; idle closed pages are checked every five
+seconds. It never opens a browser page or sends input. Missing browser support
+shows its server error without hiding the session.
+
+Browser watch waits one second between frames (at most one frame per second),
+reading the page state before each frame. A closed browser is checked every
+five seconds. A failed read pauses until Try again; JPEG decoding runs off the
+UI thread and rejects frames larger than 16 million pixels.
+
+
 ### Notifications and settings
 
 Every notification passes `deliver` (`internal/app/notify.go`): the kinds the
@@ -242,6 +270,10 @@ server's facts. The status bar shows do not disturb while it holds.
 - Settings live in the user's config folder (`pocket/settings.json`;
   `POCKET_CONFIG_DIR` picks another). `POCKET_NO_KEYRING=1` keeps the token in
   a file there instead of the keyring, for development.
+
+Historical Numbers records fetch a thread’s detail when it is outside the live
+Desk list, so older closures and their reports remain readable in the inspector.
+
 
 ## References
 
