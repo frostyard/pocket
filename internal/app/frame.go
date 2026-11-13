@@ -164,6 +164,14 @@ func (a *App) inspectorBar(c *ui.Context) {
 
 // inspector is the right pane: what the chosen thing is about.
 func (a *App) inspector(c *ui.Context) {
+	ui.Column(c).Grow(1).AlignItems(ui.Stretch).Background(frostui.Chrome(c.Theme())).Children(func() {
+		frostui.Strong(c, "Details").Wrap().Padding(frostui.SpaceM, frostui.SpaceL).Shrink(0)
+		frostui.RowDivider(c)
+		a.inspectorBody(c)
+	})
+}
+
+func (a *App) inspectorBody(c *ui.Context) {
 	if a.current != 0 || strings.HasPrefix(a.selected, "a:") {
 		a.inspectorPane(c)
 		return
