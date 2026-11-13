@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"os"
 	"runtime"
 	"sync"
@@ -18,7 +17,6 @@ import (
 	"github.com/frostyard/pocket/internal/app"
 	"github.com/frostyard/pocket/internal/config"
 	"github.com/frostyard/pocket/internal/icons"
-	"github.com/frostyard/pocket/internal/pocket"
 )
 
 // version is stamped at build time.
@@ -85,7 +83,27 @@ func run() error {
 			if err != nil {
 				slog.Warn("the artifacts' web view", "err", err)
 			} else {
-				pane.view = view
+				pane.attach(view)
+				page := view.Page()
+				page.OnWillNavigate(func(e *mygo.NavigateEvent) {
+					switch pane.web.Navigate(e.URL, e.UserInitiated) {
+					case app.NavigationAllow:
+					case app.NavigationExternal:
+						e.PreventDefault()
+						openExternal(e.URL)
+					default:
+						e.PreventDefault()
+					}
+				})
+				// Reloads and moves in the history do not reach OnWillNavigate:
+				// a page that lands outside the rule all the same is blanked.
+				page.OnDidNavigate(pane.web.Committed)
+				page.SetWindowOpenHandler(func(req mygo.WindowOpenRequest) *mygo.WindowOptions {
+					if app.ArtifactPopup(req.URL, req.UserInitiated) {
+						openExternal(req.URL)
+					}
+					return nil
+				})
 			}
 		}
 		win.OnFocus(func() { p.post(func() { a.SetFocused(true) }) })
@@ -181,8 +199,19 @@ func (n notifier) Notify(title, body string, onClick func()) {
 
 // webPane shows artifacts' pages in a web view of the window, signed in
 // with the person's token as the cookie Pi Pocket's own pages use.
+//
+// The page of an artifact is a program a person did not write, so the view
+// loads only the server's /a/ pages, the ones the server sandboxes; a link
+// elsewhere goes to the person's browser. app.ArtifactWeb holds that logic.
 type webPane struct {
 	view *mygo.WebView
+	web  *app.ArtifactWeb
+}
+
+// attach gives the pane the window's web view.
+func (w *webPane) attach(view *mygo.WebView) {
+	w.view = view
+	w.web = app.NewArtifactWeb(mygoWeb{view: view}, func(what string, err error) { slog.Warn(what, "err", err) })
 }
 
 func (w *webPane) View() ui.NativeWebView {
@@ -192,26 +221,41 @@ func (w *webPane) View() ui.NativeWebView {
 	return w.view
 }
 
-// Show sets the sign-in cookie for the server's host alone, then loads
-// the page, off the UI thread.
+// Show signs the view in to server and loads page, off the UI thread.
 func (w *webPane) Show(page, server, token string) error {
-	if w.view == nil {
+	if w.web == nil {
 		return errors.New("no web view")
 	}
-	u, err := url.Parse(server)
-	if err != nil {
-		return err
+	return w.web.Show(page, server, token)
+}
+
+// SignOut deletes the sign-in cookies and blanks the view.
+func (w *webPane) SignOut() {
+	if w.web != nil {
+		w.web.SignOut()
 	}
-	view := w.view
+}
+
+// mygoWeb is MyGo's web view as app.ArtifactWeb uses it.
+type mygoWeb struct{ view *mygo.WebView }
+
+func (m mygoWeb) SetCookie(c app.WebCookie) error {
+	return mygo.Cookies.Set(mygo.Cookie{Name: c.Name, Value: c.Value, Domain: c.Domain, Path: c.Path,
+		Secure: c.Secure, HTTPOnly: true, SameSite: mygo.CookieSameSiteLax})
+}
+
+func (m mygoWeb) DeleteCookie(c app.WebCookie) error {
+	return mygo.Cookies.Delete(mygo.Cookie{Name: c.Name, Domain: c.Domain, Path: c.Path})
+}
+
+func (m mygoWeb) Load(page string) error { return m.view.Page().LoadURL(page) }
+
+// openExternal opens a link of an artifact in the person's browser. It
+// never waits on the open: the web view's hooks must return at once.
+func openExternal(u string) {
 	go func() {
-		err := mygo.Cookies.Set(mygo.Cookie{Name: pocket.CookieName, Value: token, Domain: u.Hostname(), Path: "/",
-			Secure: u.Scheme == "https", HTTPOnly: true, SameSite: mygo.CookieSameSiteLax})
-		if err != nil {
-			slog.Warn("signing the web view in", "err", err)
-		}
-		if err := view.Page().LoadURL(page); err != nil {
-			slog.Warn("loading an artifact", "err", err)
+		if err := (frostui.Opener{Schemes: []string{"https", "http"}}).OpenURL(u); err != nil {
+			slog.Warn("opening a link of an artifact", "err", err)
 		}
 	}()
-	return nil
 }
