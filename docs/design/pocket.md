@@ -264,9 +264,11 @@ ordinary messages, not local slash commands or `@agent` task creation.
 
 Queued messages show in a dock above the composer, as the web app shows them:
 a count line, then one row for each waiting message with how it goes, who sent
-it and what it says, without the sender's prefix. While a message to a working
-session waits for its answer, a local Sending row shows it; the row goes once
-the server lists that message or the run ends. Queue rows can withdraw messages
+it and what it says, without the sender's prefix. Each text takes 1 line, and the
+rows scroll past the dock's height, so a long queue never squeezes the field.
+While a message to a working session waits for its answer, a local Sending row
+shows it; the row goes once the server lists a new message by the same person,
+which the dock knows by identity, never by text. Queue rows can withdraw messages
 or take the sender's own message back to the composer with its attachments.
 Returned text is added ahead of any existing
 draft, even if another session is now open. Edit retains the displayed text before

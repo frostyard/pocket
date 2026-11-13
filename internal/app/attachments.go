@@ -391,8 +391,10 @@ func queueCount(n int) string {
 
 // pendingQueued is the message the person just sent and Pi has not taken yet:
 // its text, and whether the dock shows it. It shows while a send to a working
-// session waits for its answer, unless the server already lists that message,
-// which it cuts and ends with an ellipsis.
+// session waits for its answer, unless the queue holds a message the person
+// sent after it: the send is then the server's own row. Identity, never text,
+// says which row that is, because an earlier message can start the same way
+// and the server writes attachments into the text it lists.
 func (a *App) pendingQueued() (string, bool) {
 	cp := &a.composer
 	if !cp.sending || cp.pendingSession != a.current || cp.pendingText == "" {
@@ -403,11 +405,7 @@ func (a *App) pendingQueued() (string, bool) {
 	}
 	if a.hello != nil {
 		for _, q := range a.view.Inbox {
-			if q.By != a.hello.User.ID {
-				continue
-			}
-			text := strings.TrimSuffix(fromPrefix.ReplaceAllString(q.Text, ""), "…")
-			if text != "" && strings.HasPrefix(cp.pendingText, text) {
+			if q.By == a.hello.User.ID && !cp.pendingBefore[q.ID] {
 				return "", false
 			}
 		}
@@ -429,12 +427,20 @@ func (a *App) queueDock(c *ui.Context) {
 	ui.Column(c).AlignItems(ui.Center).Padding(frostui.SpaceS, frostui.SpaceXL, frostui.SpaceS, frostui.SpaceXL).Children(func() {
 		ui.Column(c).MaxWidth(860).FillWidth().AlignItems(ui.Stretch).Gap(frostui.SpaceS).Children(func() {
 			ui.Column(c).AlignItems(ui.Stretch).Radius(12).BorderWidth(1, 1, 1, 1).BorderColor(t.Border).
-				Background(frostui.Panel(t)).Padding(frostui.SpaceS, frostui.SpaceM).Gap(frostui.SpaceXS).Children(func() {
-				a.queueSection(c)
+				Background(frostui.Panel(t)).Padding(frostui.SpaceS, frostui.SpaceM).Children(func() {
+				ui.Scroll(c).MaxHeight(queueDockHeight).Children(func() {
+					ui.Column(c).AlignItems(ui.Stretch).Gap(frostui.SpaceXS).Children(func() {
+						a.queueSection(c)
+					})
+				})
 			})
 		})
 	})
 }
+
+// queueDockHeight is the tallest the dock draws before it scrolls: a short
+// queue takes its own height, a long one scrolls, and the field stays whole.
+const queueDockHeight = 180
 
 func (a *App) queueSection(c *ui.Context) {
 	cp := &a.composer
@@ -451,7 +457,7 @@ func (a *App) queueSection(c *ui.Context) {
 				if a.hello != nil {
 					frostui.Caption(c, a.queuedBy(a.hello.User.ID))
 				}
-				frostui.Muted(c, pending).Wrap().Grow(1)
+				frostui.Muted(c, pending).SingleLine().Grow(1)
 			})
 		}
 		for _, q := range a.view.Inbox {
@@ -461,7 +467,7 @@ func (a *App) queueSection(c *ui.Context) {
 					if by := a.queuedBy(q.By); by != "" {
 						frostui.Caption(c, by)
 					}
-					frostui.Muted(c, queueRowText(q)).Wrap().Grow(1)
+					frostui.Muted(c, queueRowText(q)).SingleLine().Grow(1)
 				})
 				if !a.canSteer() {
 					return
@@ -486,7 +492,7 @@ func (a *App) queueSection(c *ui.Context) {
 		}
 		for _, q := range a.view.Held {
 			ui.Column(c.Key(q.Key)).Gap(frostui.SpaceXS).Children(func() {
-				frostui.Muted(c, strings.TrimSpace(q.Text)).Wrap()
+				frostui.Muted(c, strings.TrimSpace(q.Text)).SingleLine()
 				if !a.canSteer() {
 					return
 				}

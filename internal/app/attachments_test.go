@@ -646,3 +646,71 @@ func TestQueuedModeAndText(t *testing.T) {
 		}
 	}
 }
+
+// A long queue, or one long held message, never pushes the composer out of
+// the window: the dock scrolls inside a height of its own.
+func TestQueueDockKeepsComposerVisible(t *testing.T) {
+	a, _ := teamApp(t)
+	a.current = 7
+	a.view = pocket.NewView()
+	a.view.Live.Busy = true
+	long := strings.Repeat("A long waiting message. ", 13)
+	for i := range 8 {
+		a.view.Inbox = append(a.view.Inbox, pocket.QueueRow{ID: 40 + i, By: "u1", Mode: "followUp", Text: "[from: Brian] " + long})
+	}
+	a.view.Held = []pocket.HeldMessage{{Key: "h1", By: "u1", Text: strings.Repeat("held ", 400)}}
+	tt := ui.NewTesterWith(func(c *ui.Context) { frostui.Adapt(c); a.conversationPane(c) }, 900, 420, ui.TesterOptions{})
+	tt.Frame()
+	writePNG(t, tt, "queue-dock-long")
+	field, ok := tt.Find("Message")
+	if !ok || field.H <= 0 || field.Y < 0 || field.Y+field.H > 420 {
+		t.Fatalf("the composer field is out of the window: %+v (%v): %q", field, ok, tt.Texts())
+	}
+	send, ok := tt.Find("Send (Enter)")
+	if !ok || send.H <= 0 || send.Y < 0 || send.Y+send.H > 420 {
+		t.Errorf("the send button is out of the window: %+v (%v)", send, ok)
+	}
+}
+
+// An earlier message by the same person that starts the same way never hides
+// the send waiting now.
+func TestPendingMessageStaysBesideEarlierPrefix(t *testing.T) {
+	a, _ := teamApp(t)
+	a.current = 7
+	a.view = pocket.NewView()
+	a.view.Live.Busy = true
+	a.view.Inbox = []pocket.QueueRow{{ID: 41, By: "u1", Mode: "followUp", Text: "[from: Brian] Continue"}}
+	cp := &a.composer
+	cp.sending, cp.pendingText, cp.pendingSession = true, "Continue with the tests", 7
+	cp.pendingBefore = map[int]bool{41: true}
+	tt := queuedTester(t, a)
+	writePNG(t, tt, "queue-dock-prefix")
+	for _, want := range []string{"Sending", "Continue with the tests", "2 messages waiting for Pi"} {
+		if !tt.HasText(want) {
+			t.Errorf("the dock lacks %q: %q", want, tt.Texts())
+		}
+	}
+}
+
+// The server writes the attachments into the queued text: the send is the
+// server's own row, drawn 1 time and no longer as a local Sending row.
+func TestPendingMessageGoesWhenTheServerListsItWithAttachments(t *testing.T) {
+	a, _ := teamApp(t)
+	a.current = 7
+	a.view = pocket.NewView()
+	a.view.Live.Busy = true
+	cp := &a.composer
+	cp.sending, cp.pendingText, cp.pendingSession = true, "Run the linter", 7
+	cp.pendingBefore = map[int]bool{}
+	a.view.Inbox = []pocket.QueueRow{{ID: 42, By: "u1", Mode: "followUp", Text: "[from: Brian] Run the linter\n\n[attached: /uploads/notes.txt]"}}
+	tt := queuedTester(t, a)
+	if n := countText(tt, "Run the linter"); n != 1 {
+		t.Errorf("the sent message drawn %d times, want once: %q", n, tt.Texts())
+	}
+	if tt.HasText("Sending") {
+		t.Errorf("the dock still shows the local send: %q", tt.Texts())
+	}
+	if !tt.HasText("1 message waiting for Pi") {
+		t.Errorf("the count line is wrong: %q", tt.Texts())
+	}
+}

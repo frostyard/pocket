@@ -33,6 +33,11 @@ type composer struct {
 	sending        bool
 	pendingText    string
 	pendingSession int
+	// pendingBefore holds the queued messages that were in the view when the
+	// send started. A message that is not one of them is that send, which the
+	// server now lists: the dock names a message by its identity, never by its
+	// text.
+	pendingBefore map[int]bool
 	// pendingTasks are the @agent commands whose task creation waits, so a
 	// failure or a sign-out puts each command back in its session's draft once.
 	pendingTasks []*taskRecovery
@@ -160,6 +165,7 @@ func (cp *composer) resetRequests() {
 	}
 	cp.pendingTasks = nil
 	cp.sending, cp.pendingText, cp.pendingSession = false, "", 0
+	cp.pendingBefore = nil
 	// Uploaded paths belong to the old authenticated server, never a new sign-in.
 	for _, files := range cp.files {
 		for _, f := range files {
@@ -465,6 +471,12 @@ func (a *App) send(text, mode string) {
 	}
 	cp.sending = true
 	cp.pendingText, cp.pendingSession = text, id
+	cp.pendingBefore = map[int]bool{}
+	if a.view != nil {
+		for _, q := range a.view.Inbox {
+			cp.pendingBefore[q.ID] = true
+		}
+	}
 	cp.files[id] = nil
 	var attachments []pocket.Attachment
 	for _, f := range files {
@@ -482,6 +494,7 @@ func (a *App) send(text, mode string) {
 	}, func(err error) {
 		cp.sending = false
 		cp.pendingText, cp.pendingSession = "", 0
+		cp.pendingBefore = nil
 		if err != nil {
 			cp.restoreDraft(id, text, files)
 			a.toast("Not sent: " + err.Error())
