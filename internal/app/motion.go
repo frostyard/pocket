@@ -306,7 +306,7 @@ func ago(now, t time.Time) string {
 // propose, the person picks, and code launches as they fit.
 func (a *App) boardPane(c *ui.Context) {
 	t := c.Theme()
-	if a.desk.board == nil && !a.desk.boardLoading {
+	if !a.desk.boardLoaded && a.desk.board == nil && !a.desk.boardLoading {
 		a.loadBoard()
 	}
 	b := a.desk.board
@@ -329,17 +329,28 @@ func (a *App) boardPane(c *ui.Context) {
 					if a.desk.boardLoading || a.desk.boardBusy {
 						ui.Spinner(c).Size(16, 16)
 					}
+					if ui.Button(c, "Refresh board").Disabled(a.desk.boardLoading || a.desk.boardBusy).Clicked() {
+						a.loadBoard()
+					}
 					label := "Launch picks"
 					if len(picked) > 0 {
 						label = fmt.Sprintf("Launch %d", len(picked))
 					}
-					if ui.PrimaryButton(c, label).Disabled(len(picked) == 0 || a.desk.boardBusy).Clicked() {
+					if ui.PrimaryButton(c, label).Disabled(len(picked) == 0 || a.desk.boardBusy || a.desk.boardLoading).Clicked() {
 						a.boardOp("launch", nil, picked)
 					}
 				})
 				if b == nil {
-					frostui.Loading(c, "Reading the board…")
+					if a.desk.boardErr != "" {
+						frostui.Problem(c, a.desk.boardErr).Wrap()
+					} else {
+						frostui.Loading(c, "Reading the board…")
+					}
 					return
+				}
+				a.boardSupervisor(c, b)
+				if a.desk.boardErr != "" {
+					frostui.Problem(c, a.desk.boardErr).Wrap()
 				}
 				if b.Limits != nil {
 					ui.Row(c).Gap(frostui.SpaceM).Children(func() {
@@ -359,6 +370,11 @@ func (a *App) boardPane(c *ui.Context) {
 					{"Failed", []string{"failed", "unknown"}},
 				}
 				var done []pocket.BoardRow
+				for _, r := range b.Rows {
+					if r.State == "dropped" {
+						done = append(done, r)
+					}
+				}
 				shown := 0
 				for _, g := range groups {
 					var rows []pocket.BoardRow
@@ -454,13 +470,19 @@ func (a *App) boardRow(c *ui.Context, r pocket.BoardRow) {
 				frostui.Caption(c, r.Note).Wrap()
 			}
 		})
+		if a.desk.boardOpen == nil {
+			a.desk.boardOpen = map[int]bool{}
+		}
+		if ui.Button(c, "Details").Clicked() {
+			a.desk.boardOpen[r.ID] = !a.desk.boardOpen[r.ID]
+		}
 		switch r.State {
 		case "proposed":
-			if ui.Button(c, "Pick").Disabled(a.desk.boardBusy).Clicked() {
+			if ui.Button(c, "Pick").Disabled(a.desk.boardBusy || a.desk.boardLoading).Clicked() {
 				a.boardOp("pick", &r, nil)
 			}
 		case "picked":
-			if ui.Button(c, "Unpick").Disabled(a.desk.boardBusy).Clicked() {
+			if ui.Button(c, "Unpick").Disabled(a.desk.boardBusy || a.desk.boardLoading).Clicked() {
 				a.boardOp("unpick", &r, nil)
 			}
 		case "launched":
@@ -472,6 +494,9 @@ func (a *App) boardRow(c *ui.Context, r pocket.BoardRow) {
 			}
 		}
 	})
+	if a.desk.boardOpen[r.ID] {
+		a.boardRowDetails(c.Key("details"), r)
+	}
 }
 
 // numbersPane is the Desk's dashboard: how the team delivers.

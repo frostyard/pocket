@@ -347,18 +347,25 @@ func (c *Client) DeskDashboard(ctx context.Context, from, to string) (*Dashboard
 
 // BoardRow is one row of shift work on the goal board.
 type BoardRow struct {
-	ID          int    `json:"id"`
-	Rev         int    `json:"rev"`
-	State       string `json:"state"` // proposed, picked, waiting, starting, launched, failed, unknown, dropped
-	Agent       string `json:"agent"`
-	Repo        string `json:"repo,omitempty"`
-	Title       string `json:"title"`
-	Task        string `json:"task"`
-	Objective   string `json:"objective,omitempty"`
-	StopWhen    string `json:"stopWhen"`
-	Max         int    `json:"max"`
-	Until       string `json:"until"`
-	Worker      string `json:"worker,omitempty"`
+	ID        int    `json:"id"`
+	Rev       int    `json:"rev"`
+	State     string `json:"state"` // proposed, picked, waiting, starting, launched, failed, unknown, dropped
+	Agent     string `json:"agent"`
+	Repo      string `json:"repo,omitempty"`
+	Title     string `json:"title"`
+	Task      string `json:"task"`
+	Objective string `json:"objective,omitempty"`
+	StopWhen  string `json:"stopWhen"`
+	Max       int    `json:"max"`
+	Until     string `json:"until"`
+	Worker    string `json:"worker,omitempty"`
+	Start     string `json:"start,omitempty"`
+	PRCheck   *struct {
+		PR     int    `json:"pr,omitempty"`
+		Repo   string `json:"repo,omitempty"`
+		Checks string `json:"checks,omitempty"`
+		Label  string `json:"label,omitempty"`
+	} `json:"prCheck,omitempty"`
 	Kind        string `json:"kind"`
 	Note        string `json:"note,omitempty"`
 	Order       int    `json:"order"`
@@ -401,25 +408,51 @@ func (c *Client) DeskBoard(ctx context.Context, supervisor int) (*Board, error) 
 	return &out, err
 }
 
-// BoardOp picks, unpicks or launches rows of supervisor's board. key
-// makes a retry act once ("<ms>-<random>").
-func (c *Client) BoardOp(ctx context.Context, supervisor int, op, key string, row *BoardRow, launch []BoardRow) error {
-	body := map[string]any{"op": op, "key": key}
+// BoardBody is the exact operation payload before its retry key. It excludes
+// display-only row facts, so a refresh cannot change an uncertain retry's key.
+func BoardBody(op string, row *BoardRow, launch []BoardRow, fields map[string]any, thread string) map[string]any {
+	body := map[string]any{"op": op}
 	if row != nil {
 		body["row"], body["rev"] = row.ID, row.Rev
 	}
-	if op == "launch" {
+	if op == "pick" || op == "unpick" {
+		if row != nil {
+			launch = []BoardRow{*row}
+		}
+		delete(body, "row")
+		delete(body, "rev")
+	}
+	if fields != nil {
+		body["fields"] = fields
+	}
+	if thread != "" {
+		body["thread"] = thread
+	}
+	if op == "launch" || op == "pick" || op == "unpick" {
 		rows := make([]map[string]int, len(launch))
 		for i, r := range launch {
 			rows[i] = map[string]int{"row": r.ID, "rev": r.Rev}
 		}
 		body["rows"] = rows
 	}
-	err := c.Post(ctx, "/api/x/desk/board/"+strconv.Itoa(supervisor), body, nil)
+	return body
+}
+
+type BoardResult struct {
+	Text string   `json:"text"`
+	Pass []string `json:"pass"`
+}
+
+// BoardOp sends one revision-checked owner operation with its retry key.
+func (c *Client) BoardOp(ctx context.Context, supervisor int, op, key string, row *BoardRow, launch []BoardRow, fields map[string]any, thread string) (*BoardResult, error) {
+	body := BoardBody(op, row, launch, fields, thread)
+	body["key"] = key
+	var out BoardResult
+	err := c.Post(ctx, "/api/x/desk/board/"+strconv.Itoa(supervisor), body, &out)
 	if err != nil {
-		return fmt.Errorf("board %s: %w", op, err)
+		return nil, fmt.Errorf("board %s: %w", op, err)
 	}
-	return nil
+	return &out, nil
 }
 
 type OtherPR struct {
