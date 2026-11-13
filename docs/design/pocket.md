@@ -204,18 +204,22 @@ default. Creation errors keep the entered path available to correct.
 
 Find (⌘F / Ctrl F) searches loaded transcript rows, including folded text,
 commands and literal tool output; Previous/Next reveal the matching row.
-Search text is cached until the transcript changes. Search earlier
-messages fills more of the active context on demand. The session menu and
-palette also offer Fork (from the latest finished reply), Export (complete
-Markdown through the native save dialog), and New context (with confirmation;
-the transcript stays in history). Pending operations keep their source session,
-and a late fork never moves the user away from a different session.
+Search earlier messages fills more of the active context on demand. The
+session menu and palette also offer Fork (from the latest finished reply),
+Export (complete Markdown through the native save dialog), and New context
+(with confirmation; the transcript stays in history). Pending operations keep
+their source session, and a late fork never moves the user away from a
+different session.
 
 Replies stream in as Markdown (`ui/markdown.Stream`, word-paced, faded in).
-Thoughts fold to one line. Tool calls fold into one line per run of calls,
-which opens to each call, which opens to its output or diff; a run at work,
-or one waiting for the owner, opens by itself. Messages machines write
-(subagent answers, `[desk]` and `[shift]` notes) fold to their first line.
+A streaming reply changes no stored row, so it does not build the transcript
+again: the rows are built once per conversation revision, and a live update
+refreshes what they hold of the live state in place (each folded call's slot
+and approval, and the row for the run at work); the search text cached over
+the rows stays. Thoughts fold to one line. Tool calls fold into one line per
+run of calls, which opens to each call, which opens to its output or diff; a
+run at work, or one waiting for the owner, opens by itself. Messages machines
+write (subagent answers, `[desk]` and `[shift]` notes) fold to their first line.
 Approvals and questions dock above the composer.
 
 The inspector opens Changes and files in a native sheet. Changes show the
