@@ -154,6 +154,19 @@ night-shift goal exists. Both read on session entry and reconnect, and on
 their matching module events; late answers for a session left are discarded.
 Shift controls remain `/team-shift status`, `stop` and `resume` in the composer.
 
+The session inspector can watch the agent's browser read-only. Watching is
+explicit, uses authenticated GETs for its state and JPEG frames, and stops when
+the session changes, the watch is closed or Pocket signs out. Long polls wait
+up to 25 seconds for a newer frame; idle closed pages are checked every five
+seconds. It never opens a browser page or sends input. Missing browser support
+shows its server error without hiding the session.
+
+Browser watch waits one second between frames (at most one frame per second),
+reading the page state before each frame. A closed browser is checked every
+five seconds. A failed read pauses until Try again; JPEG decoding runs off the
+UI thread and rejects frames larger than 16 million pixels.
+
+
 ### Notifications and settings
 
 Every notification passes `deliver` (`internal/app/notify.go`): the kinds the
