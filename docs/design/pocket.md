@@ -83,8 +83,9 @@ internal/icons ── the icons Pocket draws itself
   Each agent's page has a task card, its sessions, its lessons (forget,
   edit, add one of the owner's), places and profile. Hovering an agent, in
   the sidebar or by its avatar anywhere, says its role, model, home and
-  repositories. A read of the lessons that fails stays an error on the page
-  with Try again, and a redraw does not read it again.
+  repositories. A read of the lessons that fails stays an error on the Team
+  page and on an agent's page, with Try again; the lessons read before it stay
+  under the error, and a redraw does not read them again.
 - **Shift board** (⌘4) — the night-shift goal board: limits, rows by state,
   Pick / Unpick, Launch picks, and a supervisor choice when several are live.
   Row details show the task, objective, stop condition, worker and PR check.
@@ -105,7 +106,8 @@ internal/icons ── the icons Pocket draws itself
 - **Wiki** (⌘6) — the homewiki module's pages, read-only, rendered natively;
   links between pages stay in the wiki, and it reads again as pages change.
   A read that fails stays an error in the pane with Try again; until then a
-  redraw does not read the wiki again.
+  redraw does not read the wiki again. Two reads of a page can overlap, and
+  only the newest one changes the pane.
 - **Artifacts** (⌘7) — every session's artifacts, newest first: an SVG drawn
   natively, an HTML or Markdown page in a web view signed in as the owner
   (the `pocket_auth` cookie for the server's host and its `/a/` pages
@@ -123,7 +125,8 @@ internal/icons ── the icons Pocket draws itself
   artifact; SVG caches, web previews and browser links all use that selection.
   An SVG body that fails to read or parse shows its error in the preview with
   Try again, kept for that artifact and version, so a redraw does not read it
-  again.
+  again. Read the artifacts again clears those failures, so an SVG the server
+  can now send draws.
   These are standalone artifact pages. The server omits its parent-frame bridge
   for top-level documents, so per-person saved state (the `artifact-state` API)
   and follow-up messages need the web app's session iframe. The native preview

@@ -106,6 +106,15 @@ func (a *App) loadArtifacts() {
 	})
 }
 
+// refreshArtifacts reads the artifacts again on the person's ask. A failed
+// SVG reads again too: the server may have recovered. The timer and the
+// events read the list without clearing those failures, so that a redraw
+// never reads an SVG that failed.
+func (a *App) refreshArtifacts() {
+	a.arts.svgErr = nil
+	a.loadArtifacts()
+}
+
 // scheduleArtifactRefresh keeps an open list current without polling hidden pages.
 func (a *App) scheduleArtifactRefresh() {
 	if a.selected != "x:artifacts" || a.arts.refreshPending || a.link.client == nil {
@@ -270,7 +279,7 @@ func (a *App) artifactsPane(c *ui.Context) {
 				if a.arts.loading {
 					ui.Spinner(c).Size(14, 14)
 				} else if frostui.IconButton(c, "view-refresh", "Read the artifacts again").Clicked() {
-					a.loadArtifacts()
+					a.refreshArtifacts()
 				}
 			})
 			ui.Scroll(c).Grow(1).Children(func() {

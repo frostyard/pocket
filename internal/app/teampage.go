@@ -367,16 +367,17 @@ func (a *App) lessonCard(c *ui.Context, agent string, l *pocket.Lesson, showAgen
 
 // agentLessons is the Lessons section of an agent's page.
 func (a *App) agentLessons(c *ui.Context, id string) {
-	if a.lessons.memory == nil {
-		if !a.lessons.loading && a.lessons.err == "" {
+	if a.lessons.memory == nil && !a.lessons.loading && a.lessons.err == "" {
+		a.loadMemory()
+	}
+	// A failed refresh keeps the lessons read before it, under the error.
+	if a.lessons.err != "" {
+		frostui.Problem(c, "Reading the agents' lessons: "+a.lessons.err).Wrap()
+		if ui.Button(c, "Try again").Clicked() {
 			a.loadMemory()
 		}
-		if a.lessons.err != "" {
-			frostui.Problem(c, "Reading the agents' lessons: "+a.lessons.err).Wrap()
-			if ui.Button(c, "Try again").Clicked() {
-				a.loadMemory()
-			}
-		}
+	}
+	if a.lessons.memory == nil {
 		return
 	}
 	list := a.lessons.memory.Agents[id]

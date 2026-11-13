@@ -27,6 +27,9 @@ type wiki struct {
 	// an event clears them.
 	err     string
 	pageErr string
+	// pageGen numbers the reads of the page shown: only the newest one
+	// applies, so an older answer, or an older failure, cannot replace it.
+	pageGen int
 }
 
 // loadWiki reads the wiki's pages, and the page shown again.
@@ -60,9 +63,13 @@ func (a *App) loadWiki() {
 	})
 }
 
-// readWikiPage reads one page and shows it.
+// readWikiPage reads one page and shows it. Two reads of the same page can
+// overlap (the pages read again while a page read is under way): the newest
+// read alone changes what the pane shows.
 func (a *App) readWikiPage(p string) {
 	a.wiki.sel, a.wiki.pageErr = p, ""
+	a.wiki.pageGen++
+	gen := a.wiki.pageGen
 	a.wiki.reading = true
 	var page *pocket.WikiPage
 	a.request("Reading "+p, func(ctx context.Context, c *pocket.Client) error {
@@ -70,16 +77,15 @@ func (a *App) readWikiPage(p string) {
 		page, err = c.WikiRead(ctx, p)
 		return err
 	}, func(err error) {
+		if gen != a.wiki.pageGen {
+			return // a newer read of the page is under way, or came after this one
+		}
 		a.wiki.reading = false
 		if err != nil {
-			if a.wiki.sel == p {
-				a.wiki.pageErr = err.Error()
-			}
+			a.wiki.pageErr = err.Error()
 			return
 		}
-		if a.wiki.sel == p {
-			a.wiki.page = page
-		}
+		a.wiki.page, a.wiki.pageErr = page, ""
 	})
 }
 
