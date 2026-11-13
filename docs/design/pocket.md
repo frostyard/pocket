@@ -47,7 +47,13 @@ internal/icons ── the icons Pocket draws itself
   the most pressing first: calls to allow and questions waiting in sessions
   (subagents' included), the Desk's decisions, PRs ready to merge (by review
   level), a full desk (Allow 1), failed runs, found work, threads gone quiet,
-  and lessons to review (which the badge does not count). A decision or report
+  and lessons to review (which the badge does not count). Team lessons and
+  Pi Pocket's own pending lessons appear together, with the latter labeled
+  “Pi Pocket memory”. Approve sends the proposal shown; Discard withdraws it.
+  The core queue uses the owner's private PiP id from the stream's `pip` event,
+  reads again on hello and `memory` events, and requires a `pendingAll`
+  response. If PiP has never been opened, the Inbox explains how to enable
+  the queue; it never substitutes an ordinary session. A decision or report
   that names an artifact (`artifact:<id>`, as the Desk writes it) links it,
   and gets a button titled as the artifact that opens it in Artifacts: the
   id is looked up across sessions, the thread's own session first, then its
@@ -75,9 +81,17 @@ internal/icons ── the icons Pocket draws itself
   links between pages stay in the wiki, and it reads again as pages change.
 - **Artifacts** (⌘7) — every session's artifacts, newest first: an SVG drawn
   natively, an HTML or Markdown page in a web view signed in as the owner
-  (the `pocket_auth` cookie for the server's host alone), or in the browser
-  where the system has no web view. The system browser uses its own sign-in;
-  Pocket does not sign it in.
+  (the `pocket_auth` cookie for the server's host and its `/a/` pages
+  alone), or in the browser where the system has no web view. The system
+  browser uses its own sign-in; Pocket does not sign it in. The web view
+  loads only the server's `/a/` pages, which the server sandboxes, and
+  `about:blank`: any other page of the server would load signed in as the
+  owner. A page that lands elsewhere all the same (a reload or a move in the
+  history, which the navigation hook does not see) is blanked, and gets no
+  cookie. Another web link a person clicks opens in the browser; a script's
+  own navigation opens nothing, though MyGo on Linux counts a script's link
+  click as a person's. Signing out, or signing in to another server, deletes
+  the cookie and blanks the view.
 - **Terminal** (⌘8) — shells on the server, as the owner, through
   pi-pocket-team's terminal module, drawn by Ghostty's emulator (MyGo's
   terminal plugin): tabs of the shells (four at most, the module's cap), a new
@@ -131,7 +145,9 @@ server's facts. The status bar shows do not disturb while it holds.
 - **Sign-in:** the owner's link (`/login?token=…`) carries the token; an
   invite (`/join/…`) is redeemed for one. The token goes in the keyring
   (service `org.frostyard.Pocket`) and on every request as a bearer token,
-  with `X-Pocket: 1`.
+  with `X-Pocket: 1`. The sign-in field masks the link. Public HTTP links
+  require a clear-text credential warning and confirmation before any
+  request; localhost and literal private or loopback addresses are exempt.
 - **Events:** one SSE connection per window
   (`/api/events?p=5&embedder=notify`); the session shown changes in place
   with `/api/switch`. Live messages come as deltas, a whole view brings only
@@ -169,7 +185,11 @@ server's facts. The status bar shows do not disturb while it holds.
   field the server sent in a shape Pocket does not read.
 - The stream reconnects with a growing wait (the server's `retry`, doubling
   to 30 s, with jitter); a stream silent past 75 seconds (five of the server's 15 s pings)
-  counts as dead. A rejected token signs out and shows the sign-in screen.
+  counts as dead. A rejected token, on the stream or any ordinary route, signs out and shows
+  the sign-in screen. Route answers from a previous sign-in are ignored.
+- Every stream hello refreshes the team and its lessons, and the artifacts
+  if already loaded. Artifacts refresh on entry and once a minute while the
+  place stays open; reads requested during a read run again afterward.
 - Reading the Desk can take long: it sweeps GitHub first when nothing swept
   for 5 minutes. Pocket gives it 3 minutes and keeps the last Desk on screen
   when a read fails.

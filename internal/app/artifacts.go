@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/frostyard/frostui"
@@ -21,16 +22,21 @@ type WebPane interface {
 	View() ui.NativeWebView
 	// Show loads url, signed in to server with token.
 	Show(url, server, token string) error
+	// SignOut deletes every sign-in cookie Show set and loads about:blank.
+	// It is safe when nothing is signed in.
+	SignOut()
 }
 
 // artifacts is the Artifacts place's state.
 type artifacts struct {
-	list    []pocket.Artifact
-	loading bool
-	loaded  bool
-	err     string
-	sel     string
-	filter  string
+	list           []pocket.Artifact
+	dirty          bool
+	refreshPending bool
+	loading        bool
+	loaded         bool
+	err            string
+	sel            string
+	filter         string
 	// svgs are the SVG artifacts read, by key and version.
 	svgs     map[string]*ui.SVG
 	fetching map[string]bool
@@ -44,9 +50,21 @@ func artifactKey(x *pocket.Artifact) string {
 	return strconv.Itoa(x.Session) + "/" + x.ID
 }
 
+// signOutWeb signs the web view out: it deletes the sign-in cookie it set
+// and blanks the page, so that no artifact page stays open, or stays signed
+// in, after the person signs out or changes server. The next preview shows
+// its page again.
+func (a *App) signOutWeb() {
+	if a.opts.Web != nil {
+		a.opts.Web.SignOut()
+	}
+	a.arts.shown = ""
+}
+
 // loadArtifacts reads the artifacts of every session.
 func (a *App) loadArtifacts() {
 	if a.arts.loading {
+		a.arts.dirty = true
 		return
 	}
 	a.arts.loading = true
@@ -57,6 +75,13 @@ func (a *App) loadArtifacts() {
 		return err
 	}, func(err error) {
 		a.arts.loading, a.arts.loaded = false, true
+		defer func() {
+			if a.arts.dirty {
+				a.arts.dirty = false
+				a.loadArtifacts()
+			}
+			a.scheduleArtifactRefresh()
+		}()
 		then := a.arts.then
 		a.arts.then = nil
 		defer func() {
@@ -73,6 +98,24 @@ func (a *App) loadArtifacts() {
 		a.arts.list = list
 		if a.arts.sel == "" && len(list) > 0 {
 			a.arts.sel = artifactKey(&list[0])
+		}
+	})
+}
+
+// scheduleArtifactRefresh keeps an open list current without polling hidden pages.
+func (a *App) scheduleArtifactRefresh() {
+	if a.selected != "x:artifacts" || a.arts.refreshPending || a.link.client == nil {
+		return
+	}
+	client := a.link.client
+	a.arts.refreshPending = true
+	a.after(time.Minute, func() {
+		if a.link.client != client {
+			return
+		}
+		a.arts.refreshPending = false
+		if a.selected == "x:artifacts" {
+			a.loadArtifacts()
 		}
 	})
 }

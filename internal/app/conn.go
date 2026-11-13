@@ -42,6 +42,11 @@ func (a *App) connect(server, auth string) {
 	client.Drift = func(err error) {
 		a.console.Add(frostui.LevelWarn, "api", "A field Pocket does not read: "+err.Error())
 	}
+	// A sign-in to another server keeps no cookie of the last one. A
+	// reconnect to the same server keeps the artifact page shown.
+	if !sameServer(a.link.client, client) {
+		a.signOutWeb()
+	}
 	a.link.client = client
 	a.link.tab = pocket.NewTabID()
 	a.link.failures = 0
@@ -70,12 +75,31 @@ func (a *App) disconnect() {
 	a.link.streamID = ""
 }
 
+// sameServer reports whether prev and next are signed in to the same
+// server.
+func sameServer(prev, next *pocket.Client) bool {
+	if prev == nil || next == nil {
+		return false
+	}
+	return prev.Base.String() == next.Base.String()
+}
+
 // reconnectNow drops the wait and connects again.
 func (a *App) reconnectNow() {
 	if a.link.client == nil {
 		return
 	}
-	a.connect(a.link.client.Base.String(), a.link.client.Auth)
+	// Keep the authenticated client: in-flight route reads still belong
+	// to this sign-in, even though the event stream is replaced.
+	a.disconnect()
+	if a.conn.State != frostui.Connecting {
+		a.conn.State = frostui.Reconnecting
+	}
+	a.conn.Reason = ""
+	a.link.failures = 0
+	ctx, cancel := context.WithCancel(context.Background())
+	a.link.cancel = cancel
+	a.openStream(ctx)
 }
 
 // openStream runs one connection on a goroutine; when it ends, it waits
@@ -152,6 +176,7 @@ func (a *App) signedOut(why string) {
 	server := a.settings.Server
 	a.disconnect()
 	a.link.client = nil
+	a.signOutWeb()
 	if server != "" {
 		_ = a.opts.Creds.Forget(server)
 	}
