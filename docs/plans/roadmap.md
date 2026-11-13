@@ -44,7 +44,8 @@ server that surpasses its web app at a desk. Phases 1 to 4 shipped on
 - Hover hints on the sidebar's agent rows, with frostui v0.6.0's
   `SourceRow.Tooltip` (done, 2026-11-12).
 - Identity for the open session (use an agent in this session) in the
-  inspector (not yet implemented; [#20](https://github.com/frostyard/pocket/issues/20)).
+  inspector (done, 2026-11-12): choose, clear and keep a folder identity.
+- Shift goal and progress in the session inspector (done, 2026-11-12).
 - The terminal module's shells in a Terminal place, with Ghostty's emulator
   (done, 2026-11-12).
 - Terminal history is rendered without replies on attachment
