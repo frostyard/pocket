@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-13",
+  "scope": "Element keys",
+  "correction": "Give sibling elements made from data (file names) and fixed elements (a count pill) separate key prefixes, so a name can never repeat a fixed key.",
+  "evidence": "https://github.com/frostyard/pocket/pull/77 (cross-review, openai/gpt-6.1-sol)",
+  "promoted_to": "internal/app/transcript_test.go:TestUserRowFileNamedImages"
+}

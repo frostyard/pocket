@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-13",
+  "scope": "Account boundaries in internal/app",
+  "correction": "Every account boundary must sign out the native artifact web view (signOutWeb) as signedOut does: reset clears only the Go state, not the page or its sign-in cookie.",
+  "evidence": "https://github.com/frostyard/pocket/pull/78 (cross-review by openai/gpt-6.1-sol at c34e35e9: web pane kept across a changed hello user)",
+  "promoted_to": "internal/app/account_scope_test.go:TestAccountChangeSignsOutTheWebView"
+}

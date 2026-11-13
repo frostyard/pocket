@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-12",
+  "scope": "artifacts",
+  "correction": "A blank that the artifact web view queues for a page that committed outside the rule must skip itself when the chain made a load after that commit; else a stale page blanks a newer Show, and the preview stays blank",
+  "evidence": "frostyard/pocket#34, cross-review (openai/gpt-6.1-sol) re-review 1 of head 42c7ddd, finding 1",
+  "promoted_to": "internal/app/webpane_test.go"
+}

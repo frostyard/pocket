@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-13",
+  "scope": "Wiki page reads",
+  "correction": "Number the reads of a wiki page and let only the newest answer change the pane, so a stale failure cannot hide a page that a newer read showed.",
+  "evidence": "https://github.com/frostyard/pocket/pull/74 (cross-review, openai/gpt-6.1-sol)",
+  "promoted_to": "internal/app/read_retry_test.go:TestOverlappingWikiPageReadsKeepTheNewestAnswer"
+}

@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-09",
+  "scope": "check-template",
+  "correction": "A line-based YAML gate must skip comment-only lines at any indent before it tests a mapping boundary; a dedented comment does not end a job, and treating it as one rejects a valid caller",
+  "evidence": "bketelsen/agentic-template#9, cross-review (openai/gpt-6.1-sol) re-review 1 of head 8e657aa, finding 1",
+  "promoted_to": "test/check-template.test.mjs"
+}

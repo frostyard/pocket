@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-13",
+  "scope": "Queued dock identity",
+  "correction": "Match a send to the server's queued row by identity, never by its text: an earlier message by the same person can start the same way, and the server writes attachment details into the queued text.",
+  "evidence": "https://github.com/frostyard/pocket/pull/83 (cross-review, openai/gpt-6.1-sol)",
+  "promoted_to": "internal/app/attachments_test.go:TestPendingMessageStaysBesideEarlierPrefix"
+}

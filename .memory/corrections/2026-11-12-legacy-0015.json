@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-12",
+  "scope": "Shift board",
+  "correction": "When the server falls back from a retired supervisor, follow the returned supervisor and clear editors from the previous board; otherwise the selector and every operation become stuck.",
+  "evidence": "https://github.com/frostyard/pocket/pull/46#discussion_r4558658636",
+  "promoted_to": "internal/app/board_actions_test.go:TestBoardFallbackFollowsReturnedSupervisor"
+}

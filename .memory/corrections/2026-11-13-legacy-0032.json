@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-13",
+  "scope": "Queue edit recovery",
+  "correction": "Test a retried queue Edit across a conflict, an ambiguous failure and a success with the person editing the recovered text between attempts, so identity-keyed recovery keeps that edit and the existing attachment and adds no second copy of the message.",
+  "evidence": "https://github.com/frostyard/pocket/pull/80 (cross-review, openai/gpt-6.1-sol)",
+  "promoted_to": "internal/app/attachments_test.go:TestQueuedEditRetriesKeepDraftEditAndAttachmentsOnce"
+}

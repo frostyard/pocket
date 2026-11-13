@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-09",
+  "scope": "check-template",
+  "correction": "A gate that checks a workflow key must read the structure, not the file text: checkCaller must find the job pr-triage at indent 2 under jobs: and its uses: at indent 4, and must ignore lines inside a run: block scalar, or a uses: line in another job or in a run: block passes",
+  "evidence": "bketelsen/agentic-template#9, cross-review (openai/gpt-6.1-sol) of head 712c29a, finding 1",
+  "promoted_to": "test/check-template.test.mjs"
+}

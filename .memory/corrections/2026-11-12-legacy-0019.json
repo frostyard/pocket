@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-12",
+  "scope": "Attachment uploads",
+  "correction": "Use a transfer-sized timeout for uploads and cancel the transfer when its chip is removed or the sign-in ends; the generic 30-second request limit rejects supported files on slow uplinks.",
+  "evidence": "https://github.com/frostyard/pocket/pull/57#discussion_r4559380332",
+  "promoted_to": "internal/app/attachments_test.go:TestUploadCancellationByRemoveAndSignOut"
+}

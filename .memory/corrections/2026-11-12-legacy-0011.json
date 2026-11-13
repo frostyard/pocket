@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-12",
+  "scope": "artifacts",
+  "correction": "The artifact web view's pocket_auth cookie must have the path /a/: OnWillNavigate does not see reloads or history moves, and Chromium lets a sandboxed page rewrite its URL path with history.replaceState, so only the cookie's path keeps the rest of the server signed out there",
+  "evidence": "frostyard/pocket#34, cross-review (openai/gpt-6.1-sol) of head 3382dbf, finding 1",
+  "promoted_to": "internal/app/webnav_test.go"
+}

@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-12",
+  "scope": "terminal",
+  "correction": "A terminal attached to a shell on the server must set NoClipboardWrite: what the shell prints (OSC 52) is the server writing the desktop clipboard; and links it prints open with the system only for http, https and mailto",
+  "evidence": "frostyard/pocket#3, owner review (frostyard-machines) of head 9914931, blocking point 1",
+  "promoted_to": "internal/app/terminals_test.go"
+}
