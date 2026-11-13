@@ -286,7 +286,19 @@ type MetricsView struct {
 
 // Dashboard is the Desk's delivery numbers over a range.
 type Dashboard struct {
-	AsOf  Millis `json:"asOf"`
+	AsOf    Millis `json:"asOf"`
+	Choices struct {
+		Owners []string `json:"owners"`
+		Repos  []string `json:"repos"`
+	} `json:"choices"`
+	Coverage struct {
+		Status      string `json:"status"`
+		BoundaryDay string `json:"boundaryDay"`
+		Limitations []struct {
+			Code string `json:"code"`
+			Text string `json:"text"`
+		} `json:"limitations"`
+	} `json:"coverage"`
 	Range struct {
 		From string `json:"from"`
 		To   string `json:"to"`
@@ -314,13 +326,19 @@ type ProjectRow struct {
 
 // DeskDashboard reads the numbers from the UTC days from to to
 // (YYYY-MM-DD; empty for the Desk's default range).
-func (c *Client) DeskDashboard(ctx context.Context, from, to string) (*Dashboard, error) {
+func (c *Client) DeskDashboard(ctx context.Context, from, to, owner, repo string) (*Dashboard, error) {
 	q := url.Values{}
 	if from != "" {
 		q.Set("from", from)
 	}
 	if to != "" {
 		q.Set("to", to)
+	}
+	if owner != "" {
+		q.Set("owner", owner)
+	}
+	if repo != "" {
+		q.Set("repo", repo)
 	}
 	path := "/api/x/desk/dashboard"
 	if len(q) > 0 {
@@ -416,4 +434,46 @@ func (c *Client) DeskFile(ctx context.Context, path string) (string, error) {
 	}
 	err := c.Get(ctx, "/api/x/desk/file?path="+url.QueryEscape(path), &out)
 	return out.Text, err
+}
+
+type DashboardQuery struct {
+	From, To, Owner, Repo string
+	Unattributed          bool
+}
+
+type DashboardRecords struct {
+	Threads []struct {
+		ID    string   `json:"id"`
+		Repo  string   `json:"repo"`
+		State string   `json:"state"`
+		Kind  string   `json:"kind"`
+		Gone  bool     `json:"gone"`
+		PRs   []string `json:"prs"`
+	} `json:"threads"`
+	PRs []struct {
+		Ref     string   `json:"ref"`
+		State   string   `json:"state"`
+		Events  []string `json:"events"`
+		Threads []string `json:"threads"`
+	} `json:"prs"`
+	Truncated struct {
+		Threads int `json:"threads"`
+		PRs     int `json:"prs"`
+	} `json:"truncated"`
+}
+
+func (c *Client) DashboardRecords(ctx context.Context, q DashboardQuery) (*DashboardRecords, error) {
+	values := url.Values{"from": {q.From}, "to": {q.To}}
+	if q.Owner != "" {
+		values.Set("owner", q.Owner)
+	}
+	if q.Repo != "" {
+		values.Set("repo", q.Repo)
+	}
+	if q.Unattributed {
+		values.Set("unattributed", "1")
+	}
+	var out DashboardRecords
+	err := c.Get(ctx, "/api/x/desk/dashboard/records?"+values.Encode(), &out)
+	return &out, err
 }

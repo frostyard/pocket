@@ -53,6 +53,7 @@ func (a *App) View(c *ui.Context) {
 	})
 	a.settingsDialog(c)
 	a.deskFileDialog(c)
+	a.numberRecordsDialog(c)
 }
 
 func (a *App) mainPane(c *ui.Context) {

@@ -79,7 +79,12 @@ internal/icons ── the icons Pocket draws itself
 - **Shift board** (⌘4) — the night-shift goal board: limits, rows by state,
   Pick / Unpick, Launch picks.
 - **Numbers** (⌘5) — the Desk's dashboard: completion, closures, cycle time,
-  workload, PRs, cost and tokens, closures by day, by repository.
+  workload, PRs, cost and tokens, closures by day, by repository. The 7/30/90-day
+  range and GitHub owner/repository choices filter the snapshot. Delivery and PR
+  tiles and repository rows open their records; thread buttons lead to In motion.
+  Unattributed records have their own action. Every drill-down keeps the shown
+  snapshot's scope, and an older response cannot replace a newer filter selection.
+  Coverage limits and metric definitions explain what the totals omit.
 - **Wiki** (⌘6) — the homewiki module's pages, read-only, rendered natively;
   links between pages stay in the wiki, and it reads again as pages change.
 - **Artifacts** (⌘7) — every session's artifacts, newest first: an SVG drawn
