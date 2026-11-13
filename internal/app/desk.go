@@ -111,6 +111,7 @@ func (a *App) loadDesk() {
 
 // deskChanged follows the Desk's "changed" signal.
 func (a *App) deskChanged() {
+	a.loadPlan()
 	a.loadDesk()
 	if a.desk.board != nil {
 		a.loadBoard()

@@ -24,6 +24,10 @@ func (a *App) openNewPlan() {
 	if !a.planOwner() {
 		return
 	}
+	if s := a.newPlan; s != nil && (s.busy || s.loading || s.key.key != "") {
+		s.open = true
+		return
+	}
 	s := &newPlanDraft{open: true, loading: true}
 	a.newPlan = s
 	var roster *pocket.PlanRoster
@@ -85,13 +89,14 @@ func (a *App) startPlan() {
 			s.err = "The server returned no plan identifier"
 			return
 		}
+		s.key = planKey{}
+		a.loadDesk()
 		if !s.open {
 			a.toast("Plan created: " + id)
 			return
 		}
 		s.open = false
 		a.openPlan(id)
-		a.loadDesk()
 	})
 }
 func (a *App) newPlanDialog(c *ui.Context) {

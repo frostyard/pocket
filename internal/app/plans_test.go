@@ -311,3 +311,265 @@ func TestNewPlanFormSnapshot(t *testing.T) {
 		t.Fatal("plan creation action absent")
 	}
 }
+
+func TestReopeningPendingNewPlanKeepsOneCreation(t *testing.T) {
+	a, loop := teamApp(t)
+	entered, release := make(chan struct{}), make(chan struct{})
+	created := make(chan string, 2)
+	a.link.client.HTTP = &http.Client{Transport: sessionToolsHTTP(func(r *http.Request) (*http.Response, error) {
+		if r.Method == "GET" {
+			if strings.HasSuffix(r.URL.Path, "/roster") {
+				return reply(r, `{"leads":[{"id":"duncan"}],"supervisors":[1],"plans":{"max":3},"startPlan":true}`), nil
+			}
+			return reply(r, strings.ReplaceAll(testPlanJSON, "T7", "T9")), nil
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		key, _ := body["key"].(string)
+		created <- key
+		select {
+		case <-entered:
+			t.Error("a second create was sent")
+		default:
+			close(entered)
+		}
+		<-release
+		return reply(r, `{"plan":"T9"}`), nil
+	})}
+	a.openNewPlan()
+	loop.RunUntil(t, func() bool { return !a.newPlan.loading })
+	s := a.newPlan
+	s.title = "One plan"
+	s.idea = "Create it only once"
+	a.startPlan()
+	<-entered
+	key := s.key.key
+	s.open = false
+	a.openNewPlan()
+	if a.newPlan != s || !s.open || s.key.key != key || s.title != "One plan" {
+		t.Fatal("pending creation was replaced")
+	}
+	a.startPlan()
+	close(release)
+	loop.RunUntil(t, func() bool { return !s.busy && a.plan != nil && !a.plan.loading })
+	if a.selected != "p:T9" || a.plan.view.ID != "T9" {
+		t.Fatal("created plan was lost")
+	}
+	if len(created) != 1 || <-created != key {
+		t.Fatal("creation replay key changed")
+	}
+}
+
+func TestPlanFormsAndUntouchedMarksFollowLatestView(t *testing.T) {
+	a, loop := teamApp(t)
+	a.link.client.HTTP = &http.Client{Transport: sessionToolsHTTP(func(r *http.Request) (*http.Response, error) { return reply(r, testPlanJSON), nil })}
+	a.openPlan("T7")
+	loop.RunUntil(t, func() bool { return !a.plan.loading })
+	s := a.plan
+	ask := s.view.Sections[0].Asks[0]
+	d := s.draft(ask)
+	d.words = "An unsent answer"
+	d.marks["0/r2"] = "partly"
+	a.beginPlanForm("comment", "s1", nil)
+	s.text = "A comment draft"
+	a.beginPlanForm("drop", "", nil)
+	if s.text != "" {
+		t.Fatal("comment became drop reason")
+	}
+	s.closeForm()
+	a.beginPlanForm("comment", "s1", nil)
+	if s.text != "A comment draft" {
+		t.Fatal("comment draft lost")
+	}
+	a.openPlan("T7")
+	loop.RunUntil(t, func() bool { return !s.loading })
+	if a.plan != s || s.draft(ask).words != "An unsent answer" {
+		t.Fatal("same plan discarded drafts")
+	}
+	ask.Marks["1/r1"] = "yes"
+	marks := planMarks(ask, d)
+	if marks["1/r1"] != "yes" || marks["0/r2"] != "partly" {
+		t.Fatal("local edits overwrote untouched server marks")
+	}
+	d.marks["0/r1"] = ""
+	if _, ok := planMarks(ask, d)["0/r1"]; ok {
+		t.Fatal("explicitly cleared mark returned")
+	}
+}
+
+func TestPlanButtonsSendDisplayedContracts(t *testing.T) {
+	for _, action := range []string{"approve", "changes", "dismiss", "stop", "reopen", "drop"} {
+		t.Run(action, func(t *testing.T) {
+			a, loop := teamApp(t)
+			type request struct {
+				path string
+				body map[string]any
+			}
+			sent := make(chan request, 1)
+			data := testPlanJSON
+			if action == "reopen" {
+				data = strings.ReplaceAll(data, `"open":true`, `"open":false,"answer":{"words":"Small change","by":"Owner"}`)
+			}
+			if action == "stop" {
+				data = strings.TrimSuffix(data, "}") + `,"consults":[{"id":"k1","agent":"duncan","state":"running","question":"Check it","canStop":true}]}`
+			}
+			a.link.client.HTTP = &http.Client{Transport: sessionToolsHTTP(func(r *http.Request) (*http.Response, error) {
+				if r.Method == "GET" {
+					return reply(r, data), nil
+				}
+				var body map[string]any
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				sent <- request{r.URL.Path, body}
+				return reply(r, `{}`), nil
+			})}
+			a.openPlan("T7")
+			loop.RunUntil(t, func() bool { return !a.plan.loading })
+			if action == "stop" {
+				a.plan.view.Sections = nil
+				a.plan.view.Graph = nil
+			}
+			tt := ui.NewTesterWith(func(c *ui.Context) { frostui.Adapt(c); a.planPane(c); a.planActionDialog(c); a.dialogs.View(c) }, 1000, 1000, ui.TesterOptions{})
+			click := func(label string) {
+				t.Helper()
+				tt.Frame()
+				if err := tt.Click(label); err != nil {
+					t.Fatal(err)
+				}
+				tt.Frame()
+			}
+			switch action {
+			case "approve":
+				click("Approve plan")
+			case "changes":
+				click("Request changes…")
+				a.plan.text = "Explain the fallback"
+				a.plan.section = "s1"
+				click("Submit request changes")
+			case "dismiss":
+				click("Dismiss c1")
+			case "stop":
+				click("Stop consult k1")
+			case "reopen":
+				click("Reopen T7a")
+				if _, ok := tt.Find("Plan action text"); ok {
+					t.Fatal("plain reopen shows ignored text field")
+				}
+				click("Submit reopen decision")
+			case "drop":
+				click("Drop plan…")
+				a.plan.text = "Replaced by a smaller plan"
+				click("Submit drop plan")
+				if !tt.HasText("End plan T7 · Ship a useful change and stop its tasks? This cannot be undone. Replaced by a smaller plan") {
+					t.Fatal("drop confirmation is not specific")
+				}
+				writePNG(t, tt, "plan-drop-confirmation")
+				click("Confirm drop plan")
+			}
+			loop.RunUntil(t, func() bool { return !a.plan.busy && !a.plan.loading })
+			var got request
+			select {
+			case got = <-sent:
+			default:
+				t.Fatal("button did not send action")
+			}
+			want := map[string]string{"approve": "plans/T7/approve", "changes": "plans/T7/changes", "dismiss": "plans/T7/comments/c1/dismiss", "stop": "plans/T7/consults/k1/stop", "reopen": "asks/T7a/reopen", "drop": "threads/T7/drop"}[action]
+			if got.path != "/api/x/desk/"+want {
+				t.Fatal(got.path)
+			}
+			switch action {
+			case "approve":
+				if got.body["rev"] != "rev-one" || got.body["graph"] != float64(3) || got.body["key"] == "" {
+					t.Fatal(got.body)
+				}
+			case "changes":
+				if got.body["rev"] != "rev-one" || got.body["section"] != "s1" || got.body["text"] != "Explain the fallback" || got.body["key"] == "" {
+					t.Fatal(got.body)
+				}
+			case "reopen":
+				if got.body["gen"] != float64(2) || got.body["key"] == "" {
+					t.Fatal(got.body)
+				}
+			case "drop":
+				if got.body["reason"] != "Replaced by a smaller plan" {
+					t.Fatal(got.body)
+				}
+			}
+		})
+	}
+}
+
+func TestPlanEventRefreshKeepsDraftAndUneditedMarks(t *testing.T) {
+	a, loop := teamApp(t)
+	reads := 0
+	sent := make(chan map[string]any, 1)
+	a.link.client.HTTP = &http.Client{Transport: sessionToolsHTTP(func(r *http.Request) (*http.Response, error) {
+		if r.Method == "POST" {
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			sent <- body
+			return reply(r, `{}`), nil
+		}
+		if !strings.Contains(r.URL.Path, "/plans/") {
+			return reply(r, `{}`), nil
+		}
+		reads++
+		data := testPlanJSON
+		if reads > 1 {
+			data = strings.ReplaceAll(data, `"1/r1":"no"`, `"1/r1":"yes"`)
+		}
+		return reply(r, data), nil
+	})}
+	a.openPlan("T7")
+	loop.RunUntil(t, func() bool { return !a.plan.loading })
+	s := a.plan
+	s.draft(s.view.Sections[0].Asks[0]).words = "Use the small change"
+	a.deskChanged()
+	loop.RunUntil(t, func() bool { return !s.loading && !a.desk.loading })
+	ask := s.view.Sections[0].Asks[0]
+	if planMarks(ask, s.draft(ask))["1/r1"] != "yes" || s.draft(ask).words != "Use the small change" {
+		t.Fatal("event refresh lost draft or retained stale marks")
+	}
+	tt := ui.NewTesterWith(func(c *ui.Context) { frostui.Adapt(c); a.planPane(c) }, 1000, 900, ui.TesterOptions{})
+	tt.Frame()
+	if err := tt.Click("Send answer T7a"); err != nil {
+		t.Fatal(err)
+	}
+	loop.RunUntil(t, func() bool { return !s.busy && !s.loading })
+	select {
+	case body := <-sent:
+		if _, ok := body["marks"]; ok {
+			t.Fatal("unedited marks were overwritten")
+		}
+	default:
+		t.Fatal("answer not sent")
+	}
+}
+
+func TestPlanReasonLimitsPreventInvalidRequests(t *testing.T) {
+	for _, tc := range []struct{ kind, text string }{{"drop", strings.Repeat("x", 201)}, {"drop", "two\nlines"}, {"revise", strings.Repeat("x", 301)}, {"revise", "two\nlines"}} {
+		t.Run(tc.kind+tc.text[:3], func(t *testing.T) {
+			a, loop := teamApp(t)
+			a.link.client.HTTP = &http.Client{Transport: sessionToolsHTTP(func(r *http.Request) (*http.Response, error) {
+				if r.Method != "GET" {
+					t.Error("invalid reason reached server")
+				}
+				return reply(r, testPlanJSON), nil
+			})}
+			a.openPlan("T7")
+			loop.RunUntil(t, func() bool { return !a.plan.loading })
+			a.beginPlanForm(tc.kind, "", nil)
+			a.plan.text = tc.text
+			tt := ui.NewTesterWith(func(c *ui.Context) { frostui.Adapt(c); ui.Box(c).Fill(); a.planActionDialog(c); a.dialogs.View(c) }, 900, 600, ui.TesterOptions{})
+			tt.Frame()
+			label := map[string]string{"drop": "Submit drop plan", "revise": "Submit stop and revise"}[tc.kind]
+			_ = tt.Click(label)
+			tt.Frame()
+			if a.plan.busy || a.dialogs.Showing() {
+				t.Fatal("invalid reason reached confirmation")
+			}
+			if !tt.HasText("The text exceeds the limit or contains a line break.") {
+				t.Fatal("invalid reason not explained")
+			}
+		})
+	}
+}

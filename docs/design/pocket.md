@@ -180,7 +180,12 @@ and confirmation. A new plan selects a lead and supervisor from the Desk roster.
 Replay keys stay with the same action payload across failures and change when
 the form changes. A 409 reloads the plan, retains draft text and asks the owner
 to review the new state before reopening the action; failed reads disable writes.
-The page refreshes on request and after an action, not on a polling timer.
+The page follows Desk change events and refreshes after an action or on request;
+reads coalesce while another read or action is running. Reopening the same plan
+keeps its drafts, with separate text for each form. Unedited criterion cells
+follow the latest server marks; an answer with no mark edits leaves marks alone.
+New plan reuses a pending or failed creation’s replay key across dialog closure,
+so reopening it cannot start a duplicate.
 
 These owner-only routes are the Desk module's protocol, under
 `/api/x/desk/plans/` and `/api/x/desk/asks/`, as required by
