@@ -230,6 +230,11 @@ the rows stays. Thoughts fold to one line. Tool calls fold into one line per
 run of calls, which opens to each call, which opens to its output or diff; a
 run at work, or one waiting for the owner, opens by itself. Messages machines
 write (subagent answers, `[desk]` and `[shift]` notes) fold to their first line.
+A message the owner sent shows what it carried under its words: a paperclip
+pill per file the server records with the message, in the file's base name with
+its path in the tooltip, and a count of the pictures it stored. That list also
+holds files an older server named in the message's text, each file once, and a
+message that carried only attachments draws those with no empty text block.
 Approvals and questions dock above the composer.
 
 The inspector opens Changes and files in a native sheet. Changes show the
