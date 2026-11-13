@@ -168,6 +168,7 @@ func (a *App) Start() {
 func (a *App) Close() {
 	a.closeTerminals()
 	a.disconnect()
+	a.link.client = nil
 	a.settings.Widths = a.shell.Panes.Layout.Widths
 	a.settings.Collapsed = a.shell.Panes.Layout.Collapsed
 	a.settings.LastSession = ""
@@ -255,8 +256,11 @@ func (a *App) handle(ev pocket.Event) {
 		a.loadDesk()
 		a.loadWiki()
 		a.loadTerminals()
+		a.loadTeam()
+		if a.arts.loaded || a.arts.loading {
+			a.loadArtifacts()
+		}
 		if first {
-			a.loadTeam()
 			if a.current == 0 && a.settings.LastSession != "" {
 				var id int
 				if _, err := fmt.Sscan(a.settings.LastSession, &id); err == nil && id != 0 {
@@ -564,6 +568,13 @@ func (a *App) requestWithin(limit time.Duration, what string, fn func(ctx contex
 		defer cancel()
 		err := fn(ctx, client)
 		a.post(func() {
+			if a.link.client != client {
+				return // an answer from a sign-in the window has left
+			}
+			if pocket.IsSignedOut(err) {
+				a.signedOut("The server no longer accepts this device's sign-in. Paste a new sign-in link.")
+				return
+			}
 			if err != nil {
 				a.console.Add(frostui.LevelError, "api", what+": "+err.Error())
 				if done == nil {

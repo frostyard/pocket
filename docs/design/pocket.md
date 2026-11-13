@@ -153,7 +153,11 @@ server's facts. The status bar shows do not disturb while it holds.
   field the server sent in a shape Pocket does not read.
 - The stream reconnects with a growing wait (the server's `retry`, doubling
   to 30 s, with jitter); a stream silent past twice the server's 15 s pings
-  counts as dead. A rejected token signs out and shows the sign-in screen.
+  counts as dead. A rejected token, on the stream or any ordinary route, signs out and shows
+  the sign-in screen. Route answers from a previous sign-in are ignored.
+- Every stream hello refreshes the team and its lessons, and the artifacts
+  if already loaded. Artifacts refresh on entry and once a minute while the
+  place stays open; reads requested during a read run again afterward.
 - Reading the Desk can take long: it sweeps GitHub first when nothing swept
   for 5 minutes. Pocket gives it 3 minutes and keeps the last Desk on screen
   when a read fails.

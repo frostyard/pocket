@@ -55,7 +55,9 @@ them rather than improvising, whichever agent you are. Start a new one from
 - **UI thread.** `App` and everything in it belong to the UI thread. Work
   that waits on the network runs on a goroutine and hands its result back
   with `a.request(what, fn, done)` (or `a.requestWithin` for a slow route),
-  which posts `done` to the UI thread and logs failures to Activity. Never
+  which posts `done` to the UI thread and logs failures to Activity. It drops
+  answers from a previous sign-in and signs out on a route 401, without
+  calling the old completion. Stream retries keep the authenticated client. Never
   touch `App` from a goroutine.
 - **MyGo's rules** (as frostui's): no `ui.Handle` made in a view; state lives
   in structs. `Element.Selected` recolors text for an accent fill, so a card
