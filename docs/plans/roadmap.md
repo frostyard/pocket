@@ -41,6 +41,10 @@ server that surpasses its web app at a desk. Phases 1 to 4 shipped on
 
 ## Phase 5 — Polish from daily use
 
+- Native plan review, criteria marks, owner actions, comments, consults,
+  revision and creation ([design](../design/pocket.md#desk-plans); implemented
+  2026-11-12).
+
 - Native changes and file previews, downloads and confirmed reverts
   ([design](../design/pocket.md#a-session); implemented 2026-11-12).
 
@@ -61,8 +65,6 @@ server that surpasses its web app at a desk. Phases 1 to 4 shipped on
 
 ## Later / ideas
 
-- Plans: a native plan view (stepper, sections, asks with criteria and marks,
-  approve).
 - The supervisor's "Needs you: T13a" line as chips linked to the Inbox.
 - A first release: `.svu.yml`, `make bump`, a signed and notarized Mac build,
   and a `site/` (core ADR-0012, ADR-0070).

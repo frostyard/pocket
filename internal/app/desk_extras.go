@@ -91,6 +91,9 @@ func (a *App) deskExtras(c *ui.Context, v *pocket.DeskView) {
 					line += fmt.Sprintf(" · %d/%d tasks", p.Tasks.Done, p.Tasks.Total)
 				}
 				frostui.Caption(c, line).Wrap()
+				if a.planOwner() && ui.Button(c, "Read completed plan").Clicked() {
+					a.openPlan(p.ID)
+				}
 				if p.Session != 0 && ui.Button(c, "Open planning session").Clicked() {
 					a.open(p.Session)
 				}

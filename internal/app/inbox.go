@@ -460,6 +460,12 @@ func (a *App) askItem(c *ui.Context, it *inboxItem) {
 		})
 		markdown.View(c, linkDeskPaths(linkArtifacts(ask.Text, a.artifactHint(t))), &a.md)
 		a.artifactButtons(c, refIDs(ask.Text), a.artifactPrefer(t))
+		if t.Origin == "plan" || ask.Gen != nil {
+			if ui.Button(c, "Review plan decision").Disabled(!a.planOwner()).Clicked() {
+				a.openPlan(t.ID)
+			}
+			return
+		}
 		busy := a.desk.busy[key]
 		if len(ask.Options) > 0 {
 			ui.Row(c).Gap(frostui.SpaceS).Wrap().Children(func() {

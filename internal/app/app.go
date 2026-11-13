@@ -58,6 +58,8 @@ type Options struct {
 
 // App is the window's state.
 type App struct {
+	plan         *planPage
+	newPlan      *newPlanDraft
 	files        *sessionFiles
 	running      *runningState
 	background   *backgroundState
@@ -240,6 +242,7 @@ func (a *App) reset() {
 	a.tr = transcript{}
 	a.sessionOp = nil
 	a.newSessionDraft = nil
+	a.plan, a.newPlan = nil, nil
 	a.hello = nil
 	a.notified = map[string]time.Time{}
 	a.sessions = nil

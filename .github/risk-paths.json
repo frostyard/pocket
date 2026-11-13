@@ -166,6 +166,21 @@
       "glob": "internal/app/session_files.go",
       "level": "L2",
       "why": "filesystem and destructive operations: authenticated file reads, downloads and confirmed reverts"
+    },
+    {
+      "glob": "internal/pocket/plans.go",
+      "level": "L2",
+      "why": "destructive operations: plan approval, scope revision, consult stops or plan creation"
+    },
+    {
+      "glob": "internal/app/plans.go",
+      "level": "L2",
+      "why": "destructive operations: plan approval, scope revision, consult stops or plan creation"
+    },
+    {
+      "glob": "internal/app/new_plan.go",
+      "level": "L2",
+      "why": "destructive operations: plan approval, scope revision, consult stops or plan creation"
     }
   ]
 }

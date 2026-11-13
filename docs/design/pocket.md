@@ -163,6 +163,35 @@ thread match is retained until the sources change. The 500-session/100-thread
 Inbox benchmarks in `internal/app/derived_test.go` measure rendering and the
 derived-data work separately.
 
+### Desk plans
+
+Plan threads and completed-plan rows open a native plan page; Inbox plan asks
+open it instead of answering before the criteria are shown. The page renders
+the server's progress steps, Markdown sections, task graph, comments, consults
+and findings. Each option/criterion cell is blank, yes, partly or no; saving
+marks keeps the unsent answer. Answer drafts belong to the ask ID and generation,
+so reopening a decision never reuses an older answer or marks.
+
+The owner can approve the displayed revision and graph, request changes with
+an optional section comment, add or dismiss comments, stop consults, reopen
+answered decisions, or stop and revise an approved scope. Scope changes list
+the approved graph's tasks and require confirmation; dropping requires a reason
+and confirmation. A new plan selects a lead and supervisor from the Desk roster.
+Replay keys stay with the same action payload across failures and change when
+the form changes. A 409 reloads the plan, retains draft text and asks the owner
+to review the new state before reopening the action; failed reads disable writes.
+The page follows Desk change events and refreshes after an action or on request;
+reads coalesce while another read or action is running. Reopening the same plan
+keeps its drafts, with separate text for each form. Unedited criterion cells
+follow the latest server marks; an answer with no mark edits leaves marks alone.
+New plan reuses a pending or failed creation’s replay key across dialog closure,
+so reopening it cannot start a duplicate.
+
+These owner-only routes are the Desk module's protocol, under
+`/api/x/desk/plans/` and `/api/x/desk/asks/`, as required by
+[ADR-0004](../adr/0004-build-a-native-client-of-pi-pockets-own-api.md).
+Built in [roadmap Phase 5](../plans/roadmap.md#phase-5--polish-from-daily-use).
+
 ### A session
 
 New Session (⌘N / Ctrl N), the sidebar's plus button and `/new` open a working

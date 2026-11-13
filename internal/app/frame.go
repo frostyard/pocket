@@ -59,12 +59,16 @@ func (a *App) View(c *ui.Context) {
 	a.backgroundDialog(c)
 	a.sessionFilesDialog(c)
 	a.scheduleDialog(c)
+	a.planActionDialog(c)
+	a.newPlanDialog(c)
 	// Confirmations must sit above sheets such as Changes and files.
 	a.dialogs.View(c)
 }
 
 func (a *App) mainPane(c *ui.Context) {
 	switch {
+	case strings.HasPrefix(a.selected, "p:"):
+		a.planPane(c)
 	case strings.HasPrefix(a.selected, "a:"):
 		a.agentPane(c, keyAgent(a.selected))
 	case a.current != 0:
@@ -90,6 +94,9 @@ func (a *App) mainPane(c *ui.Context) {
 
 // placeTitle names the place shown.
 func (a *App) placeTitle() string {
+	if strings.HasPrefix(a.selected, "p:") {
+		return "Plan"
+	}
 	switch a.selected {
 	case "x:motion":
 		return "In motion"

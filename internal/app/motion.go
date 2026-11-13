@@ -52,6 +52,9 @@ func (a *App) motionPane(c *ui.Context) {
 						v.Counts.Open, v.Counts.Agent, v.Counts.Reviewer, v.Counts.Watching, v.Cap.Counted, v.Cap.Cap)
 				}
 				frostui.PageHeader(c, "In motion", line, func() {
+					if a.planOwner() && ui.Button(c, "New plan…").Clicked() {
+						a.openNewPlan()
+					}
 					if a.desk.loading {
 						ui.Spinner(c).Size(16, 16)
 					}
@@ -151,8 +154,12 @@ func (a *App) threadRow(c *ui.Context, th *pocket.DeskThread) {
 		a.threadSel = th.ID
 	}
 	s := a.sessionForThread(th)
-	if row.DoubleClicked() && s != nil {
-		a.open(s.ID)
+	if row.DoubleClicked() {
+		if th.Origin == "plan" {
+			a.openPlan(th.ID)
+		} else if s != nil {
+			a.open(s.ID)
+		}
 	}
 	row.Children(func() {
 		ui.Row(c).Width(48).Children(func() {
