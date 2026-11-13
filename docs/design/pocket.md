@@ -119,6 +119,20 @@ The places that need a module (Team, the Desk's Shift board and Numbers, the
 Wiki) show only when the server has it; Pocket works against a Pi Pocket
 without the team modules.
 
+Thread details expose the Desk's owner actions: keep, park, wake, attach found work,
+and drop with a required reason. Watches accept a date and optional time in the
+server's timezone and a check of at most 200 characters. A watch can be cleared,
+passed or failed; recently completed non-plan threads can be watched again.
+Due checks appear in the Inbox and In motion. Actions are disabled while a request
+runs, and every completion refreshes the Desk, including a rejected conflict;
+an unsuccessful action keeps its typed reason.
+
+In motion stamps the last look after reading the Desk, retaining the previous
+look as the baseline for fresh row marks throughout the visit. Its folds show
+other authors' PRs, queued issues and completed plans (read on demand); the
+thread pane shows resolved and withdrawn asks with their reasons. Ready PRs
+sort L4, L3, L2, L1/L2, L1, then unknown, oldest label first within a level.
+
 ### A session
 
 Replies stream in as Markdown (`ui/markdown.Stream`, word-paced, faded in).
@@ -195,6 +209,7 @@ server's facts. The status bar shows do not disturb while it holds.
 - **Threads:** the client's goroutines never touch UI state; they post
   functions to the window (`Window.Update`).
 
+
 ## Operational notes
 
 - **Activity** (⌘J) logs the connection, every command Pocket sends, and any
@@ -231,3 +246,8 @@ server's facts. The status bar shows do not disturb while it holds.
 - Rationale: [ADR-0004](../adr/0004-build-a-native-client-of-pi-pockets-own-api.md), [ADR-0005](../adr/0005-organize-the-window-around-what-needs-the-owner.md), [ADR-0006](../adr/0006-filter-notifications-in-the-client.md)
 - Repository structure: [agent-ready repository](agent-ready-repository.md)
 - Built in: [roadmap](../plans/roadmap.md)
+
+Browser watch waits one second between frames (at most one frame per second),
+reading the page state before each frame. A closed browser is checked every
+five seconds. A failed read pauses until Try again; JPEG decoding runs off the
+UI thread and rejects frames larger than 16 million pixels.

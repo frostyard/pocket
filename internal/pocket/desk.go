@@ -44,6 +44,15 @@ type DeskAnswered struct {
 	Words string `json:"words"`
 }
 
+// DeskResolved records why an ask no longer waits on the owner.
+type DeskResolved struct {
+	ID   string `json:"id"`
+	Text string `json:"text"`
+	Why  string `json:"why"`
+	By   string `json:"by"`
+	At   Millis `json:"at"`
+}
+
 // DeskWatch is a dated check on a thread.
 type DeskWatch struct {
 	CheckOn   string `json:"checkOn"`
@@ -77,6 +86,7 @@ type DeskThread struct {
 	PRs         []DeskPR       `json:"prs"`
 	Asks        []DeskAsk      `json:"asks"`
 	Answered    []DeskAnswered `json:"answered"`
+	Resolved    []DeskResolved `json:"resolved"`
 	LastEventAt Millis         `json:"lastEventAt"`
 	Events      []struct {
 		At   Millis `json:"at"`
@@ -148,8 +158,11 @@ type PlanRow struct {
 
 // DeskView is GET threads: the whole Desk.
 type DeskView struct {
-	Threads []DeskThread `json:"threads"`
-	Cap     struct {
+	Threads  []DeskThread         `json:"threads"`
+	Seen     Millis               `json:"seen"`
+	Issues   *DeskIssues          `json:"issues"`
+	OtherPRs map[string][]OtherPR `json:"otherPrs"`
+	Cap      struct {
 		Counted int  `json:"counted"`
 		Cap     int  `json:"cap"`
 		Full    bool `json:"full"`
@@ -406,6 +419,61 @@ func (c *Client) BoardOp(ctx context.Context, supervisor int, op, key string, ro
 		return fmt.Errorf("board %s: %w", op, err)
 	}
 	return nil
+}
+
+type OtherPR struct {
+	Ref    string `json:"ref"`
+	Title  string `json:"title"`
+	URL    string `json:"url"`
+	Author string `json:"author"`
+}
+
+type DeskIssues struct {
+	OK    bool          `json:"ok"`
+	Off   bool          `json:"off"`
+	Error string        `json:"error"`
+	At    Millis        `json:"at"`
+	Items []QueuedIssue `json:"items"`
+}
+
+type QueuedIssue struct {
+	Ref        string   `json:"ref"`
+	Title      string   `json:"title"`
+	URL        string   `json:"url"`
+	Urgent     bool     `json:"urgent"`
+	Agent      string   `json:"agent"`
+	Owners     []string `json:"owners"`
+	Names      []string `json:"names"`
+	By         string   `json:"by"`
+	FixedBy    []string `json:"fixedBy"`
+	Unverified bool     `json:"unverified"`
+	Threads    []struct {
+		ID   string `json:"id"`
+		Word string `json:"word"`
+	} `json:"threads"`
+}
+
+type CompletedPlan struct {
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	Lead    string `json:"lead"`
+	Outcome string `json:"outcome"`
+	EndedAt Millis `json:"endedAt"`
+	Rounds  int    `json:"rounds"`
+	Failed  int    `json:"failed"`
+	Session int    `json:"session"`
+	Tasks   *struct {
+		Done  int `json:"done"`
+		Total int `json:"total"`
+	} `json:"tasks"`
+}
+
+func (c *Client) CompletedPlans(ctx context.Context) ([]CompletedPlan, error) {
+	var out struct {
+		Plans []CompletedPlan `json:"plans"`
+	}
+	err := c.Get(ctx, "/api/x/desk/plans/completed", &out)
+	return out.Plans, err
 }
 
 // DeskFile reads one exported Markdown file. The server validates the path,

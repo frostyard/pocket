@@ -467,11 +467,11 @@ func (a *App) setBadge(n int) {
 
 // open shows session id (0 for the overview).
 func (a *App) open(id int) {
-	a.stopBrowserWatch()
 	if id == a.current && id != 0 {
 		a.selected = sessionKey(id)
 		return
 	}
+	a.stopBrowserWatch()
 	a.current = id
 	a.details = nil
 	a.view = pocket.NewView()
@@ -504,6 +504,11 @@ func (a *App) goPlace(key string) {
 	a.selected = key
 	a.sidebar.Select("places", key)
 	switch key {
+	case "x:motion":
+		a.desk.seenPending, a.desk.seenReady = true, false
+		if a.desk.on {
+			a.loadDesk()
+		}
 	case "x:board":
 		if a.desk.on {
 			a.loadBoard()

@@ -2,6 +2,9 @@ package app
 
 import (
 	"context"
+"bytes"
+"fmt"
+"image/jpeg"
 	"slices"
 	"time"
 
@@ -46,6 +49,7 @@ func (a *App) pollBrowser() {
 	s.loading = true
 	var state *pocket.BrowserState
 	var frame pocket.BrowserFrame
+var img ui.ImageSource
 	a.requestWithin(35*time.Second, "Watching the browser", func(ctx context.Context, c *pocket.Client) error {
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
@@ -56,6 +60,9 @@ func (a *App) pollBrowser() {
 		if err == nil && state.Open {
 			frame, err = c.BrowserFrame(ctx, s.session, s.seq)
 		}
+		if err == nil && len(frame.Data) > 0 {
+img, err = decodeBrowserFrame(frame.Data)
+}
 		if s.ctx.Err() != nil {
 			return nil
 		}
@@ -79,12 +86,6 @@ func (a *App) pollBrowser() {
 			s.seq = 0
 		}
 		if len(frame.Data) > 0 {
-			img, decodeErr := ui.DecodeImage(frame.Data)
-			if decodeErr != nil {
-				s.err = "Could not decode the browser frame"
-				s.active = false
-				return
-			}
 			s.image = img
 			s.seq = frame.Seq
 		}
@@ -146,4 +147,12 @@ func (a *App) browserWatchPane(c *ui.Context) {
 	if s.image != nil {
 		ui.Image(c, s.image).Fit(ui.ScaleDown).Height(180).FillWidth()
 	}
+}
+
+// Decode away from the UI thread, after bounding the decoded pixel allocation.
+func decodeBrowserFrame(data []byte) (ui.ImageSource, error) {
+cfg, err := jpeg.DecodeConfig(bytes.NewReader(data))
+if err != nil { return nil, fmt.Errorf("browser JPEG: %w", err) }
+if cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > 16_000_000 { return nil, fmt.Errorf("browser frame exceeds 16 million pixels") }
+return ui.DecodeImage(data)
 }
