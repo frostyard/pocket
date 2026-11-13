@@ -19,6 +19,7 @@ type View struct {
 	Viewers      []string
 	Approvals    []Approval
 	Subagents    []Subagent
+	Schedules    []Schedule
 	Authors      map[string]string
 	Decisions    map[string]Decision
 	Plan         Plan
@@ -92,6 +93,9 @@ func (v *View) Apply(u *ViewUpdate) error {
 		v.Stats = *u.Stats
 	}
 	v.Clients, v.Viewers, v.Approvals = u.Clients, u.Viewers, u.Approvals
+	if u.Schedules != nil {
+		v.Schedules = *u.Schedules
+	}
 	if u.Subagents != nil {
 		v.Subagents = *u.Subagents
 	}

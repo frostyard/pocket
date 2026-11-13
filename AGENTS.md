@@ -44,7 +44,7 @@ them rather than improvising, whichever agent you are. Start a new one from
 - **Layout.** `cmd/pocket` is the program (window, keyring, notifications,
   badge). `internal/pocket` is the server's client and holds no UI:
   `client.go`, `api.go`, `desk.go`, `extras.go`, `shift.go`, `memory.go` (routes),
-  `types.go` (wire types), `terminal.go` (shell transport), `stream.go` and `sse.go` (the
+  `running.go` (running board, background and schedule routes), `types.go` (wire types), `terminal.go` (shell transport), `stream.go` and `sse.go` (the
   event stream), `view.go` (`View.Apply`, the port of the web app's
   `mergeView`). `internal/app` is the window: `app.go` (state, events),
   `derived.go` (cached Inbox, session states and thread matches),
@@ -55,6 +55,7 @@ them rather than improvising, whichever agent you are. Start a new one from
   identity and shift goal), `notify.go`, `settings.go`,
   `terminals.go` (the Terminal place, over `pocket.TermConn`),
   `terminal_replay.go` (isolated history rendering), `artifacts.go`,
+  `running.go` (cross-session work), `background.go` (task output), `schedules.go` (scheduled messages), `timezone.go` (device IANA zone),
   `refs.go`, `desk_files.go` (read-only Desk Markdown), `browser_watch.go` (read-only browser frames), `wiki.go`, `teampage.go`,
   `signin.go`, `webnav.go` (where the artifact web view may go, and its cookie)
   and `webpane.go` (`ArtifactWeb`: the web view's sign-in, sign-out and native
