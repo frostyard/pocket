@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"image/png"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -16,6 +17,16 @@ import (
 	"github.com/frostyard/pocket/internal/icons"
 	"github.com/frostyard/pocket/internal/pocket"
 )
+
+// snapshotHTTP keeps fixture views offline even when opening a session reads
+// optional details. A test of routes supplies its own transport.
+type snapshotHTTP struct{}
+
+func (snapshotHTTP) RoundTrip(r *http.Request) (*http.Response, error) {
+	resp := reply(r, `{}`)
+	resp.StatusCode = http.StatusNotFound
+	return resp, nil
+}
 
 // teamApp returns an app with a made-up team and its sessions, shown
 // without a server.
@@ -31,7 +42,8 @@ func teamApp(t *testing.T) (*App, *frostuitest.Loop) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a.link.client, _ = pocket.NewClient("http://127.0.0.1:9", "test")
+	a.link.client, _ = pocket.NewClient("https://example.org", "test")
+	a.link.client.HTTP = &http.Client{Transport: snapshotHTTP{}}
 	a.conn = frostui.Connection{State: frostui.Connected, Host: "pocket.example.ts.net", Daemon: "Pi Pocket"}
 	a.hello = &pocket.Hello{User: pocket.User{ID: "u1", Name: "Brian", Role: "owner"},
 		Server: pocket.ServerInfo{PocketVersion: "0.28.1", Home: "/home/team"}}

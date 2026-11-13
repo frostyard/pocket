@@ -23,9 +23,13 @@ func (a *App) inspectorPane(c *ui.Context) {
 				a.cheatSheet(c)
 				return
 			}
+			a.sessionIdentity(c)
 			v := a.view
-			s := a.byID[a.current]
-			if p := a.agentOf(s); p != nil {
+			var p *pocket.Persona
+			if a.details != nil && a.details.identity != nil {
+				p = a.details.identity.Identity
+			}
+			if p != nil {
 				ui.Row(c).Gap(frostui.SpaceM).AlignItems(ui.Center).Children(func() {
 					a.agentAvatar(c, p.ID, 36)
 					ui.Column(c).Gap(2).Children(func() {
@@ -77,6 +81,7 @@ func (a *App) inspectorPane(c *ui.Context) {
 				})
 			}
 
+			a.shiftGoalSection(c)
 			frostui.SectionHeader(c, frostui.SectionHead{Title: "Usage", Quiet: true})
 			stats := [][2]string{{"Spent", fmt.Sprintf("$%.2f", v.Conversation.Spend.Spent)}}
 			if v.Stats.TokensPerSec > 0 {

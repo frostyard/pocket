@@ -76,6 +76,7 @@ type App struct {
 	// loading is the session asked for whose view has not come yet.
 	loading int
 
+	details *sessionDetails
 	team    team
 	desk    desk
 	core    *coreMemory
@@ -216,6 +217,7 @@ func (a *App) reset() {
 	a.view = pocket.NewView()
 	a.current, a.loading = 0, 0
 	a.team = team{}
+	a.details = nil
 	a.desk = desk{}
 	a.deskFile = nil
 	a.closeTerminals()
@@ -265,6 +267,8 @@ func (a *App) handle(ev pocket.Event) {
 		a.loadCoreMemory()
 		a.loadWiki()
 		a.loadTerminals()
+		a.loadSessionIdentity()
+		a.loadShiftGoal()
 		a.loadTeam()
 		if a.arts.loaded || a.arts.loading {
 			a.loadArtifacts()
@@ -377,9 +381,17 @@ func (a *App) handle(ev pocket.Event) {
 		}
 		switch x.Module {
 		case "team":
-			if x.Event == "memory" {
+			switch x.Event {
+			case "identity":
+				var changed struct {
+					ConversationID int `json:"conversationId"`
+				}
+				if json.Unmarshal(x.Data, &changed) == nil && changed.ConversationID == a.current {
+					a.loadSessionIdentity()
+				}
+			case "memory":
 				a.loadMemory()
-			} else {
+			default:
 				a.loadTeam()
 			}
 		case "homewiki":
@@ -391,6 +403,12 @@ func (a *App) handle(ev pocket.Event) {
 		case "desk":
 			a.deskChanged()
 		case "night-shift":
+			var changed struct {
+				Conversation int `json:"conversation"`
+			}
+			if x.Event == "changed" && json.Unmarshal(x.Data, &changed) == nil && changed.Conversation == a.current {
+				a.loadShiftGoal()
+			}
 			if a.desk.board != nil {
 				a.loadBoard()
 			}
@@ -451,6 +469,7 @@ func (a *App) open(id int) {
 		return
 	}
 	a.current = id
+	a.details = nil
 	a.view = pocket.NewView()
 	a.tr = transcript{}
 	a.composer.reset(id)
@@ -464,6 +483,8 @@ func (a *App) open(id int) {
 	}
 	a.sidebar.Select(a.sectionOf(a.selected), a.selected)
 	a.switchTo(id)
+	a.loadSessionIdentity()
+	a.loadShiftGoal()
 	a.settings.LastSession = ""
 	if id != 0 {
 		a.settings.LastSession = fmt.Sprint(id)
