@@ -37,6 +37,7 @@ type artifacts struct {
 	err            string
 	sel            string
 	filter         string
+	versions       map[string]int // zero follows the latest version
 	// svgs are the SVG artifacts read, by key and version.
 	svgs     map[string]*ui.SVG
 	fetching map[string]bool
@@ -331,7 +332,13 @@ func (a *App) artifactRow(c *ui.Context, x *pocket.Artifact) {
 // artifactPreview shows the chosen artifact: an SVG drawn here, a page in
 // the web view, or a way to the browser.
 func (a *App) artifactPreview(c *ui.Context) {
-	x := a.chosenArtifact()
+	chosen := a.chosenArtifact()
+	var x *pocket.Artifact
+	if chosen != nil {
+		copy := *chosen
+		copy.Current = a.artifactVersion(chosen)
+		x = &copy
+	}
 	ui.Column(c).Grow(1).AlignItems(ui.Stretch).Children(func() {
 		if x == nil {
 			frostui.Empty(c, "pocket-artifact", "No artifact chosen", "Choose one at the left.").Grow(1)
@@ -347,6 +354,30 @@ func (a *App) artifactPreview(c *ui.Context) {
 				meta = append(meta, humanBytes(x.Size), clock(x.UpdatedAt.Time()))
 				frostui.Caption(c, strings.Join(meta, " · ")).SingleLine()
 			})
+			if x.Versions > 1 {
+				latest := fmt.Sprintf("Latest (version %d)", chosen.Current)
+				options := []string{latest}
+				for version := x.Versions; version >= 1; version-- {
+					options = append(options, fmt.Sprintf("Version %d", version))
+				}
+				selected := latest
+				if version := a.arts.versions[artifactKey(chosen)]; version != 0 {
+					selected = fmt.Sprintf("Version %d", version)
+				}
+				before := selected
+				ui.Select(c, &selected, options).Label("Artifact version")
+				if before != selected {
+					version := 0
+					if selected != latest {
+						_, _ = fmt.Sscanf(selected, "Version %d", &version)
+					}
+					if a.arts.versions == nil {
+						a.arts.versions = map[string]int{}
+					}
+					a.arts.versions[artifactKey(chosen)] = version
+					x.Current = a.artifactVersion(chosen)
+				}
+			}
 			if ui.Button(c, "Open the session").Clicked() {
 				a.open(x.Session)
 			}
@@ -428,4 +459,12 @@ func humanBytes(n int) string {
 		return fmt.Sprintf("%.0f KB", float64(n)/(1<<10))
 	}
 	return fmt.Sprintf("%d B", n)
+}
+
+func (a *App) artifactVersion(x *pocket.Artifact) int {
+	version := a.arts.versions[artifactKey(x)]
+	if version < 1 || version > x.Versions {
+		return x.Current
+	}
+	return version
 }

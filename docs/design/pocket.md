@@ -92,6 +92,12 @@ internal/icons ── the icons Pocket draws itself
   own navigation opens nothing, though MyGo on Linux counts a script's link
   click as a person's. Signing out, or signing in to another server, deletes
   the cookie and blanks the view.
+  The version menu follows the latest by default, or pins an older version per
+  artifact; SVG caches, web previews and browser links all use that selection.
+  These are standalone artifact pages. The server omits its parent-frame bridge
+  for top-level documents, so per-person saved state (the `artifact-state` API)
+  and follow-up messages need the web app's session iframe. The native preview
+  does not expose those APIs or broaden its `/a/` cookie to provide that bridge.
 - **Terminal** (⌘8) — shells on the server, as the owner, through
   pi-pocket-team's terminal module, drawn by Ghostty's emulator (MyGo's
   terminal plugin): tabs of the shells (four at most, the module's cap), a new
