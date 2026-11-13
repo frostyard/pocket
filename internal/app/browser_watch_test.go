@@ -1,7 +1,11 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
+	"image"
+	"image/jpeg"
 	"net/http"
 	"testing"
 	"time"
@@ -88,4 +92,39 @@ func TestBrowserWatchSnapshot(t *testing.T) {
 		t.Fatal("browser context missing")
 	}
 	writePNG(t, tt, "browser-watch")
+}
+
+func TestBrowserFrameDecodeBounds(t *testing.T) {
+	var b bytes.Buffer
+	if err := jpeg.Encode(&b, image.NewRGBA(image.Rect(0, 0, 2, 2)), nil); err != nil {
+		t.Fatal(err)
+	}
+	data := b.Bytes()
+	if _, err := decodeBrowserFrame(data); err != nil {
+		t.Fatal(err)
+	}
+	oversized := append([]byte(nil), data...)
+	for i := 0; i+9 < len(oversized); i++ {
+		if oversized[i] == 0xff && oversized[i+1] == 0xc0 {
+			binary.BigEndian.PutUint16(oversized[i+5:], 65535)
+			binary.BigEndian.PutUint16(oversized[i+7:], 65535)
+			break
+		}
+	}
+	if _, err := decodeBrowserFrame(oversized); err == nil {
+		t.Fatal("accepted excessive pixel allocation")
+	}
+	if _, err := decodeBrowserFrame([]byte("bad")); err == nil {
+		t.Fatal("accepted invalid frame")
+	}
+}
+func TestBrowserWatchSameSessionStaysOpen(t *testing.T) {
+	a, _ := teamApp(t)
+	a.current = 7
+	s := &browserWatch{session: 7, active: true}
+	a.browser = s
+	a.open(7)
+	if a.browser != s {
+		t.Fatal("same session stopped watch")
+	}
 }

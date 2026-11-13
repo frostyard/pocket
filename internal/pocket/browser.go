@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-"mime"
+	"mime"
 	"net/http"
 	"strconv"
 )
@@ -63,7 +63,9 @@ func (c *Client) BrowserFrame(ctx context.Context, id, after int) (BrowserFrame,
 		return out, &APIError{Status: resp.StatusCode, Message: problem.Error}
 	}
 	typ, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
-if typ != "image/jpeg" { return out, fmt.Errorf("browser frame is not a JPEG") }
+	if typ != "image/jpeg" {
+		return out, fmt.Errorf("browser frame is not a JPEG")
+	}
 	if len(data) > 8<<20 {
 		return out, fmt.Errorf("browser frame exceeds 8 MB")
 	}

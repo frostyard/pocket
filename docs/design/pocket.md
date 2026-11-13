@@ -161,6 +161,12 @@ up to 25 seconds for a newer frame; idle closed pages are checked every five
 seconds. It never opens a browser page or sends input. Missing browser support
 shows its server error without hiding the session.
 
+Browser watch waits one second between frames (at most one frame per second),
+reading the page state before each frame. A closed browser is checked every
+five seconds. A failed read pauses until Try again; JPEG decoding runs off the
+UI thread and rejects frames larger than 16 million pixels.
+
+
 ### Notifications and settings
 
 Every notification passes `deliver` (`internal/app/notify.go`): the kinds the
@@ -246,8 +252,3 @@ server's facts. The status bar shows do not disturb while it holds.
 - Rationale: [ADR-0004](../adr/0004-build-a-native-client-of-pi-pockets-own-api.md), [ADR-0005](../adr/0005-organize-the-window-around-what-needs-the-owner.md), [ADR-0006](../adr/0006-filter-notifications-in-the-client.md)
 - Repository structure: [agent-ready repository](agent-ready-repository.md)
 - Built in: [roadmap](../plans/roadmap.md)
-
-Browser watch waits one second between frames (at most one frame per second),
-reading the page state before each frame. A closed browser is checked every
-five seconds. A failed read pauses until Try again; JPEG decoding runs off the
-UI thread and rejects frames larger than 16 million pixels.
