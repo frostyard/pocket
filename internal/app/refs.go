@@ -45,6 +45,10 @@ func boundaryAt(text string, i int) bool {
 // artifactRefs finds the references of a Markdown text, in order: none in a
 // fenced code block, and inline code only when all of it is a reference.
 func artifactRefs(text string) []artifactRef {
+	return textRefs(text, refID)
+}
+
+func textRefs(text string, match func(string) string) []artifactRef {
 	var refs []artifactRef
 	fenced := false
 	offset := 0
@@ -55,14 +59,14 @@ func artifactRefs(text string) []artifactRef {
 			continue
 		}
 		if !fenced {
-			refs = append(refs, lineRefs(line, offset)...)
+			refs = append(refs, matchingLineRefs(line, offset, match)...)
 		}
 		offset += len(line)
 	}
 	return refs
 }
 
-func lineRefs(line string, offset int) []artifactRef {
+func matchingLineRefs(line string, offset int, match func(string) string) []artifactRef {
 	var refs []artifactRef
 	for i := 0; i < len(line); {
 		switch {
@@ -71,17 +75,17 @@ func lineRefs(line string, offset int) []artifactRef {
 			if end < 0 {
 				return refs
 			}
-			if id := refID(strings.TrimSpace(line[i+1 : i+1+end])); id != "" {
+			if id := match(strings.TrimSpace(line[i+1 : i+1+end])); id != "" {
 				refs = append(refs, artifactRef{id: id, start: offset + i, end: offset + i + end + 2})
 			}
 			i += end + 2
-		case strings.HasPrefix(line[i:], "artifact:") && boundaryAt(line, i):
+		case boundaryAt(line, i):
 			word := line[i:]
 			if sp := strings.IndexAny(word, " \t\r\n"); sp >= 0 {
 				word = word[:sp]
 			}
 			word = trailing.ReplaceAllString(word, "")
-			if id := refID(word); id != "" {
+			if id := match(word); id != "" {
 				linked := i >= 2 && line[i-2:i] == "]("
 				refs = append(refs, artifactRef{id: id, start: offset + i, end: offset + i + len(word), linked: linked})
 				i += len(word)

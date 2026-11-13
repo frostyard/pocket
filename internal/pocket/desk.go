@@ -408,3 +408,13 @@ func (c *Client) BoardOp(ctx context.Context, supervisor int, op, key string, ro
 	}
 	return nil
 }
+
+// DeskFile reads one exported Markdown file. The server validates the path,
+// containment, file type and size; Pocket sends no local filesystem request.
+func (c *Client) DeskFile(ctx context.Context, path string) (string, error) {
+	var out struct {
+		Text string `json:"text"`
+	}
+	err := c.Get(ctx, "/api/x/desk/file?path="+url.QueryEscape(path), &out)
+	return out.Text, err
+}
