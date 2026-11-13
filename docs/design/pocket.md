@@ -50,9 +50,12 @@ internal/icons ── the icons Pocket draws itself
   that names an artifact (`artifact:<id>`, as the Desk writes it) links it,
   and gets a button titled as the artifact that opens it in Artifacts: the
   id is looked up across sessions, the thread's own session first, then its
-  supervisor's, then the newest. Each is answered on its card; J/K move, 1–6 answer a decision with
+  supervisor's, then the newest. Decisions stay together by thread, oldest thread first, with asks in the
+  server's filing order and one thread heading. Reopened asks start a fresh
+  draft and notify again. Each is answered on its card; J/K move, 1–6 answer a decision with
   that option, ⌥Y / ⌥N allow or deny. The right pane shows the chosen item's
   context: a thread's PRs, reports and events, or a session's last steps.
+  Events and answered words take at most two lines; hover shows the full text.
 - **In motion** (⌘2) — every thread under way, grouped by who moves it next
   (agents at work, with the supervisor, in review, plans, watching, parked),
   each with what its session does now from the server's peek feed, and runs
@@ -72,7 +75,8 @@ internal/icons ── the icons Pocket draws itself
 - **Artifacts** (⌘7) — every session's artifacts, newest first: an SVG drawn
   natively, an HTML or Markdown page in a web view signed in as the owner
   (the `pocket_auth` cookie for the server's host alone), or in the browser
-  where the system has no web view.
+  where the system has no web view. The system browser uses its own sign-in;
+  Pocket does not sign it in.
 - **Terminal** (⌘8) — shells on the server, as the owner, through
   pi-pocket-team's terminal module, drawn by Ghostty's emulator (MyGo's
   terminal plugin): tabs of the shells (four at most, the module's cap), a new
@@ -110,7 +114,8 @@ spend, speed, cache, context used, subagents, the queue.
 
 Every notification passes `deliver` (`internal/app/notify.go`): the kinds the
 owner chose, do not disturb (now, snoozed, quiet hours; calls to allow may
-come through), and bursts gathered into one. The Settings dialog
+come through), and bursts gathered into one. Approval notification tags expire after a day
+and clear on sign-out. The Settings dialog
 (`internal/app/settings.go`, ⌘,) holds those choices, the theme and the
 server's facts. The status bar shows do not disturb while it holds.
 
@@ -154,7 +159,7 @@ server's facts. The status bar shows do not disturb while it holds.
 - **Activity** (⌘J) logs the connection, every command Pocket sends, and any
   field the server sent in a shape Pocket does not read.
 - The stream reconnects with a growing wait (the server's `retry`, doubling
-  to 30 s, with jitter); a stream silent past twice the server's 15 s pings
+  to 30 s, with jitter); a stream silent past 75 seconds (five of the server's 15 s pings)
   counts as dead. A rejected token signs out and shows the sign-in screen.
 - Reading the Desk can take long: it sweeps GitHub first when nothing swept
   for 5 minutes. Pocket gives it 3 minutes and keeps the last Desk on screen
