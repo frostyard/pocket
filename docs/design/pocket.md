@@ -214,8 +214,16 @@ Every notification passes `deliver` (`internal/app/notify.go`): the kinds the
 owner chose, do not disturb (now, snoozed, quiet hours; calls to allow may
 come through), and bursts gathered into one. Approval notification tags expire after a day
 and clear on sign-out. The Settings dialog
-(`internal/app/settings.go`, ⌘,) holds those choices, the theme and the
-server's facts. The status bar shows do not disturb while it holds.
+(`internal/app/settings.go`, ⌘,) holds those choices, the theme, the zoom and
+the server's facts. The status bar shows do not disturb while it holds.
+
+The zoom scales the whole window, text, icons and spacing together, as a
+browser zooms a page (MyGo's `Context.SetZoom`, drawn sharp at every level):
+50% to 300% in a browser's steps, saved as `zoom` in the settings (none for
+100%). ⌘= (or ⌘+), ⌘- and ⌘0 step it, and a terminal's own zoom (the wheel
+with Ctrl held, ⌘ on macOS, and its font size keys) steps the window's zoom
+rather than its font. The window keeps its size, so a larger zoom gives the
+panes less room.
 
 ### The protocol
 
