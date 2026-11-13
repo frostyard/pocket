@@ -544,3 +544,105 @@ func TestQueuedEditRetriesKeepDraftEditAndAttachmentsOnce(t *testing.T) {
 		})
 	}
 }
+
+// queuedTester draws a session's conversation pane, as the person sees it.
+func queuedTester(t *testing.T, a *App) *ui.Tester {
+	t.Helper()
+	tt := ui.NewTesterWith(func(c *ui.Context) { frostui.Adapt(c); a.conversationPane(c) }, 900, 600, ui.TesterOptions{})
+	tt.Frame()
+	return tt
+}
+
+// A waiting message shows above the field, as the web app shows it, and goes
+// once Pi takes it as a turn.
+func TestQueuedMessageShowsAboveComposer(t *testing.T) {
+	a, _ := teamApp(t)
+	a.current = 7
+	a.view = pocket.NewView()
+	a.view.Live.Busy = true
+	a.view.Inbox = []pocket.QueueRow{{ID: 42, By: "u1", Mode: "followUp", Text: "[from: Brian] Check the tests"}}
+	tt := queuedTester(t, a)
+	writePNG(t, tt, "queue-dock")
+	for _, want := range []string{"1 message waiting for Pi", "Queue", "· you", "Check the tests"} {
+		if !tt.HasText(want) {
+			t.Errorf("the dock lacks %q: %q", want, tt.Texts())
+		}
+	}
+	if tt.HasText("[from:") {
+		t.Errorf("the dock keeps the sender's prefix: %q", tt.Texts())
+	}
+	if _, ok := tt.Find("Withdraw queued 42"); !ok {
+		t.Error("a waiting message cannot be withdrawn from the dock")
+	}
+	// Pi took it as a turn: the row is a message now, not a waiting one.
+	a.view.Inbox = nil
+	tt.Frame()
+	if tt.HasText("waiting for Pi") || tt.HasText("Check the tests") {
+		t.Errorf("the taken message is still waiting: %q", tt.Texts())
+	}
+}
+
+// The message being sent shows as its own row until the server lists it.
+func TestPendingMessageShowsAboveComposer(t *testing.T) {
+	a, _ := teamApp(t)
+	a.current = 7
+	a.view = pocket.NewView()
+	a.view.Live.Busy = true
+	cp := &a.composer
+	cp.sending, cp.pendingText, cp.pendingSession = true, "Run the linter", 7
+	tt := queuedTester(t, a)
+	writePNG(t, tt, "queue-dock-pending")
+	for _, want := range []string{"Sending", "Run the linter", "1 message waiting for Pi"} {
+		if !tt.HasText(want) {
+			t.Errorf("the dock lacks %q: %q", want, tt.Texts())
+		}
+	}
+	// The server lists the message it took: 1 row, never 2.
+	a.view.Inbox = []pocket.QueueRow{{ID: 42, By: "u1", Mode: "followUp", Text: "[from: Brian] Run the linter"}}
+	tt.Frame()
+	if n := countText(tt, "Run the linter"); n != 1 {
+		t.Errorf("the sent message drawn %d times, want once: %q", n, tt.Texts())
+	}
+	// Pi is not working any more, and nothing waits: no dock.
+	a.view.Live.Busy, a.view.Inbox = false, nil
+	tt.Frame()
+	if tt.HasText("waiting for Pi") || tt.HasText("Run the linter") || tt.HasText("Sending") {
+		t.Errorf("an empty queue draws a dock: %q", tt.Texts())
+	}
+}
+
+// The dock says what waits, in the web app's words.
+func TestQueuedModeAndText(t *testing.T) {
+	modes := []struct {
+		row  pocket.QueueRow
+		want string
+	}{
+		{pocket.QueueRow{Mode: "steer"}, "Steer"},
+		{pocket.QueueRow{Mode: "followUp"}, "Queue"},
+		{pocket.QueueRow{Mode: "write"}, "Note"},
+		{pocket.QueueRow{Mode: "interrupt"}, "Note"},
+		{pocket.QueueRow{Mode: "followUp", Reports: []string{"Duncan"}}, "Report"},
+		{pocket.QueueRow{Mode: "followUp", Reports: []string{"Duncan", "Irulan"}}, "Reports"},
+	}
+	for _, m := range modes {
+		if got := queuedMode(m.row); got != m.want {
+			t.Errorf("queuedMode(%+v) = %q, want %q", m.row, got, m.want)
+		}
+	}
+	texts := []struct {
+		row  pocket.QueueRow
+		want string
+	}{
+		{pocket.QueueRow{Text: "[from: Brian] Check the tests"}, "Check the tests"},
+		{pocket.QueueRow{Text: "No prefix here"}, "No prefix here"},
+		{pocket.QueueRow{Label: "An input", Summary: "for the form"}, "An input · for the form"},
+		{pocket.QueueRow{Label: "An input"}, "An input"},
+		{pocket.QueueRow{Reports: []string{"Duncan"}}, "from Duncan, on its way to Pi"},
+		{pocket.QueueRow{Reports: []string{"Duncan", "Irulan"}}, "from Duncan, Irulan, on their way to Pi"},
+	}
+	for _, x := range texts {
+		if got := queueRowText(x.row); got != x.want {
+			t.Errorf("queueRowText(%+v) = %q, want %q", x.row, got, x.want)
+		}
+	}
+}

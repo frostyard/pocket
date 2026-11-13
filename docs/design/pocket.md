@@ -262,14 +262,20 @@ so sign-out keeps them in memory for the account that comes back, and neither
 another server nor another user on the same server sees them. Files accompany
 ordinary messages, not local slash commands or `@agent` task creation.
 
-Queue rows can withdraw messages or take the sender's own message back to the
-composer with its attachments. Returned text is added ahead of any existing
+Queued messages show in a dock above the composer, as the web app shows them:
+a count line, then one row for each waiting message with how it goes, who sent
+it and what it says, without the sender's prefix. While a message to a working
+session waits for its answer, a local Sending row shows it; the row goes once
+the server lists that message or the run ends. Queue rows can withdraw messages
+or take the sender's own message back to the composer with its attachments.
+Returned text is added ahead of any existing
 draft, even if another session is now open. Edit retains the displayed text before
 the server can remove it, so a timeout or sign-out keeps a recovery copy. The copy
 is kept by the message's identity, not by its text, and only once: a retried Edit does not
 add the same message again, while another message with the same words still does. An Edit that succeeds
-clears the marker; sign-out clears every marker with the view. Stop holds the pending queue; the
-Held messages section can send it again, edit one's own message or discard one.
+clears the marker; sign-out clears every marker with the view. Stop holds the pending queue;
+held messages show in the same dock, where they can be sent again, or one's own
+edited or discarded.
 Controls follow the current driver and sender; remote workspaces hide Attach.
 These controls rely on the server for driver permissions and report races where
 a message has already reached Pi.
@@ -286,7 +292,7 @@ place where they sent it, Pocket opens the new session; the agent page counts
 as that place, even though the task links to another session. Otherwise Pocket
 names the new session in a toast
 and stays where the person went. The right pane: model and thinking, folder, branch,
-spend, speed, cache, context used, subagents, the queue. Its identity menu
+spend, speed, cache, context used, subagents. Its identity menu
 reads the team's binding, chooses an agent or clears it, and can pin an
 identity inferred from the folder with “Keep this identity”. A Shift section
 shows the objective, stop condition, state, round count and deadline when a

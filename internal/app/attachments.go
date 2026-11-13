@@ -327,14 +327,142 @@ func (a *App) queueAction(submission int, held, action string) {
 	})
 }
 
+// queuedMode names how a waiting message goes, as the web app labels it: a
+// subagent's report first, then the send mode.
+func queuedMode(q pocket.QueueRow) string {
+	switch {
+	case len(q.Reports) == 1:
+		return "Report"
+	case len(q.Reports) > 1:
+		return "Reports"
+	case q.Mode == "steer":
+		return "Steer"
+	case q.Mode == "followUp":
+		return "Queue"
+	}
+	return "Note"
+}
+
+// fromPrefix is the sender the server writes at the start of a message when
+// several people use Pi.
+var fromPrefix = regexp.MustCompile(`^\[from: [^\]\n]{1,60}\] `)
+
+// queueRowText is what a waiting message says: its row names who sent it, so
+// the sender's prefix goes, while subagents' reports say whose they are.
+func queueRowText(q pocket.QueueRow) string {
+	if q.Label != "" {
+		if q.Summary != "" {
+			return q.Label + " · " + q.Summary
+		}
+		return q.Label
+	}
+	if len(q.Reports) > 0 {
+		its := "its"
+		if len(q.Reports) > 1 {
+			its = "their"
+		}
+		return "from " + strings.Join(q.Reports, ", ") + ", on " + its + " way to Pi"
+	}
+	return fromPrefix.ReplaceAllString(q.Text, "")
+}
+
+// queuedBy names who sent a waiting message: nothing for no sender, the
+// person signed in, or the sender's name, or someone Pocket cannot name.
+func (a *App) queuedBy(by string) string {
+	if by == "" {
+		return ""
+	}
+	if a.hello != nil && by == a.hello.User.ID {
+		return " · you"
+	}
+	if name := a.userName(by); name != "" {
+		return " · " + name
+	}
+	return " · someone"
+}
+
+// queueCount is the line above the queued messages.
+func queueCount(n int) string {
+	if n == 1 {
+		return "1 message waiting for Pi"
+	}
+	return fmt.Sprintf("%d messages waiting for Pi", n)
+}
+
+// pendingQueued is the message the person just sent and Pi has not taken yet:
+// its text, and whether the dock shows it. It shows while a send to a working
+// session waits for its answer, unless the server already lists that message,
+// which it cuts and ends with an ellipsis.
+func (a *App) pendingQueued() (string, bool) {
+	cp := &a.composer
+	if !cp.sending || cp.pendingSession != a.current || cp.pendingText == "" {
+		return "", false
+	}
+	if a.view == nil || !a.view.Live.Busy {
+		return "", false
+	}
+	if a.hello != nil {
+		for _, q := range a.view.Inbox {
+			if q.By != a.hello.User.ID {
+				continue
+			}
+			text := strings.TrimSuffix(fromPrefix.ReplaceAllString(q.Text, ""), "…")
+			if text != "" && strings.HasPrefix(cp.pendingText, text) {
+				return "", false
+			}
+		}
+	}
+	return cp.pendingText, true
+}
+
+// queueDock shows what waits for Pi above the field, as the web app does: the
+// queued messages, the message being sent, and the held ones.
+func (a *App) queueDock(c *ui.Context) {
+	if a.view == nil {
+		return
+	}
+	_, pending := a.pendingQueued()
+	if len(a.view.Inbox) == 0 && len(a.view.Held) == 0 && !pending {
+		return
+	}
+	t := c.Theme()
+	ui.Column(c).AlignItems(ui.Center).Padding(frostui.SpaceS, frostui.SpaceXL, frostui.SpaceS, frostui.SpaceXL).Children(func() {
+		ui.Column(c).MaxWidth(860).FillWidth().AlignItems(ui.Stretch).Gap(frostui.SpaceS).Children(func() {
+			ui.Column(c).AlignItems(ui.Stretch).Radius(12).BorderWidth(1, 1, 1, 1).BorderColor(t.Border).
+				Background(frostui.Panel(t)).Padding(frostui.SpaceS, frostui.SpaceM).Gap(frostui.SpaceXS).Children(func() {
+				a.queueSection(c)
+			})
+		})
+	})
+}
+
 func (a *App) queueSection(c *ui.Context) {
 	cp := &a.composer
-	if len(a.view.Inbox) > 0 {
-		frostui.SectionHeader(c, frostui.SectionHead{Title: "Queued", Aside: fmt.Sprint(len(a.view.Inbox)), Quiet: true})
+	pending, showPending := a.pendingQueued()
+	count := len(a.view.Inbox)
+	if showPending {
+		count++
+	}
+	if count > 0 {
+		frostui.SectionHeader(c, frostui.SectionHead{Title: queueCount(count), Quiet: true})
+		if showPending {
+			ui.Row(c.Key("queued-pending")).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
+				frostui.Strong(c, "Sending")
+				if a.hello != nil {
+					frostui.Caption(c, a.queuedBy(a.hello.User.ID))
+				}
+				frostui.Muted(c, pending).Wrap().Grow(1)
+			})
+		}
 		for _, q := range a.view.Inbox {
 			ui.Column(c.Key(q.ID)).Gap(frostui.SpaceXS).AlignItems(ui.Stretch).Children(func() {
-				mode := firstNonEmpty(map[string]string{"steer": "Steer", "followUp": "Queued", "write": "Sending", "interrupt": "Interrupt"}[q.Mode], "Queued")
-				frostui.Muted(c, mode+" · "+firstNonEmpty(q.Label, q.Text)).Wrap()
+				ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
+					frostui.Strong(c, queuedMode(q))
+					if by := a.queuedBy(q.By); by != "" {
+						frostui.Caption(c, by)
+					}
+					frostui.Muted(c, queueRowText(q)).Wrap().Grow(1)
+				})
 				if !a.canSteer() {
 					return
 				}
