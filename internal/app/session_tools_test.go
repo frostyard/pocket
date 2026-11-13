@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"net/http"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -96,6 +98,9 @@ func TestSessionToolsCaptureSourceAndIgnoreLateFork(t *testing.T) {
 	if a.current != 0 {
 		t.Fatal("late fork changed navigation")
 	}
+	if !slices.Contains(a.pendingToasts, "Fork created: session 99") {
+		t.Fatal("late fork was not reported")
+	}
 }
 
 func TestSessionFindSnapshot(t *testing.T) {
@@ -126,10 +131,49 @@ func TestNewContextRequiresConfirmationForSameVisit(t *testing.T) {
 	}
 	tt := ui.NewTesterWith(func(c *ui.Context) { frostui.Adapt(c); ui.Box(c).Fill(); a.dialogs.View(c) }, 800, 500, ui.TesterOptions{})
 	tt.Frame()
-	a.open(0)
+	a.open(8)
 	tt.Click("New context")
 	tt.Frame()
 	if a.sessionOp != nil {
 		t.Fatal("old confirmation reset a different visit")
+	}
+}
+
+func TestSessionFindUsesVisibleValues(t *testing.T) {
+	it := item{kind: itemTools, calls: []call{{block: pocket.Block{Name: "bash", Args: map[string]any{"command": "a && b < c", "nested": []any{map[string]any{"value": "say \"quoted\""}}}}, result: &pocket.Entry{ID: 123, Kind: "toolResult", Text: "first line\nsecond line"}}}}
+	text := itemSearchText(it)
+	for _, q := range []string{"a && b < c", `say "quoted"`, "first line\nsecond line"} {
+		if !strings.Contains(text, q) {
+			t.Errorf("visible text %q missing from %q", q, text)
+		}
+	}
+	for _, q := range []string{"kind", "toolresult", "123"} {
+		if strings.Contains(text, q) {
+			t.Errorf("metadata %q leaked into Find", q)
+		}
+	}
+}
+
+func TestConfirmedNewContextSendsCapturedSession(t *testing.T) {
+	a, loop := teamApp(t)
+	a.current = 7
+	called := make(chan struct{}, 1)
+	a.link.client.HTTP = &http.Client{Transport: sessionToolsHTTP(func(r *http.Request) (*http.Response, error) {
+		if r.Method != "POST" || r.URL.Path != "/api/c/7/reset" {
+			t.Errorf("wrong reset %s %s", r.Method, r.URL)
+		}
+		called <- struct{}{}
+		return reply(r, `{}`), nil
+	})}
+	a.confirmNewContext()
+	tt := ui.NewTesterWith(func(c *ui.Context) { frostui.Adapt(c); ui.Box(c).Fill(); a.dialogs.View(c) }, 800, 500, ui.TesterOptions{})
+	tt.Frame()
+	tt.Click("New context")
+	tt.Frame()
+	loop.RunUntil(t, func() bool { return a.sessionOp != nil && !a.sessionOp.busy })
+	select {
+	case <-called:
+	default:
+		t.Fatal("confirmed reset not sent")
 	}
 }

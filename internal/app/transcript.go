@@ -17,11 +17,12 @@ import (
 
 // transcript is the conversation pane's state.
 type transcript struct {
-	find  sessionFind
-	list  ui.ListState
-	items []item
-	rev   int
-	live  int
+	find   sessionFind
+	list   ui.ListState
+	items  []item
+	search []string
+	rev    int
+	live   int
 	// open holds what the person opened: tool groups, calls, thoughts.
 	open map[string]bool
 	// closed holds what the person closed that opens by itself.
@@ -73,6 +74,7 @@ func (tr *transcript) viewChanged(a *App) {
 	}
 	tr.rev, tr.live = v.Rev, v.LiveRev
 	tr.items = buildItems(v)
+	tr.search = nil
 }
 
 // buildItems flattens a view into rows: each assistant message's text and

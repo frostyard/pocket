@@ -476,7 +476,6 @@ func (a *App) open(id int) {
 	a.details = nil
 	a.view = pocket.NewView()
 	a.tr = transcript{}
-	a.sessionOp = nil
 	a.composer.reset(id)
 	if id == 0 {
 		a.selected = ""

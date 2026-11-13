@@ -2,8 +2,8 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -30,6 +30,7 @@ func (a *App) sessionOperation(op string) {
 		return
 	}
 	if a.sessionOp != nil && a.sessionOp.busy {
+		a.toast("Wait for the current session operation to finish")
 		return
 	}
 	s := &sessionOperation{busy: true}
@@ -104,14 +105,42 @@ func itemSearchText(it item) string {
 		text += "\n" + it.entry.Command + "\n" + it.entry.Output
 	}
 	for _, call := range it.calls {
-		args, _ := json.Marshal(call.block.Args)
-		text += "\n" + call.block.Name + " " + string(args)
+		text += "\n" + call.block.Name + "\n" + searchValues(call.block.Args)
 		if call.result != nil {
-			b, _ := json.Marshal(call.result)
-			text += "\n" + string(b)
+			text += "\n" + call.result.Text + "\n" + call.result.Command + "\n" + call.result.Output
 		}
 	}
+
 	return strings.ToLower(text)
+}
+
+// Values retain literal quotes, operators and newlines; wire metadata is not searchable.
+func searchValues(v any) string {
+	switch value := v.(type) {
+	case string:
+		return value
+	case map[string]any:
+		var parts []string
+		keys := make([]string, 0, len(value))
+		for key := range value {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			parts = append(parts, searchValues(value[key]))
+		}
+		return strings.Join(parts, "\n")
+	case []any:
+		var parts []string
+		for _, child := range value {
+			parts = append(parts, searchValues(child))
+		}
+		return strings.Join(parts, "\n")
+	case nil:
+		return ""
+	default:
+		return fmt.Sprint(value)
+	}
 }
 
 func (a *App) findMatches() []int {
@@ -119,9 +148,15 @@ func (a *App) findMatches() []int {
 	if q == "" {
 		return nil
 	}
+	if a.tr.search == nil {
+		a.tr.search = make([]string, len(a.tr.items))
+		for i, it := range a.tr.items {
+			a.tr.search[i] = itemSearchText(it)
+		}
+	}
 	var found []int
-	for i, it := range a.tr.items {
-		if strings.Contains(itemSearchText(it), q) {
+	for i, text := range a.tr.search {
+		if strings.Contains(text, q) {
 			found = append(found, i)
 		}
 	}
