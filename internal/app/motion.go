@@ -633,24 +633,47 @@ func humanTokens(n float64) string {
 // dailyBars draws the closures of each day as bars.
 func (a *App) dailyBars(c *ui.Context, d *pocket.Dashboard) {
 	t := c.Theme()
-	most := 1
+	most, total := 2, 0
 	for _, day := range d.Daily {
 		most = max(most, day.Successes)
+		total += day.Successes
 	}
+	// Use integer ticks, including for an empty or single-closure range.
+	most += most % 2
 	ui.Column(c).Gap(frostui.SpaceXS).Padding(frostui.SpaceL).Radius(10).AlignItems(ui.Stretch).
 		Background(frostui.Panel(t)).BorderWidth(1, 1, 1, 1).BorderColor(t.Border).Children(func() {
-		ui.Row(c).Height(140).Gap(3).AlignItems(ui.End).Children(func() {
-			for _, day := range d.Daily {
-				h := float32(day.Successes) / float32(most) * 140
-				ui.Box(c.Key(day.Day)).Grow(1).Basis(0).Height(max(h, 2)).Radius(3).
-					Background(frostui.ToneColor(t, frostui.Accent)).Tooltip(fmt.Sprintf("%s: %d", day.Day, day.Successes))
-			}
+		frostui.Caption(c, "Threads closed well")
+		readout := fmt.Sprintf("%d closed well across %d days", total, len(d.Daily))
+		var hovered, focused string
+		ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Start).Children(func() {
+			ui.Box(c).Width(40).Height(140).Children(func() {
+				for i, count := range []int{most, most / 2, 0} {
+					frostui.Caption(c, fmt.Sprint(count)).Absolute().Right(0).TopPercent(float32(i)*50).TranslatePercent(0, -50)
+				}
+			})
+			ui.Column(c).Grow(1).Basis(0).Gap(frostui.SpaceXS).AlignItems(ui.Stretch).Children(func() {
+				ui.Row(c).Height(140).Gap(3).AlignItems(ui.End).Children(func() {
+					for _, day := range d.Daily {
+						h := float32(day.Successes) / float32(most) * 140
+						label := fmt.Sprintf("%s: %d closed well", day.Day, day.Successes)
+						bar := ui.Box(c.Key(day.Day)).Grow(1).Basis(0).Height(max(h, 2)).Radius(3).
+							Background(frostui.ToneColor(t, frostui.Accent)).Label(label).Tooltip(label).Focusable()
+						if bar.Hovered() {
+							hovered = label
+						}
+						if bar.Focused() {
+							focused = label
+						}
+					}
+				})
+				ui.Row(c).Children(func() {
+					frostui.Caption(c, d.Daily[0].Day)
+					ui.Spacer(c)
+					frostui.Caption(c, d.Daily[len(d.Daily)-1].Day)
+				})
+			})
 		})
-		ui.Row(c).Children(func() {
-			frostui.Caption(c, d.Daily[0].Day)
-			ui.Spacer(c)
-			frostui.Caption(c, d.Daily[len(d.Daily)-1].Day)
-		})
+		frostui.Caption(c, firstNonEmpty(hovered, focused, readout))
 	})
 }
 
