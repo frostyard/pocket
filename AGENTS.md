@@ -68,6 +68,9 @@ them rather than improvising, whichever agent you are. Start a new one from
   `desk.ts`) before relying on it. `pocket.Decode` and `Client.Drift` keep the
   rest of an answer when one field has an unexpected shape: never make such a
   field fatal.
+- **Desk asks.** Keep a thread's asks in server filing order. Drafts and
+  notification identity use `askKey` (id and generation), so reopening a
+  plan ask never reuses an earlier answer draft.
 - **Notifications** go through `deliver` in `internal/app/notify.go`, never
   straight to `Options.Notify`
   ([ADR-0006](docs/adr/0006-filter-notifications-in-the-client.md)).

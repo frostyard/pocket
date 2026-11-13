@@ -34,15 +34,17 @@ const (
 )
 
 type inboxItem struct {
-	key     string
-	agent   string
-	lesson  *pocket.Lesson
-	kind    inboxKind
-	session *pocket.Session
-	thread  *pocket.DeskThread
-	ask     *pocket.DeskAsk
-	pr      *pocket.ReadyPR
-	at      time.Time
+	key      string
+	agent    string
+	lesson   *pocket.Lesson
+	kind     inboxKind
+	session  *pocket.Session
+	thread   *pocket.DeskThread
+	firstAsk bool
+	groupAt  time.Time
+	ask      *pocket.DeskAsk
+	pr       *pocket.ReadyPR
+	at       time.Time
 }
 
 // inboxItems gathers what waits, the most pressing first: answers before
@@ -71,8 +73,15 @@ func (a *App) inboxItems() []inboxItem {
 	if v := a.desk.view; v != nil {
 		for i := range v.Threads {
 			t := &v.Threads[i]
+			var oldest time.Time
 			for j := range t.Asks {
-				items = append(items, inboxItem{key: "a:" + t.Asks[j].ID, kind: inboxAsk, thread: t, ask: &t.Asks[j], at: t.Asks[j].At.Time()})
+				at := t.Asks[j].At.Time()
+				if j == 0 || at.Before(oldest) {
+					oldest = at
+				}
+			}
+			for j := range t.Asks {
+				items = append(items, inboxItem{key: "a:" + t.Asks[j].ID, kind: inboxAsk, thread: t, ask: &t.Asks[j], firstAsk: j == 0, groupAt: oldest, at: t.Asks[j].At.Time()})
 			}
 			if len(t.Asks) > 0 || t.State == "closed" || t.State == "parked" {
 				continue
@@ -96,6 +105,11 @@ func (a *App) inboxItems() []inboxItem {
 	slices.SortStableFunc(items, func(x, y inboxItem) int {
 		if rank[x.kind] != rank[y.kind] {
 			return rank[x.kind] - rank[y.kind]
+		}
+		if x.kind == inboxAsk {
+			// The stable sort preserves each thread's server filing order,
+			// including ties between the oldest ask of different threads.
+			return x.groupAt.Compare(y.groupAt)
 		}
 		return x.at.Compare(y.at)
 	})
@@ -399,11 +413,15 @@ func (a *App) answerListed(ap *pocket.SessionApproval, allow bool) {
 
 func (a *App) askItem(c *ui.Context, it *inboxItem) {
 	t, ask := it.thread, it.ask
+	key := askKey(ask)
+	c = c.Key(key)
 	if a.desk.answers == nil {
 		a.desk.answers = map[string]string{}
 	}
-	a.card(c, it.key, frostui.Accent, t.Title, func() {
-		a.threadHead(c, t)
+	a.card(c, it.key, frostui.Accent, t.Title+" · "+ask.ID, func() {
+		if it.firstAsk {
+			a.threadHead(c, t)
+		}
 		ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
 			frostui.Mono(c, ask.ID).TextColor(c.Theme().TextMuted)
 			if ask.From != "" {
@@ -414,7 +432,7 @@ func (a *App) askItem(c *ui.Context, it *inboxItem) {
 		})
 		markdown.View(c, linkArtifacts(ask.Text, a.artifactHint(t)), &a.md)
 		a.artifactButtons(c, refIDs(ask.Text), a.artifactPrefer(t))
-		busy := a.desk.busy[ask.ID]
+		busy := a.desk.busy[key]
 		if len(ask.Options) > 0 {
 			ui.Row(c).Gap(frostui.SpaceS).Wrap().Children(func() {
 				for i, opt := range ask.Options {
@@ -428,10 +446,10 @@ func (a *App) askItem(c *ui.Context, it *inboxItem) {
 				}
 			})
 		}
-		words := a.desk.answers[ask.ID]
+		words := a.desk.answers[key]
 		ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
 			in := ui.TextInput(c, &words).Placeholder("Your answer, in words").Label("Answer " + ask.ID).Disabled(busy).Grow(1)
-			a.desk.answers[ask.ID] = words
+			a.desk.answers[key] = words
 			if busy {
 				ui.Spinner(c).Size(14, 14)
 			}
@@ -609,7 +627,7 @@ func (a *App) threadContext(c *ui.Context, t *pocket.DeskThread) {
 		for _, an := range t.Answered {
 			ui.Column(c.Key(an.ID)).Gap(2).AlignItems(ui.Stretch).Children(func() {
 				frostui.Caption(c, an.ID+" · "+truncate(firstLine(an.Text), 80)).Wrap()
-				frostui.Body(c, "→ "+an.Words).Wrap()
+				frostui.Body(c, "→ "+an.Words).Wrap().MaxLines(2).Tooltip(an.Words)
 			})
 		}
 	}
@@ -635,7 +653,7 @@ func (a *App) threadContext(c *ui.Context, t *pocket.DeskThread) {
 			e := events[i]
 			ui.Row(c.Key(fmt.Sprint("e", i))).Gap(frostui.SpaceS).AlignItems(ui.Start).Children(func() {
 				frostui.Caption(c, clock(e.At.Time())).Width(64)
-				frostui.Caption(c, e.Text).Wrap().Grow(1)
+				frostui.Caption(c, e.Text).Wrap().MaxLines(2).Tooltip(e.Text).Grow(1)
 			})
 		}
 	}
