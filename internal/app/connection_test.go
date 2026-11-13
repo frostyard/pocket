@@ -82,6 +82,7 @@ func TestHelloRefreshesTeamLessonsAndArtifacts(t *testing.T) {
 		mu.Unlock()
 		return reply(r, `{}`), nil
 	})
+	a.conn.State = frostui.Connecting
 	a.arts.loaded = true
 	for range 2 {
 		a.handle(pocket.Event{Name: "hello", Data: []byte(`{"connection":"test"}`)})
@@ -150,4 +151,63 @@ func TestRefreshDuringReadIsNotLost(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRoute401ReleasesComposerAndRestoresDraft(t *testing.T) {
+	a, loop := requestApp(t, func(r *http.Request) (*http.Response, error) {
+		resp := reply(r, `{}`)
+		resp.StatusCode = http.StatusUnauthorized
+		return resp, nil
+	})
+	a.current = 7
+	a.composer.session = 7
+	a.composer.answered = map[string]bool{"approval": true}
+	a.composer.promptsFor = 7
+	a.tr.earlier = true
+	a.send("unsent words", "")
+	loop.RunUntil(t, func() bool { return !a.signedIn() })
+	if a.composer.sending || len(a.composer.answered) != 0 || a.composer.promptsFor != 0 || a.tr.earlier {
+		t.Fatal("sign-out retained in-flight UI state")
+	}
+	if a.composer.draft != "unsent words" || a.composer.drafts[7] != "unsent words" {
+		t.Fatal("sign-out lost the unacknowledged send")
+	}
+	a.composer.reset(0)
+	a.composer.reset(7)
+	if a.composer.draft != "unsent words" {
+		t.Fatal("opening the session lost the restored draft")
+	}
+}
+
+func TestRetryInitialConnectionRestoresLastSession(t *testing.T) {
+	ended := make(chan struct{})
+	started := make(chan struct{})
+	a, loop := requestApp(t, func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/api/events" {
+			close(started)
+			<-r.Context().Done()
+			close(ended)
+			return nil, r.Context().Err()
+		}
+		return reply(r, `{}`), nil
+	})
+	a.conn.State = frostui.Connecting
+	a.conn.Reason = "previous failure"
+	a.settings.LastSession = "42"
+	client := a.link.client
+	a.reconnectNow()
+	<-started
+	t.Cleanup(a.disconnect)
+	if a.conn.State != frostui.Connecting || a.conn.Reason != "" || a.link.client != client {
+		t.Fatal("retry abandoned the initial connection or authenticated client")
+	}
+	a.handle(pocket.Event{Name: "hello", Data: []byte(`{"connection":"test"}`)})
+	if a.loading != 42 {
+		t.Fatalf("restored session %d, want 42", a.loading)
+	}
+	loop.RunUntil(t, func() bool {
+		return !a.team.loading && !a.lessons.loading && !a.desk.loading && !a.wiki.loading && !a.terms.loading
+	})
+	a.disconnect()
+	<-ended
 }

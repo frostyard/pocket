@@ -78,7 +78,10 @@ func (a *App) reconnectNow() {
 	// Keep the authenticated client: in-flight route reads still belong
 	// to this sign-in, even though the event stream is replaced.
 	a.disconnect()
-	a.conn.State = frostui.Reconnecting
+	if a.conn.State != frostui.Connecting {
+		a.conn.State = frostui.Reconnecting
+	}
+	a.conn.Reason = ""
 	a.link.failures = 0
 	ctx, cancel := context.WithCancel(context.Background())
 	a.link.cancel = cancel

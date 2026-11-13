@@ -16,12 +16,14 @@ import (
 
 // composer is the message field's state.
 type composer struct {
-	session int
-	draft   string
-	drafts  map[int]string
-	history []string
-	sending bool
-	field   ui.Handle
+	session        int
+	draft          string
+	drafts         map[int]string
+	history        []string
+	sending        bool
+	pendingText    string
+	pendingSession int
+	field          ui.Handle
 	// sel is the suggestion chosen with the arrows.
 	sel int
 	// prompts are the session's templates and skills, for /.
@@ -42,6 +44,32 @@ func (cp *composer) reset(id int) {
 	cp.session = id
 	cp.draft = cp.drafts[id]
 	cp.sel = 0
+}
+
+// resetRequests releases state whose completion will be discarded on sign-out.
+// Keep an unacknowledged send as a draft in its original session.
+func (cp *composer) resetRequests() {
+	if cp.pendingText != "" {
+		if cp.drafts == nil {
+			cp.drafts = map[int]string{}
+		}
+		draft := cp.drafts[cp.pendingSession]
+		if cp.session == cp.pendingSession {
+			draft = cp.draft
+		}
+		if strings.TrimSpace(draft) == "" {
+			draft = cp.pendingText
+		} else {
+			draft = cp.pendingText + "\n\n" + draft
+		}
+		cp.drafts[cp.pendingSession] = draft
+		if cp.session == cp.pendingSession {
+			cp.draft = draft
+		}
+	}
+	cp.sending, cp.pendingText, cp.pendingSession = false, "", 0
+	cp.answered, cp.answers = nil, nil
+	cp.prompts, cp.promptsFor = nil, 0
 }
 
 // suggestion is one completion of what the field starts with.
@@ -290,6 +318,7 @@ func (a *App) send(text, mode string) {
 		}
 	}
 	cp.sending = true
+	cp.pendingText, cp.pendingSession = text, id
 	reqID := newRequestID()
 	a.console.Add(frostui.LevelCommand, "send", truncate(firstLine(text), 120))
 	a.request("Sending", func(ctx context.Context, c *pocket.Client) error {
@@ -297,6 +326,7 @@ func (a *App) send(text, mode string) {
 		return err
 	}, func(err error) {
 		cp.sending = false
+		cp.pendingText, cp.pendingSession = "", 0
 		if err != nil {
 			// Give the text back, so nothing typed is lost.
 			if cp.session == id && strings.TrimSpace(cp.draft) == "" {

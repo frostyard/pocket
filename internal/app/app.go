@@ -204,6 +204,8 @@ func (a *App) saveSettings() {
 
 // reset forgets what the server said, as after signing out.
 func (a *App) reset() {
+	a.composer.resetRequests()
+	a.tr = transcript{}
 	a.hello = nil
 	a.sessions = nil
 	a.byID = map[int]*pocket.Session{}
