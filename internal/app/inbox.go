@@ -33,17 +33,18 @@ const (
 )
 
 type inboxItem struct {
-	key      string
-	agent    string
-	lesson   *pocket.Lesson
-	kind     inboxKind
-	session  *pocket.Session
-	thread   *pocket.DeskThread
-	firstAsk bool
-	groupAt  time.Time
-	ask      *pocket.DeskAsk
-	pr       *pocket.ReadyPR
-	at       time.Time
+	coreLesson *pocket.CoreLesson
+	key        string
+	agent      string
+	lesson     *pocket.Lesson
+	kind       inboxKind
+	session    *pocket.Session
+	thread     *pocket.DeskThread
+	firstAsk   bool
+	groupAt    time.Time
+	ask        *pocket.DeskAsk
+	pr         *pocket.ReadyPR
+	at         time.Time
 }
 
 // inboxItems gathers what waits, the most pressing first: answers before
@@ -100,6 +101,14 @@ func (a *App) inboxItems() []inboxItem {
 	for _, al := range a.waitingLessons() {
 		items = append(items, inboxItem{key: "l:" + al.lesson.ID, kind: inboxLesson, agent: al.agent, lesson: al.lesson, at: al.lesson.CreatedAt.Time()})
 	}
+	if a.coreMemoryAvailable() && a.core != nil && a.core.data != nil {
+		for i := range a.core.data.Lessons {
+			l := &a.core.data.Lessons[i]
+			if l.Pending || l.Proposal != nil {
+				items = append(items, inboxItem{key: "core:" + l.ID, kind: inboxLesson, coreLesson: l, at: l.CreatedAt.Time()})
+			}
+		}
+	}
 	rank := map[inboxKind]int{inboxFull: 0, inboxApproval: 1, inboxAsk: 2, inboxReady: 3, inboxFailed: 4, inboxFound: 5, inboxStale: 6, inboxLesson: 7}
 	slices.SortStableFunc(items, func(x, y inboxItem) int {
 		if rank[x.kind] != rank[y.kind] {
@@ -143,6 +152,7 @@ func (a *App) inboxPane(c *ui.Context) {
 					name = ", " + a.hello.User.Name
 				}
 				frostui.PageHeader(c, greeting(a.opts.Now().Hour())+name, a.inboxLine(items), nil)
+				a.coreMemoryNotice(c)
 				if len(items) == 0 {
 					ui.Column(c).Padding(frostui.SpaceXL*2, 0).Children(func() {
 						frostui.Empty(c, "object-select", "Inbox zero", "Nothing waits for you. The team works on; In motion shows what they do.")
@@ -295,7 +305,11 @@ func (a *App) inboxCard(c *ui.Context, it *inboxItem) {
 			})
 		})
 	case inboxLesson:
-		a.lessonCard(c, it.agent, it.lesson, true)
+		if it.coreLesson != nil {
+			a.coreLessonCard(c, it)
+		} else {
+			a.lessonCard(c, it.agent, it.lesson, true)
+		}
 	case inboxStale, inboxFound:
 		t := it.thread
 		what := "No news for days."

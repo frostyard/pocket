@@ -46,7 +46,13 @@ internal/icons ── the icons Pocket draws itself
   the most pressing first: calls to allow and questions waiting in sessions
   (subagents' included), the Desk's decisions, PRs ready to merge (by review
   level), a full desk (Allow 1), failed runs, found work, threads gone quiet,
-  and lessons to review (which the badge does not count). A decision or report
+  and lessons to review (which the badge does not count). Team lessons and
+  Pi Pocket's own pending lessons appear together, with the latter labeled
+  “Pi Pocket memory”. Approve sends the proposal shown; Discard withdraws it.
+  The core queue uses the owner's private PiP id from the stream's `pip` event,
+  reads again on hello and `memory` events, and requires a `pendingAll`
+  response. If PiP has never been opened, the Inbox explains how to enable
+  the queue; it never substitutes an ordinary session. A decision or report
   that names an artifact (`artifact:<id>`, as the Desk writes it) links it,
   and gets a button titled as the artifact that opens it in Artifacts: the
   id is looked up across sessions, the thread's own session first, then its
