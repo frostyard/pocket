@@ -400,3 +400,29 @@ func TestArtifactRefreshClearsAFailedSVG(t *testing.T) {
 		t.Fatal("the refresh did not draw the SVG")
 	}
 }
+
+// TestArtifactRefreshDuringAnSVGReadKeepsItsFailure checks that the person's
+// refresh while an SVG read is under way leaves a map that read can write its
+// failure into.
+func TestArtifactRefreshDuringAnSVGReadKeepsItsFailure(t *testing.T) {
+	a, loop := teamApp(t)
+	const list = `[{"session":7,"sessionTitle":"Task","id":"pic","title":"Picture","type":"svg","current":1,"versions":1,"size":20}]`
+	release := make(chan struct{})
+	a.link.client.HTTP = &http.Client{Transport: sessionToolsHTTP(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/a/7/pic/1" {
+			<-release
+			resp := reply(r, `{}`)
+			resp.StatusCode, resp.Status = http.StatusServiceUnavailable, "503 Service Unavailable"
+			return resp, nil
+		}
+		return reply(r, list), nil
+	})}
+	x := &pocket.Artifact{Session: 7, SessionTitle: "Task", ID: "pic", Title: "Picture", Type: "svg", Current: 1, Versions: 1, Size: 20}
+	a.readSVG(x, svgKey(x))
+	a.refreshArtifacts()
+	close(release)
+	loop.RunUntil(t, func() bool { return !a.arts.fetching[svgKey(x)] && !a.arts.loading })
+	if a.arts.svgErr[svgKey(x)] == "" {
+		t.Fatal("the read under way lost its failure")
+	}
+}

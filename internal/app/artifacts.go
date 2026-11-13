@@ -111,7 +111,9 @@ func (a *App) loadArtifacts() {
 // events read the list without clearing those failures, so that a redraw
 // never reads an SVG that failed.
 func (a *App) refreshArtifacts() {
-	a.arts.svgErr = nil
+	// Empty the map, never drop it: a read under way still writes its
+	// failure into it.
+	clear(a.arts.svgErr)
 	a.loadArtifacts()
 }
 
