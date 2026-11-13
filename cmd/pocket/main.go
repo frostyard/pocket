@@ -97,6 +97,13 @@ func run() error {
 						e.PreventDefault()
 					}
 				})
+				// Reloads and moves in the history do not reach OnWillNavigate:
+				// a page that lands outside the rule all the same is blanked.
+				page.OnDidNavigate(func(url string) {
+					if !app.ArtifactPageAllowed(pane.signedServer(), url) {
+						pane.blank()
+					}
+				})
 				page.SetWindowOpenHandler(func(req mygo.WindowOpenRequest) *mygo.WindowOptions {
 					if app.ArtifactPopup(req.URL, req.UserInitiated) {
 						openExternal(req.URL)
@@ -247,13 +254,17 @@ func (w *webPane) do(fn func()) {
 	}()
 }
 
-// Show sets the sign-in cookie for the server's host alone, then loads
-// the page, off the UI thread.
+// Show sets the sign-in cookie for the server's host and its /a/ pages
+// alone (app.ArtifactCookie), then loads the page, off the UI thread.
 func (w *webPane) Show(page, server, token string) error {
 	if w.view == nil {
 		return errors.New("no web view")
 	}
 	u, err := url.Parse(server)
+	if err != nil {
+		return err
+	}
+	c, err := app.ArtifactCookie(server, token)
 	if err != nil {
 		return err
 	}
@@ -263,11 +274,11 @@ func (w *webPane) Show(page, server, token string) error {
 	if w.hosts == nil {
 		w.hosts = map[string]bool{}
 	}
-	w.hosts[u.Hostname()] = true
+	w.hosts[c.Domain] = true
 	w.mu.Unlock()
 	w.do(func() {
-		err := mygo.Cookies.Set(mygo.Cookie{Name: pocket.CookieName, Value: token, Domain: u.Hostname(), Path: "/",
-			Secure: u.Scheme == "https", HTTPOnly: true, SameSite: mygo.CookieSameSiteLax})
+		err := mygo.Cookies.Set(mygo.Cookie{Name: c.Name, Value: c.Value, Domain: c.Domain, Path: c.Path,
+			Secure: c.Secure, HTTPOnly: true, SameSite: mygo.CookieSameSiteLax})
 		if err != nil {
 			slog.Warn("signing the web view in", "err", err)
 		}
@@ -295,10 +306,26 @@ func (w *webPane) SignOut() {
 	w.mu.Unlock()
 	w.do(func() {
 		for _, h := range hosts {
-			if err := mygo.Cookies.Delete(mygo.Cookie{Name: pocket.CookieName, Domain: h, Path: "/"}); err != nil {
-				slog.Warn("signing the web view out", "err", err)
+			// The cookie's path, and "/", the path earlier builds used.
+			for _, path := range []string{app.ArtifactCookiePath, "/"} {
+				if err := mygo.Cookies.Delete(mygo.Cookie{Name: pocket.CookieName, Domain: h, Path: path}); err != nil {
+					slog.Warn("signing the web view out", "err", err)
+				}
 			}
 		}
+		if err := view.Page().LoadURL("about:blank"); err != nil {
+			slog.Warn("blanking the artifacts' web view", "err", err)
+		}
+	})
+}
+
+// blank loads about:blank, off the UI thread, in order with the rest.
+func (w *webPane) blank() {
+	if w.view == nil {
+		return
+	}
+	view := w.view
+	w.do(func() {
 		if err := view.Page().LoadURL("about:blank"); err != nil {
 			slog.Warn("blanking the artifacts' web view", "err", err)
 		}

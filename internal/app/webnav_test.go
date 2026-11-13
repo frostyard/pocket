@@ -171,3 +171,53 @@ func TestSameServer(t *testing.T) {
 		t.Error("another server must sign the web view out")
 	}
 }
+
+// TestArtifactCookie is the guard of the cross-review of frostyard/pocket#34,
+// finding 1: a navigation that the web view's hook does not see (a reload
+// after history.replaceState, which Chromium allows a sandboxed page) must
+// not reach the rest of the server signed in. The cookie goes to the
+// server's host and its /a/ pages alone.
+func TestArtifactCookie(t *testing.T) {
+	for _, tc := range []struct {
+		server string
+		want   WebCookie
+	}{
+		{"https://example.org", WebCookie{Name: pocket.CookieName, Value: "tok", Domain: "example.org", Path: "/a/", Secure: true}},
+		{"http://192.0.2.7:8080", WebCookie{Name: pocket.CookieName, Value: "tok", Domain: "192.0.2.7", Path: "/a/"}},
+	} {
+		got, err := ArtifactCookie(tc.server, "tok")
+		if err != nil {
+			t.Fatalf("ArtifactCookie(%q): %v", tc.server, err)
+		}
+		if got != tc.want {
+			t.Errorf("ArtifactCookie(%q) = %+v, want %+v", tc.server, got, tc.want)
+		}
+		if !ArtifactPageAllowed(tc.server, tc.server+got.Path+"1/x/1") {
+			t.Errorf("the cookie's path %q is not under the pages the view loads", got.Path)
+		}
+	}
+	if _, err := ArtifactCookie("", "tok"); err == nil {
+		t.Error("ArtifactCookie with no server must fail")
+	}
+}
+
+// TestArtifactPageAllowed checks the rule the program applies once a
+// navigation committed: what the hook did not see is blanked unless it is
+// an artifact page or about:blank.
+func TestArtifactPageAllowed(t *testing.T) {
+	const server = "https://example.org"
+	for _, tc := range []struct {
+		target string
+		want   bool
+	}{
+		{"https://example.org/a/1/x/1", true},
+		{"about:blank", true},
+		{"https://example.org/", false},
+		{"https://example.org/api/sessions", false},
+		{"https://evil.example.net/", false},
+	} {
+		if got := ArtifactPageAllowed(server, tc.target); got != tc.want {
+			t.Errorf("ArtifactPageAllowed(%q, %q) = %v, want %v", server, tc.target, got, tc.want)
+		}
+	}
+}

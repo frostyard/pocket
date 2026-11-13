@@ -1,9 +1,49 @@
 package app
 
 import (
+	"errors"
 	"net/url"
 	"strings"
+
+	"github.com/frostyard/pocket/internal/pocket"
 )
+
+// ArtifactCookiePath is the path of the artifact web view's sign-in cookie.
+// The engine sends the cookie only to the server's /a/ pages, the ones the
+// server sandboxes. A navigation that the web view's hook does not see (a
+// reload, a move in the history, after a page rewrote its URL with
+// history.replaceState) can still reach another page of the server, but
+// not signed in.
+const ArtifactCookiePath = "/a/"
+
+// WebCookie is a cookie for the artifact web view. The program adds
+// HttpOnly and SameSite=Lax when it sets it.
+type WebCookie struct {
+	Name, Value, Domain, Path string
+	Secure                    bool
+}
+
+// ArtifactCookie is the cookie that signs the artifact web view in to
+// server with token: for the server's host alone and its /a/ pages alone.
+func ArtifactCookie(server, token string) (WebCookie, error) {
+	u, err := url.Parse(server)
+	if err != nil {
+		return WebCookie{}, err
+	}
+	if u.Hostname() == "" {
+		return WebCookie{}, errors.New("the server address has no host")
+	}
+	return WebCookie{Name: pocket.CookieName, Value: token, Domain: u.Hostname(), Path: ArtifactCookiePath,
+		Secure: strings.EqualFold(u.Scheme, "https")}, nil
+}
+
+// ArtifactPageAllowed reports whether the web view may keep showing target
+// once a navigation to it committed. It is the rule of ArtifactNavigation,
+// for the navigations its hook does not see: the program blanks the view
+// when it is false.
+func ArtifactPageAllowed(server, target string) bool {
+	return ArtifactNavigation(server, target, false) == NavigationAllow
+}
 
 // Navigation is what the artifact web view does with a URL its page goes to.
 type Navigation int
@@ -26,7 +66,11 @@ const (
 // CSP, and about:blank. Any other page of the server would load signed in
 // as the owner: the whole app, with its API. A link to another site, or to
 // another page of the server, opens in the browser when a person asked for
-// it; a script cannot open one.
+// it, and a navigation that a script starts on its own (a timer, a load)
+// opens nothing. user is what the web view reports: MyGo v0.9.0 on Linux,
+// and on macOS without WebKit's own flag, counts every link activation and
+// form submission as a person's gesture, so there a script's
+// anchor.click() can still open its address in the browser.
 func ArtifactNavigation(server, target string, user bool) Navigation {
 	if strings.EqualFold(target, "about:blank") {
 		return NavigationAllow
