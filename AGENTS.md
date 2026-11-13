@@ -51,7 +51,7 @@ them rather than improvising, whichever agent you are. Start a new one from
   `inbox.go`, `motion.go` (In motion, Shift board, Numbers), `desk.go`,
   `transcript.go`, `composer.go`, `pages.go`, `notify.go`, `settings.go`,
   `terminals.go` (the Terminal place, over `pocket.TermConn`), `artifacts.go`,
-  `refs.go`, `wiki.go`, `teampage.go` and `signin.go`.
+  `refs.go`, `desk_files.go` (read-only Desk Markdown), `wiki.go`, `teampage.go` and `signin.go`.
   `internal/config` holds settings and credentials; `internal/icons` the
   icons Pocket draws.
 - **UI thread.** `App` and everything in it belong to the UI thread. Work

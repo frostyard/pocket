@@ -429,7 +429,7 @@ func (a *App) askItem(c *ui.Context, it *inboxItem) {
 			ui.Spacer(c)
 			frostui.Caption(c, clock(it.at))
 		})
-		markdown.View(c, linkArtifacts(ask.Text, a.artifactHint(t)), &a.md)
+		markdown.View(c, linkDeskPaths(linkArtifacts(ask.Text, a.artifactHint(t))), &a.md)
 		a.artifactButtons(c, refIDs(ask.Text), a.artifactPrefer(t))
 		busy := a.desk.busy[key]
 		if len(ask.Options) > 0 {
@@ -637,7 +637,7 @@ func (a *App) threadContext(c *ui.Context, t *pocket.DeskThread) {
 			r := d.Reports[i]
 			a.disclosureRow(c.Key(fmt.Sprint("r", i)), "report:"+t.ID+":"+fmt.Sprint(i), "pocket-desk",
 				truncate(firstLine(r.Text), 70), clock(r.At.Time()), func() {
-					markdown.View(c, linkArtifacts(r.Text, a.artifactHint(t)), &a.md)
+					markdown.View(c, linkDeskPaths(linkArtifacts(r.Text, a.artifactHint(t))), &a.md)
 					a.artifactButtons(c, refIDs(r.Text), a.artifactPrefer(t))
 				})
 		}
@@ -654,6 +654,7 @@ func (a *App) threadContext(c *ui.Context, t *pocket.DeskThread) {
 				frostui.Caption(c, clock(e.At.Time())).Width(64)
 				frostui.Caption(c, e.Text).Wrap().MaxLines(2).Tooltip(e.Text).Grow(1)
 			})
+			a.deskFileButtons(c.Key(fmt.Sprint("files", i)), e.Text)
 		}
 	}
 }
