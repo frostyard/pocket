@@ -88,6 +88,10 @@ func (a *App) inboxItems() []inboxItem {
 }
 
 func (a *App) sessionForThread(t *pocket.DeskThread) *pocket.Session {
+	// An authoritative binding is already an O(1) lookup and never uses the title cache.
+	if t.Session != nil {
+		return a.byID[*t.Session]
+	}
 	d := a.derivedData()
 	if s, ok := d.threads[t]; ok {
 		return s

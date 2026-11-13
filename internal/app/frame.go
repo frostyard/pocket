@@ -53,6 +53,7 @@ func (a *App) View(c *ui.Context) {
 	})
 	a.settingsDialog(c)
 	a.deskFileDialog(c)
+	a.numberRecordsDialog(c)
 }
 
 func (a *App) mainPane(c *ui.Context) {
@@ -114,6 +115,7 @@ func (a *App) mainBar(c *ui.Context) {
 		ui.Text(c, a.placeTitle()).Bold().SingleLine()
 		return
 	}
+	a.sessionToolsMenu(c)
 	v := a.view
 	s := a.byID[a.current]
 	title := v.Conversation.Title
@@ -163,6 +165,14 @@ func (a *App) inspectorBar(c *ui.Context) {
 
 // inspector is the right pane: what the chosen thing is about.
 func (a *App) inspector(c *ui.Context) {
+	ui.Column(c).Grow(1).AlignItems(ui.Stretch).Background(frostui.Chrome(c.Theme())).Children(func() {
+		frostui.Strong(c, "Details").Wrap().Padding(frostui.SpaceM, frostui.SpaceL).Shrink(0)
+		frostui.RowDivider(c)
+		a.inspectorBody(c)
+	})
+}
+
+func (a *App) inspectorBody(c *ui.Context) {
 	if a.current != 0 || strings.HasPrefix(a.selected, "a:") {
 		a.inspectorPane(c)
 		return
@@ -174,6 +184,9 @@ func (a *App) inspector(c *ui.Context) {
 			case "x:motion":
 				if th := a.desk.thread(a.threadSel); th != nil {
 					a.threadContext(c, th)
+					return
+				}
+				if a.numberThreadContext(c) {
 					return
 				}
 				frostui.Muted(c, "Choose a thread to see its PRs, events and reports. Double-click opens its session.").Wrap()
@@ -415,6 +428,10 @@ func (a *App) setUpCommands() {
 			Run:     func() { a.togglePin(a.current) }},
 		frostui.Command{ID: "archive", Title: "Archive the Session", Group: "Session", Icon: "archive", Enabled: inSession,
 			Run: func() { a.archive(a.current, true) }},
+		frostui.Command{ID: "find-session", Title: "Find in Session", Group: "Session", Enabled: inSession, Bindings: []frostui.KeyBinding{{Mods: ui.Cmd, Key: ui.KeyF, Scope: frostui.Everywhere}}, Run: func() { a.tr.find.open = true; a.tr.find.focus = true }},
+		frostui.Command{ID: "fork-session", Title: "Fork Session", Group: "Session", Enabled: inSession, Run: func() { a.sessionOperation("Fork session") }},
+		frostui.Command{ID: "export-session", Title: "Export Session…", Group: "Session", Enabled: inSession, Run: func() { a.sessionOperation("Export session") }},
+		frostui.Command{ID: "new-context", Title: "New Context…", Group: "Session", Enabled: inSession, Run: a.confirmNewContext},
 		frostui.Command{ID: "compact", Title: "Compact the Context", Group: "Session", Icon: "edit-clear-all", Enabled: inSession,
 			Run: func() { a.runBuiltin("/compact", "") }},
 		frostui.Command{ID: "plan", Title: "Plan Mode", Group: "Session", Icon: "view-list", Enabled: inSession,

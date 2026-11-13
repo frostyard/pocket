@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -34,13 +36,25 @@ type desk struct {
 	completedLoading, completedLoaded bool
 	completedErr                      string
 
-	dash        *pocket.Dashboard
-	dashDays    int
-	dashLoading bool
+	dash                         *pocket.Dashboard
+	dashDays                     int
+	dashLoading                  bool
+	dashSeq                      int
+	dashOwner, dashRepo, dashErr string
+	dashShown                    pocket.DashboardQuery
+	records                      *numberRecords
+	recordThread                 *numberThread
 
 	board        *pocket.Board
 	boardLoading bool
 	boardBusy    bool
+	boardChosen  int
+	boardDirty   bool
+	boardErr     string
+	boardLoaded  bool
+	boardEditors map[int]*boardEditor
+	boardOpen    map[int]bool
+	boardKeys    map[string]string
 }
 
 func (d *desk) thread(id string) *pocket.DeskThread {
@@ -209,9 +223,8 @@ func (a *App) grant() {
 	})
 }
 
-// sessionForThread finds the session that works on a thread: the Desk's
-// view names none, but each delegation's session is titled after its
-// thread, and is the agent's.
+// matchThreadSession is the title fallback for older Desk modules without
+// a session binding. Titles are normalized once per source snapshot.
 func (a *App) matchThreadSession(t *pocket.DeskThread, titles []string) *pocket.Session {
 	title := strings.ToLower(strings.TrimSpace(t.Title))
 	if title == "" {
@@ -263,41 +276,118 @@ func boardKey(now time.Time) string {
 // loadBoard reads the shift board.
 func (a *App) loadBoard() {
 	if a.desk.boardLoading {
+		a.desk.boardDirty = true
 		return
 	}
 	a.desk.boardLoading = true
+	chosen := a.desk.boardChosen
+	client := a.link.client
 	var b *pocket.Board
 	a.request("Reading the board", func(ctx context.Context, c *pocket.Client) error {
 		var err error
-		b, err = c.DeskBoard(ctx, 0)
+		b, err = c.DeskBoard(ctx, chosen)
 		return err
 	}, func(err error) {
+		if a.link.client != client || a.desk.boardChosen != chosen {
+			return
+		}
 		a.desk.boardLoading = false
+		a.desk.boardLoaded = true
 		if err == nil {
+			oldSup, newSup := 0, 0
+			if a.desk.board != nil && a.desk.board.Supervisor != nil {
+				oldSup = *a.desk.board.Supervisor
+			}
+			if b.Supervisor != nil {
+				newSup = *b.Supervisor
+			}
+			if oldSup != newSup {
+				a.desk.boardEditors = nil
+				a.desk.boardOpen = nil
+			}
+			if a.desk.boardChosen != 0 {
+				a.desk.boardChosen = newSup
+			}
 			a.desk.board = b
+			a.desk.boardErr = ""
+		} else {
+			a.desk.boardErr = err.Error()
+			if a.desk.board != nil && a.desk.board.Supervisor != nil {
+				a.desk.boardChosen = *a.desk.board.Supervisor
+			}
+		}
+		if a.desk.boardDirty {
+			a.desk.boardDirty = false
+			a.loadBoard()
 		}
 	})
 }
 
 // boardOp picks, unpicks or launches.
 func (a *App) boardOp(op string, row *pocket.BoardRow, launch []pocket.BoardRow) {
+	a.boardChange(op, row, launch, nil, "")
+}
+
+func (a *App) boardChange(op string, row *pocket.BoardRow, launch []pocket.BoardRow, fields map[string]any, thread string) {
+	if a.desk.boardBusy || a.desk.boardLoading {
+		return
+	}
 	b := a.desk.board
 	if b == nil || b.Supervisor == nil {
 		a.toast("The board has no supervisor yet")
 		return
 	}
 	sup := *b.Supervisor
-	key := boardKey(a.opts.Now())
+	if a.desk.boardChosen != 0 && a.desk.boardChosen != sup {
+		a.toast("Wait for the chosen supervisor's board to load")
+		return
+	}
+	fingerprint, _ := json.Marshal([]any{sup, pocket.BoardBody(op, row, launch, fields, thread)})
+	signature := string(fingerprint)
+	if a.desk.boardKeys == nil {
+		a.desk.boardKeys = map[string]string{}
+	}
+	key := a.desk.boardKeys[signature]
+	if key == "" {
+		key = boardKey(a.opts.Now())
+		a.desk.boardKeys[signature] = key
+	}
+	client := a.link.client
 	a.desk.boardBusy = true
 	a.console.Add(frostui.LevelCommand, "board", op)
+	var result *pocket.BoardResult
 	a.request("Board: "+op, func(ctx context.Context, c *pocket.Client) error {
-		return c.BoardOp(ctx, sup, op, key, row, launch)
+		var err error
+		result, err = c.BoardOp(ctx, sup, op, key, row, launch, fields, thread)
+		return err
 	}, func(err error) {
+		if a.link.client != client {
+			return
+		}
 		a.desk.boardBusy = false
+		var api *pocket.APIError
+		if err == nil || (errors.As(err, &api) && api.Status == 409) {
+			delete(a.desk.boardKeys, signature)
+		}
+		if err != nil {
+			if errors.As(err, &api) {
+				a.toast("Board unchanged: " + err.Error())
+			} else {
+				a.toast("Board request failed; it may have been applied: " + err.Error())
+			}
+		}
+		a.loadBoard()
 		if err == nil {
-			a.loadBoard()
-			if op == "launch" {
-				a.toast(plural(len(launch), "shift launched", "shifts launched"))
+			if row != nil {
+				delete(a.desk.boardEditors, row.ID)
+			}
+			if result != nil {
+				if result.Text != "" {
+					a.toast(result.Text)
+				}
+				if len(result.Pass) > 0 {
+					a.toast("Launch pass: " + strings.Join(result.Pass, "; "))
+				}
 			}
 		}
 	})
@@ -305,23 +395,33 @@ func (a *App) boardOp(op string, row *pocket.BoardRow, launch []pocket.BoardRow)
 
 // loadDashboard reads the numbers for the last days days.
 func (a *App) loadDashboard(days int) {
-	if a.desk.dashLoading {
-		return
+	if days < 1 {
+		days = 30
 	}
+	a.desk.dashSeq++
+	seq := a.desk.dashSeq
 	a.desk.dashLoading = true
 	a.desk.dashDays = days
 	now := a.opts.Now().UTC()
 	from := now.AddDate(0, 0, -(days - 1)).Format("2006-01-02")
 	to := now.Format("2006-01-02")
+	query := pocket.DashboardQuery{From: from, To: to, Owner: a.desk.dashOwner, Repo: a.desk.dashRepo}
 	var d *pocket.Dashboard
 	a.request("Reading the numbers", func(ctx context.Context, c *pocket.Client) error {
 		var err error
-		d, err = c.DeskDashboard(ctx, from, to)
+		d, err = c.DeskDashboard(ctx, from, to, query.Owner, query.Repo)
 		return err
 	}, func(err error) {
+		if seq != a.desk.dashSeq {
+			return
+		}
 		a.desk.dashLoading = false
-		if err == nil {
+		if err != nil {
+			a.desk.dashErr = err.Error()
+		} else {
 			a.desk.dash = d
+			a.desk.dashShown = query
+			a.desk.dashErr = ""
 		}
 	})
 }

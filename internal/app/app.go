@@ -24,7 +24,9 @@ type Notifier interface {
 
 // Options are what the program gives the app.
 type Options struct {
-	Version string
+	// SaveFile runs on a worker; it presents a save dialog and writes only the chosen path.
+	SaveFile func(context.Context, string, []byte) (bool, error)
+	Version  string
 	// Post runs a function on the UI thread; safe from any goroutine.
 	Post   func(func())
 	Store  *config.Store
@@ -47,6 +49,7 @@ type Options struct {
 
 // App is the window's state.
 type App struct {
+	browser  *browserWatch
 	opts     Options
 	post     func(func())
 	settings config.Settings
@@ -104,9 +107,10 @@ type App struct {
 	sidebar  frostui.SourceList[string]
 	filter   string
 
-	tr       transcript
-	composer composer
-	md       markdown.Options
+	sessionOp *sessionOperation
+	tr        transcript
+	composer  composer
+	md        markdown.Options
 
 	notified      map[string]time.Time
 	notifiedTimer bool
@@ -171,6 +175,7 @@ func (a *App) Start() {
 
 // Close stops the link and keeps the layout.
 func (a *App) Close() {
+	a.stopBrowserWatch()
 	a.closeTerminals()
 	a.disconnect()
 	a.link.client = nil
@@ -210,8 +215,10 @@ func (a *App) saveSettings() {
 // reset forgets what the server said, as after signing out.
 func (a *App) reset() {
 	a.invalidateDerived()
+	a.stopBrowserWatch()
 	a.composer.resetRequests()
 	a.tr = transcript{}
+	a.sessionOp = nil
 	a.hello = nil
 	a.notified = map[string]time.Time{}
 	a.sessions = nil
@@ -473,6 +480,7 @@ func (a *App) open(id int) {
 		a.selected = sessionKey(id)
 		return
 	}
+	a.stopBrowserWatch()
 	a.current = id
 	a.details = nil
 	a.view = pocket.NewView()
