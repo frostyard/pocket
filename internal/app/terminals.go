@@ -364,7 +364,7 @@ func (a *App) terminalTab(c *ui.Context, info pocket.TerminalInfo) {
 // tmux's prefix, readline's Alt keys): they stand aside while a terminal
 // has the focus, where Ctrl stands for Cmd. On macOS they are Cmd keys,
 // which never reach a shell.
-var shellKeys = []string{"new", "switcher", "allow", "deny", "focus", "sidebar", "quit"}
+var shellKeys = []string{"new", "switcher", "allow", "deny", "focus", "find-session", "sidebar", "quit"}
 
 // guardShellKeys makes shellKeys stand aside while a terminal has the
 // focus.

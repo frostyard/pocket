@@ -50,7 +50,7 @@ them rather than improvising, whichever agent you are. Start a new one from
   `conn.go` (the link), `frame.go` (frame, commands, palette), `sidebar.go`,
   `inbox.go`, `core_memory.go` (Pi Pocket lessons), `motion.go` (In motion, Shift board, Numbers), `desk.go`,
   `desk_actions.go` (owner thread actions), `desk_extras.go` (supplementary lists),
-  `transcript.go`, `composer.go`, `pages.go`, `session_details.go` (session
+  `transcript.go`, `session_tools.go` (find, fork, export and new context), `composer.go`, `pages.go`, `session_details.go` (session
   identity and shift goal), `notify.go`, `settings.go`,
   `terminals.go` (the Terminal place, over `pocket.TermConn`),
   `terminal_replay.go` (isolated history rendering), `artifacts.go`,
@@ -88,7 +88,7 @@ them rather than improvising, whichever agent you are. Start a new one from
   straight to `Options.Notify`
   ([ADR-0006](docs/adr/0006-filter-notifications-in-the-client.md)).
 - **Keys a terminal needs.** A command whose Ctrl key a shell uses (history,
-  clear, tmux's prefix, readline's Alt keys) goes in `shellKeys`
+  clear, cursor movement, tmux's prefix, readline's Alt keys) goes in `shellKeys`
   (`internal/app/terminals.go`), which stands it aside while a terminal has
   the focus, except on macOS, where it is a ⌘ key.
 - **Terminal replay.** Set `TermConn.Replay` before giving a connection to

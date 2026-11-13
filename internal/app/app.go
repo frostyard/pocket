@@ -24,7 +24,9 @@ type Notifier interface {
 
 // Options are what the program gives the app.
 type Options struct {
-	Version string
+	// SaveFile runs on a worker; it presents a save dialog and writes only the chosen path.
+	SaveFile func(context.Context, string, []byte) (bool, error)
+	Version  string
 	// Post runs a function on the UI thread; safe from any goroutine.
 	Post   func(func())
 	Store  *config.Store
@@ -103,9 +105,10 @@ type App struct {
 	sidebar  frostui.SourceList[string]
 	filter   string
 
-	tr       transcript
-	composer composer
-	md       markdown.Options
+	sessionOp *sessionOperation
+	tr        transcript
+	composer  composer
+	md        markdown.Options
 
 	notified      map[string]time.Time
 	notifiedTimer bool
@@ -210,6 +213,7 @@ func (a *App) saveSettings() {
 func (a *App) reset() {
 	a.composer.resetRequests()
 	a.tr = transcript{}
+	a.sessionOp = nil
 	a.hello = nil
 	a.notified = map[string]time.Time{}
 	a.sessions = nil
@@ -472,6 +476,7 @@ func (a *App) open(id int) {
 	a.details = nil
 	a.view = pocket.NewView()
 	a.tr = transcript{}
+	a.sessionOp = nil
 	a.composer.reset(id)
 	if id == 0 {
 		a.selected = ""
