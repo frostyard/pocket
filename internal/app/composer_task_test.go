@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/frostyard/pocket/internal/pocket"
 )
 
 // startTaskHTTP answers the task start route of session source with status and
@@ -78,14 +80,26 @@ func TestAgentTaskSignOutRecoversCommandOnce(t *testing.T) {
 	before := loop.Ran()
 	a.link.client = nil
 	a.reset()
-	if a.composer.drafts[7] != "@duncan fix the CI" || len(a.composer.pendingTasks) != 0 {
-		t.Fatalf("sign-out lost the task's command: %q", a.composer.drafts[7])
+	// Sign-out puts the command in the draft of its session, and the drafts go
+	// aside for the account that wrote them.
+	account := accountKey{server: "https://example.org", user: "u1"}
+	if got := a.composer.kept[account].drafts[7]; got != "@duncan fix the CI" || len(a.composer.pendingTasks) != 0 {
+		t.Fatalf("sign-out lost the task's command: %q", got)
+	}
+	if a.composer.drafts[7] != "" {
+		t.Fatalf("the command stayed in the composer after sign-out: %q", a.composer.drafts[7])
 	}
 	close(release)
 	loop.RunUntil(t, func() bool { return loop.Ran() > before })
 	a.reset()
+	if got := a.composer.kept[account].drafts[7]; got != "@duncan fix the CI" {
+		t.Fatalf("the command was restored twice: %q", got)
+	}
+	// The same account, signed in again, gets the command back once.
+	a.link.client, _ = pocket.NewClient("https://example.org", "test")
+	a.adoptAccount("u1")
 	if a.composer.drafts[7] != "@duncan fix the CI" {
-		t.Fatalf("the command was restored twice: %q", a.composer.drafts[7])
+		t.Fatalf("the account signed in again did not get the command back: %q", a.composer.drafts[7])
 	}
 }
 
