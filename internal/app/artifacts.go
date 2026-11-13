@@ -38,9 +38,12 @@ type artifacts struct {
 	sel            string
 	filter         string
 	versions       map[string]int // zero follows the latest version
-	// svgs are the SVG artifacts read, by key and version.
+	// svgs are the SVG artifacts read, by key and version. svgErr keeps a
+	// read that failed, by the same key, so that a redraw does not read it
+	// again: Try again clears it.
 	svgs     map[string]*ui.SVG
 	fetching map[string]bool
+	svgErr   map[string]string
 	// shown is the page the web view shows.
 	shown string
 	// then runs once the list under way is read: what waits for it.
@@ -101,6 +104,17 @@ func (a *App) loadArtifacts() {
 			a.arts.sel = artifactKey(&list[0])
 		}
 	})
+}
+
+// refreshArtifacts reads the artifacts again on the person's ask. A failed
+// SVG reads again too: the server may have recovered. The timer and the
+// events read the list without clearing those failures, so that a redraw
+// never reads an SVG that failed.
+func (a *App) refreshArtifacts() {
+	// Empty the map, never drop it: a read under way still writes its
+	// failure into it.
+	clear(a.arts.svgErr)
+	a.loadArtifacts()
 }
 
 // scheduleArtifactRefresh keeps an open list current without polling hidden pages.
@@ -267,7 +281,7 @@ func (a *App) artifactsPane(c *ui.Context) {
 				if a.arts.loading {
 					ui.Spinner(c).Size(14, 14)
 				} else if frostui.IconButton(c, "view-refresh", "Read the artifacts again").Clicked() {
-					a.loadArtifacts()
+					a.refreshArtifacts()
 				}
 			})
 			ui.Scroll(c).Grow(1).Children(func() {
@@ -402,38 +416,72 @@ func (a *App) artifactPreview(c *ui.Context) {
 	})
 }
 
+// svgKey names an SVG artifact's key and version.
+func svgKey(x *pocket.Artifact) string {
+	return artifactKey(x) + "@" + strconv.Itoa(x.Current)
+}
+
 func (a *App) svgPreview(c *ui.Context, x *pocket.Artifact) {
-	key := artifactKey(x) + "@" + strconv.Itoa(x.Current)
-	if a.arts.svgs == nil {
-		a.arts.svgs, a.arts.fetching = map[string]*ui.SVG{}, map[string]bool{}
-	}
-	img := a.arts.svgs[key]
-	if img == nil && !a.arts.fetching[key] {
-		a.arts.fetching[key] = true
-		art := *x
-		var data []byte
-		a.request("Reading "+x.Title, func(ctx context.Context, cl *pocket.Client) error {
-			var err error
-			data, err = cl.ArtifactBody(ctx, &art)
-			return err
-		}, func(err error) {
-			delete(a.arts.fetching, key)
-			if err != nil {
-				return
+	key := svgKey(x)
+	a.readSVG(x, key)
+	ui.Column(c).Grow(1).Padding(frostui.SpaceXL).AlignItems(ui.Center).Gap(frostui.SpaceS).Children(func() {
+		if msg := a.arts.svgErr[key]; msg != "" {
+			frostui.Problem(c, "Drawing "+x.Title+": "+msg).Wrap()
+			if ui.Button(c, "Try again").Clicked() {
+				delete(a.arts.svgErr, key)
+				a.readSVG(x, key)
 			}
-			if svg, perr := ui.ParseSVG(data); perr == nil {
-				a.arts.svgs[key] = svg
-			} else {
-				a.toast("Drawing " + art.Title + ": " + perr.Error())
-			}
-		})
-	}
-	ui.Column(c).Grow(1).Padding(frostui.SpaceXL).AlignItems(ui.Center).Children(func() {
+			return
+		}
+		img := a.arts.svgs[key]
 		if img == nil {
 			frostui.Loading(c, "Drawing…")
 			return
 		}
 		ui.Image(c, img).Fit(ui.ScaleDown).Grow(1).AlignSelf(ui.Stretch)
+	})
+}
+
+// readSVG reads and parses an SVG artifact's body once for a key and
+// version, and keeps a failure under that key: a redraw reads neither
+// again until Try again, or another version, asks for it. Parsing runs on
+// the request's goroutine, off the UI thread, as ui.ParseSVG is pure
+// parsing: it touches no painter and no window.
+func (a *App) readSVG(x *pocket.Artifact, key string) {
+	if a.arts.svgs == nil {
+		a.arts.svgs = map[string]*ui.SVG{}
+	}
+	if a.arts.fetching == nil {
+		a.arts.fetching = map[string]bool{}
+	}
+	if a.arts.svgErr == nil {
+		a.arts.svgErr = map[string]string{}
+	}
+	if a.arts.svgs[key] != nil || a.arts.fetching[key] || a.arts.svgErr[key] != "" {
+		return
+	}
+	a.arts.fetching[key] = true
+	art := *x
+	var svg *ui.SVG
+	var parseErr error
+	a.request("Reading "+art.Title, func(ctx context.Context, cl *pocket.Client) error {
+		data, err := cl.ArtifactBody(ctx, &art)
+		if err != nil {
+			return err
+		}
+		svg, parseErr = ui.ParseSVG(data)
+		return nil
+	}, func(err error) {
+		delete(a.arts.fetching, key)
+		switch {
+		case err != nil:
+			a.arts.svgErr[key] = err.Error()
+		case parseErr != nil:
+			a.arts.svgErr[key] = parseErr.Error()
+			a.toast("Drawing " + art.Title + ": " + parseErr.Error())
+		default:
+			a.arts.svgs[key] = svg
+		}
 	})
 }
 

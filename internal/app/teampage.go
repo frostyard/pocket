@@ -17,6 +17,9 @@ type lessons struct {
 	memory  *pocket.Memory
 	loading bool
 	dirty   bool
+	// err is a failed read of the lessons: it keeps a redraw from reading
+	// again, until Try again, a refresh or an event clears it.
+	err string
 	// editing holds the text of lessons being edited, by lesson ID.
 	editing map[string]string
 	// adding holds the text of a new lesson, by agent.
@@ -30,7 +33,7 @@ func (a *App) loadMemory() {
 		a.lessons.dirty = true
 		return
 	}
-	a.lessons.loading = true
+	a.lessons.loading, a.lessons.err = true, ""
 	var m *pocket.Memory
 	a.request("Reading the agents' lessons", func(ctx context.Context, c *pocket.Client) error {
 		var err error
@@ -38,7 +41,9 @@ func (a *App) loadMemory() {
 		return err
 	}, func(err error) {
 		a.lessons.loading = false
-		if err == nil {
+		if err != nil {
+			a.lessons.err = err.Error()
+		} else {
 			a.lessons.memory = m
 		}
 		if a.lessons.dirty {
@@ -161,7 +166,7 @@ func (a *App) agentAvatar(c *ui.Context, id string, size float32) ui.Element {
 // for the owner, and the roster.
 func (a *App) teamPane(c *ui.Context) {
 	t := c.Theme()
-	if a.lessons.memory == nil && !a.lessons.loading {
+	if a.lessons.memory == nil && !a.lessons.loading && a.lessons.err == "" {
 		a.loadMemory()
 	}
 	waiting := a.waitingLessons()
@@ -177,6 +182,12 @@ func (a *App) teamPane(c *ui.Context) {
 						ui.Spinner(c).Size(16, 16)
 					}
 				})
+				if a.lessons.err != "" {
+					frostui.Problem(c, "Reading the agents' lessons: "+a.lessons.err).Wrap()
+					if ui.Button(c, "Try again").Clicked() {
+						a.loadMemory()
+					}
+				}
 				if len(waiting) > 0 {
 					frostui.SectionHeader(c, frostui.SectionHead{Icon: "pocket-thinking", Title: "Lessons to review", Aside: fmt.Sprint(len(waiting)),
 						Note: "What agents want to remember. Approved lessons go into their prompt in every session."})
@@ -356,10 +367,17 @@ func (a *App) lessonCard(c *ui.Context, agent string, l *pocket.Lesson, showAgen
 
 // agentLessons is the Lessons section of an agent's page.
 func (a *App) agentLessons(c *ui.Context, id string) {
-	if a.lessons.memory == nil {
-		if !a.lessons.loading {
+	if a.lessons.memory == nil && !a.lessons.loading && a.lessons.err == "" {
+		a.loadMemory()
+	}
+	// A failed refresh keeps the lessons read before it, under the error.
+	if a.lessons.err != "" {
+		frostui.Problem(c, "Reading the agents' lessons: "+a.lessons.err).Wrap()
+		if ui.Button(c, "Try again").Clicked() {
 			a.loadMemory()
 		}
+	}
+	if a.lessons.memory == nil {
 		return
 	}
 	list := a.lessons.memory.Agents[id]
