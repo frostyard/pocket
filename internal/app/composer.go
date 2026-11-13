@@ -277,7 +277,7 @@ func (a *App) send(text, mode string) {
 	cp := &a.composer
 	cp.history = append(cp.history, text)
 	id := a.current
-	if cmd, args, ok := strings.Cut(text, " "); strings.HasPrefix(text, "/") && (ok || true) {
+	if cmd, args, _ := strings.Cut(text, " "); strings.HasPrefix(text, "/") {
 		if a.runBuiltin(cmd, strings.TrimSpace(args)) {
 			return
 		}
