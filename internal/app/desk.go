@@ -158,6 +158,17 @@ func askKey(ask *pocket.DeskAsk) string {
 
 // answerAsk answers a Desk ask with words.
 func (a *App) answerAsk(ask *pocket.DeskAsk, words string) {
+	if a.desk.view != nil {
+		for _, thread := range a.desk.view.Threads {
+			for _, each := range thread.Asks {
+				if each.ID == ask.ID && (thread.Origin == "plan" || ask.Gen != nil) {
+					a.openPlan(thread.ID)
+					return
+				}
+			}
+		}
+	}
+
 	words = strings.TrimSpace(words)
 	if words == "" {
 		return

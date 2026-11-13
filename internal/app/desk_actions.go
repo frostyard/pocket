@@ -53,6 +53,9 @@ func (a *App) threadActions(c *ui.Context, t *pocket.DeskThread) {
 		}
 	}
 	ui.Row(c).Gap(frostui.SpaceS).Wrap().Children(func() {
+		if t.Origin == "plan" && a.planOwner() && ui.Button(c, "Read plan").Clicked() {
+			a.openPlan(t.ID)
+		}
 		if t.Group() == "stale" {
 			if ui.Button(c, "Keep").Disabled(busy).Clicked() {
 				a.threadAct(t, "keep", nil)
