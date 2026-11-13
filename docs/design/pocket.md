@@ -133,6 +133,15 @@ other authors' PRs, queued issues and completed plans (read on demand); the
 thread pane shows resolved and withdrawn asks with their reasons. Ready PRs
 sort L4, L3, L2, L1/L2, L1, then unknown, oldest label first within a level.
 
+The Inbox, session states, status counts and thread-to-session matches share a
+cache between data changes. Stream events, request completions, session lists
+and seen marks invalidate it; current-view revisions and replaced snapshots
+also change its key. The next 30-day unread expiry invalidates it even without
+a server event. Session titles are normalized once per snapshot, and each
+thread match is retained until the sources change. The 500-session/100-thread
+Inbox benchmarks in `internal/app/derived_test.go` measure rendering and the
+derived-data work separately.
+
 ### A session
 
 Replies stream in as Markdown (`ui/markdown.Stream`, word-paced, faded in).

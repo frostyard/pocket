@@ -212,7 +212,7 @@ func (a *App) grant() {
 // sessionForThread finds the session that works on a thread: the Desk's
 // view names none, but each delegation's session is titled after its
 // thread, and is the agent's.
-func (a *App) sessionForThread(t *pocket.DeskThread) *pocket.Session {
+func (a *App) matchThreadSession(t *pocket.DeskThread, titles []string) *pocket.Session {
 	title := strings.ToLower(strings.TrimSpace(t.Title))
 	if title == "" {
 		return nil
@@ -220,7 +220,7 @@ func (a *App) sessionForThread(t *pocket.DeskThread) *pocket.Session {
 	var best *pocket.Session
 	for i := range a.sessions {
 		s := &a.sessions[i]
-		st := strings.ToLower(s.Title)
+		st := titles[i]
 		if !strings.Contains(st, title) && !strings.Contains(title, strings.TrimSpace(afterColon(st))) {
 			continue
 		}

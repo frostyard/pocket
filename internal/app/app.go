@@ -50,6 +50,7 @@ type App struct {
 	opts     Options
 	post     func(func())
 	settings config.Settings
+	derived  *derived
 
 	shell   frostui.PaneShell
 	table   *frostui.CommandTable
@@ -208,6 +209,7 @@ func (a *App) saveSettings() {
 
 // reset forgets what the server said, as after signing out.
 func (a *App) reset() {
+	a.invalidateDerived()
 	a.composer.resetRequests()
 	a.tr = transcript{}
 	a.hello = nil
@@ -236,6 +238,8 @@ func (a *App) serverNow() time.Time { return a.opts.Now().Add(a.skew) }
 
 // handle applies one event of the stream.
 func (a *App) handle(ev pocket.Event) {
+	a.invalidateDerived()
+	defer a.invalidateDerived()
 	if a.link.switching != 0 {
 		switch ev.Name {
 		case "view", "chat", "notes", "presence", "browser", "missing":
@@ -434,6 +438,7 @@ func (a *App) decode(ev pocket.Event, v any) bool {
 
 // setSessions takes a new session list.
 func (a *App) setSessions(list []pocket.Session) {
+	a.invalidateDerived()
 	a.sessions = list
 	a.byID = make(map[int]*pocket.Session, len(list))
 	for i := range list {
@@ -529,6 +534,7 @@ func (a *App) openAgent(id string) {
 
 // markSeen notes that the person saw session id as it is now.
 func (a *App) markSeen(id int) {
+	a.invalidateDerived()
 	if a.settings.Seen == nil {
 		a.settings.Seen = map[string]int64{}
 	}
@@ -547,7 +553,7 @@ const (
 	stateWaiting
 )
 
-func (a *App) stateOf(s *pocket.Session) state {
+func (a *App) computeState(s *pocket.Session) state {
 	// The open session's view comes before the list (which the server
 	// sends at most every 400 ms): trust it for that one.
 	if s.ID == a.current && a.view.Conversation.ID == s.ID && a.loading != s.ID {
@@ -601,6 +607,8 @@ func (a *App) requestWithin(limit time.Duration, what string, fn func(ctx contex
 	client := a.link.client
 	if client == nil {
 		if done != nil {
+			a.invalidateDerived()
+			defer a.invalidateDerived()
 			done(pocket.ErrSignedOut)
 		}
 		return
@@ -624,6 +632,8 @@ func (a *App) requestWithin(limit time.Duration, what string, fn func(ctx contex
 				}
 			}
 			if done != nil {
+				a.invalidateDerived()
+				defer a.invalidateDerived()
 				done(err)
 			}
 		})

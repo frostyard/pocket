@@ -30,7 +30,7 @@ func (snapshotHTTP) RoundTrip(r *http.Request) (*http.Response, error) {
 
 // teamApp returns an app with a made-up team and its sessions, shown
 // without a server.
-func teamApp(t *testing.T) (*App, *frostuitest.Loop) {
+func teamApp(t testing.TB) (*App, *frostuitest.Loop) {
 	t.Helper()
 	t.Setenv("FROSTUI_ICON_THEME", "Adwaita")
 	frostui.SetIcons(frostui.NewIcons(icons.Embedded()))
