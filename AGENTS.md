@@ -28,6 +28,11 @@ the canonical paths; keep content tool-agnostic.
 - `make run` starts the app; `make app` packages it (`go tool mygo build`:
   `Pocket.app` and a disk image on macOS); `make dev` runs a packaged
   development build.
+- `make install` (Linux only) runs `make app`, then installs for the user:
+  the app in `$(PREFIX)/lib/pocket` (`PREFIX` defaults to `~/.local`), a link
+  to it in `$(PREFIX)/bin`, and in `$XDG_DATA_HOME` the hicolor icons and the
+  desktop entry, each named after `mygo.json`'s `identifier`, which is the
+  windows' app ID (`StartupWMClass`). `make uninstall` removes those files.
 - `make snapshot` writes the views as PNGs in `build/snapshots`; `make live`
   runs the live tests against real servers (README).
 
