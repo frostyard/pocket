@@ -124,6 +124,15 @@ func (a *App) threadDetail(id string) *pocket.DeskThreadDetail {
 	return nil
 }
 
+// askKey follows the Desk's draftKey: a reopened plan ask is a new decision.
+func askKey(ask *pocket.DeskAsk) string {
+	gen := 0
+	if ask.Gen != nil {
+		gen = *ask.Gen
+	}
+	return fmt.Sprintf("%s:%d", ask.ID, gen)
+}
+
 // answerAsk answers a Desk ask with words.
 func (a *App) answerAsk(ask *pocket.DeskAsk, words string) {
 	words = strings.TrimSpace(words)
@@ -133,18 +142,19 @@ func (a *App) answerAsk(ask *pocket.DeskAsk, words string) {
 	if a.desk.busy == nil {
 		a.desk.busy = map[string]bool{}
 	}
-	a.desk.busy[ask.ID] = true
+	key := askKey(ask)
+	a.desk.busy[key] = true
 	id, gen := ask.ID, ask.Gen
 	a.console.Add(frostui.LevelCommand, "desk", "Answered "+id+": "+truncate(words, 80))
 	a.request("Answering "+id, func(ctx context.Context, c *pocket.Client) error {
 		return c.DeskAnswer(ctx, id, words, gen)
 	}, func(err error) {
-		delete(a.desk.busy, id)
+		delete(a.desk.busy, key)
 		if err != nil {
 			a.toast("Not answered: " + err.Error())
 			return
 		}
-		delete(a.desk.answers, id)
+		delete(a.desk.answers, key)
 		a.toast(id + " answered")
 		a.loadDesk()
 	})
@@ -344,10 +354,10 @@ func (a *App) notifyNewAsks(v *pocket.DeskView) {
 	for i := range v.Threads {
 		t := &v.Threads[i]
 		for _, ask := range t.Asks {
-			if a.asksSeen[ask.ID] {
+			if a.asksSeen[askKey(&ask)] {
 				continue
 			}
-			a.asksSeen[ask.ID] = true
+			a.asksSeen[askKey(&ask)] = true
 			if first || a.focused {
 				continue
 			}

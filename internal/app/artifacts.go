@@ -349,7 +349,7 @@ func (a *App) artifactPreview(c *ui.Context) {
 		default:
 			ui.Column(c).Grow(1).Children(func() {
 				frostui.Empty(c, artifactIcon(x.Type), "Opens in your browser",
-					"This system has no web view for Pocket to show the page in. Open in browser shows it signed in as you.").Grow(1)
+					"This system has no web view for Pocket to show the page in. Open in browser uses that browser's sign-in; you may need to sign in there.").Grow(1)
 			})
 		}
 	})

@@ -135,23 +135,6 @@ func (c *Client) Plan(ctx context.Context, id int, on bool) error {
 	return c.Post(ctx, conv(id, "plan"), map[string]any{"on": on}, nil)
 }
 
-// SpendReport is /api/spend.
-type SpendReport struct {
-	Total    *float64 `json:"total,omitempty"`
-	Sessions []struct {
-		ID    int     `json:"id"`
-		Title string  `json:"title"`
-		Spent float64 `json:"spent"`
-	} `json:"sessions"`
-}
-
-// Spend returns what the sessions spent.
-func (c *Client) Spend(ctx context.Context) (*SpendReport, error) {
-	var out SpendReport
-	err := c.Get(ctx, "/api/spend", &out)
-	return &out, err
-}
-
 // Persona is a named agent of pi-pocket-team.
 type Persona struct {
 	ID           string            `json:"id"`

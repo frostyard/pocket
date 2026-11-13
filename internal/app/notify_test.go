@@ -131,3 +131,60 @@ func TestSettingsDialogShows(t *testing.T) {
 	}
 	writePNG(t, tt, "settings")
 }
+
+func TestApprovalTagsExpireAfterOneDay(t *testing.T) {
+	a, rec, _, _ := notifyApp(t)
+	a.settings.Notes().Batch = false
+	now := a.opts.Now()
+	a.opts.Now = func() time.Time { return now }
+	var timers []func()
+	var delays []time.Duration
+	a.opts.After = func(d time.Duration, fn func()) { timers = append(timers, fn); delays = append(delays, d) }
+	first := pocket.Notification{Title: "First", Tag: "approval-first", URL: "/s/1"}
+	second := pocket.Notification{Title: "Second", Tag: "approval-second", URL: "/s/1"}
+	a.notify(first)
+	a.notify(first)
+	if len(rec.titles) != 1 || len(timers) != 1 || delays[0] != 24*time.Hour {
+		t.Fatal("approval should notify once and schedule one expiry")
+	}
+	now = now.Add(12 * time.Hour)
+	a.notify(second)
+	if len(timers) != 1 {
+		t.Fatal("each tag should not need its own timer")
+	}
+	now = now.Add(12 * time.Hour)
+	timers[0]()
+	if _, ok := a.notified[first.Tag]; ok {
+		t.Fatal("day-old tag retained")
+	}
+	if _, ok := a.notified[second.Tag]; !ok {
+		t.Fatal("newer tag expired early")
+	}
+	if len(timers) != 2 || delays[1] != 12*time.Hour {
+		t.Fatal("newer tag does not expire at its own deadline")
+	}
+	now = now.Add(12 * time.Hour)
+	timers[1]()
+	if len(a.notified) != 0 || a.notifiedTimer {
+		t.Fatal("expiry did not finish without another notification")
+	}
+	a.notify(first)
+	if len(rec.titles) != 3 {
+		t.Fatal("expired tag still suppresses a notification")
+	}
+	a.reset()
+	if len(a.notified) != 0 {
+		t.Fatal("sign-out retained another server's approval tags")
+	}
+}
+
+func TestArtifactBrowserSignInSnapshot(t *testing.T) {
+	a, _ := teamApp(t)
+	a.arts.sel = "4/notes"
+	tt := ui.NewTesterWith(a.artifactPreview, 850, 400, ui.TesterOptions{})
+	tt.Frame()
+	if !tt.HasText("This system has no web view for Pocket to show the page in. Open in browser uses that browser's sign-in; you may need to sign in there.") {
+		t.Fatal("browser fallback lacks accurate sign-in guidance")
+	}
+	writePNG(t, tt, "artifact-browser-signin")
+}

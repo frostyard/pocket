@@ -104,10 +104,11 @@ type App struct {
 	composer composer
 	md       markdown.Options
 
-	notified map[string]bool
-	notes    notes
-	prefs    prefs
-	badge    int
+	notified      map[string]time.Time
+	notifiedTimer bool
+	notes         notes
+	prefs         prefs
+	badge         int
 
 	pendingToasts []string
 	agentDraft    agentTask
@@ -129,7 +130,7 @@ func New(opts Options) (*App, error) {
 	a := &App{
 		opts: opts, post: opts.Post, settings: st, console: con,
 		byID: map[int]*pocket.Session{}, view: pocket.NewView(), peeks: map[int]*pocket.Peek{},
-		notified: map[string]bool{}, focused: true,
+		notified: map[string]time.Time{}, focused: true,
 	}
 	a.shell.Dialogs = &a.dialogs
 	a.shell.Console.Title = "Activity"
@@ -207,6 +208,7 @@ func (a *App) reset() {
 	a.composer.resetRequests()
 	a.tr = transcript{}
 	a.hello = nil
+	a.notified = map[string]time.Time{}
 	a.sessions = nil
 	a.byID = map[int]*pocket.Session{}
 	a.view = pocket.NewView()
@@ -407,13 +409,6 @@ func (a *App) setSessions(list []pocket.Session) {
 			a.loading = 0
 		}
 	}
-	waiting := 0
-	for i := range a.sessions {
-		if a.sessions[i].Waiting {
-			waiting++
-		}
-	}
-	_ = waiting
 	if a.current != 0 && a.focused {
 		a.markSeen(a.current)
 	}
