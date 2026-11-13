@@ -104,7 +104,13 @@ The composer: Enter sends, Shift Enter breaks the line, ⌘Enter steers a run
 that is working, Up brings the last message back, Esc stops the run, `/`
 completes commands, templates and skills, `@agent task` starts a linked
 session as that agent. The right pane: model and thinking, folder, branch,
-spend, speed, cache, context used, subagents, the queue.
+spend, speed, cache, context used, subagents, the queue. Its identity menu
+reads the team's binding, chooses an agent or clears it, and can pin an
+identity inferred from the folder with “Keep this identity”. A Shift section
+shows the objective, stop condition, state, round count and deadline when a
+night-shift goal exists. Both read on session entry and reconnect, and on
+their matching module events; late answers for a session left are discarded.
+Shift controls remain `/team-shift status`, `stop` and `resume` in the composer.
 
 ### Notifications and settings
 

@@ -69,6 +69,7 @@ func (a *App) loadTeam() {
 		if on {
 			a.console.Addf(frostui.LevelInfo, "team", "%d named agents", len(agents))
 			a.loadMemory()
+			a.loadSessionIdentity()
 		}
 	})
 }
