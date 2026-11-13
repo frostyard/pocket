@@ -52,7 +52,10 @@ them rather than improvising, whichever agent you are. Start a new one from
   `transcript.go`, `composer.go`, `pages.go`, `notify.go`, `settings.go`,
   `terminals.go` (the Terminal place, over `pocket.TermConn`),
   `terminal_replay.go` (isolated history rendering), `artifacts.go`,
-  `refs.go`, `wiki.go`, `teampage.go` and `signin.go`.
+  `refs.go`, `wiki.go`, `teampage.go`, `signin.go`, `webnav.go` (where the
+  artifact web view may go, and its cookie) and `webpane.go` (`ArtifactWeb`:
+  the web view's sign-in, sign-out and native calls, in order, over the
+  `WebNative` that `cmd/pocket` gives it).
   `internal/config` holds settings and credentials; `internal/icons` the
   icons Pocket draws.
 - **UI thread.** `App` and everything in it belong to the UI thread. Work
@@ -73,6 +76,9 @@ them rather than improvising, whichever agent you are. Start a new one from
   `desk.ts`) before relying on it. `pocket.Decode` and `Client.Drift` keep the
   rest of an answer when one field has an unexpected shape: never make such a
   field fatal.
+- **Sign-in.** Mask the link field. Require confirmation before sending a
+  credential over public HTTP; only localhost and literal loopback/private
+  addresses bypass that warning. Never resolve DNS to waive it.
 - **Desk asks.** Keep a thread's asks in server filing order. Drafts and
   notification identity use `askKey` (id and generation), so reopening a
   plan ask never reuses an earlier answer draft.
