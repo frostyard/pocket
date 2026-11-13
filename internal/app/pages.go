@@ -109,6 +109,7 @@ func (a *App) inspectorPane(c *ui.Context) {
 				meter(c, "Budget", fmt.Sprintf("$%.2f of $%.2f", v.Conversation.Spend.Spent, *b), v.Conversation.Spend.Spent / *b, frostui.Accent)
 			}
 
+			a.browserWatchPane(c)
 			if len(v.Subagents) > 0 {
 				frostui.SectionHeader(c, frostui.SectionHead{Title: "Subagents", Aside: fmt.Sprint(len(v.Subagents)), Quiet: true})
 				for _, sa := range v.Subagents {

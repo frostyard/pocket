@@ -128,6 +128,13 @@ completes commands, templates and skills, `@agent task` starts a linked
 session as that agent. The right pane: model and thinking, folder, branch,
 spend, speed, cache, context used, subagents, the queue.
 
+The session inspector can watch the agent's browser read-only. Watching is
+explicit, uses authenticated GETs for its state and JPEG frames, and stops when
+the session changes, the watch is closed or Pocket signs out. Long polls wait
+up to 25 seconds for a newer frame; idle closed pages are checked every five
+seconds. It never opens a browser page or sends input. Missing browser support
+shows its server error without hiding the session.
+
 ### Notifications and settings
 
 Every notification passes `deliver` (`internal/app/notify.go`): the kinds the
