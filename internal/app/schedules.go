@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -21,7 +23,14 @@ func (a *App) editSchedule(s pocket.Schedule) {
 	if a.scheduleBusy || a.current == 0 {
 		return
 	}
-	zone := firstNonEmpty(s.Zone, "UTC")
+	zone := s.Zone
+	if s.ID == "" {
+		zone = a.opts.TimeZone()
+	}
+	if s.ID == "" && zone == "" {
+		a.scheduleForm = &scheduleForm{session: a.current, open: true}
+		return
+	}
 	loc, err := time.LoadLocation(zone)
 	if err != nil {
 		a.toast("Unknown schedule timezone: " + zone)
@@ -96,6 +105,10 @@ func (a *App) saveSchedule(f *scheduleForm) {
 		}
 		if err != nil {
 			f.err = err.Error()
+			var api *pocket.APIError
+			if errors.As(err, &api) && api.Status == 409 {
+				f.err += " Close this form and open Edit again to use the latest schedule."
+			}
 			return
 		}
 		f.open = false
@@ -155,13 +168,16 @@ func (a *App) scheduleDialog(c *ui.Context) {
 			} else {
 				ui.TextArea(c, &f.text).Label("Scheduled message").Height(100).Disabled(a.scheduleBusy)
 				frostui.Body(c, "Next time (YYYY-MM-DD HH:MM)")
-				ui.TextInput(c, &f.next).Label("Next scheduled time").Disabled(a.scheduleBusy)
+				ui.TextInput(c, &f.next).Label("Next scheduled time").Disabled(a.scheduleBusy || calendarRepeat(f.schedule))
+				if calendarRepeat(f.schedule) {
+					frostui.Caption(c, "The repeat rule sets the next time automatically.").Wrap()
+				}
 				if f.schedule.Repeat != "" {
 					frostui.Caption(c, "Repeats: "+f.schedule.Repeat+". This edit keeps the repeat rule.").Wrap()
 				}
 			}
 			frostui.Body(c, "Timezone")
-			ui.TextInput(c, &f.zone).Label("Schedule timezone").Disabled(a.scheduleBusy)
+			ui.TextInput(c, &f.zone).Label("Schedule timezone").Placeholder("Server's time zone").Disabled(a.scheduleBusy)
 			if f.err != "" {
 				frostui.Problem(c, f.err).Wrap()
 			}
@@ -175,4 +191,12 @@ func (a *App) scheduleDialog(c *ui.Context) {
 			})
 		})
 	})
+}
+
+func calendarRepeat(s pocket.Schedule) bool {
+	var every struct {
+		At string `json:"at"`
+	}
+	_ = json.Unmarshal(s.Every, &every)
+	return every.At != ""
 }

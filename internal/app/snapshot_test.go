@@ -38,7 +38,7 @@ func teamApp(t testing.TB) (*App, *frostuitest.Loop) {
 	loop := frostuitest.NewLoop()
 	now := time.Date(2026, 11, 12, 15, 30, 0, 0, time.Local)
 	a, err := New(Options{Post: loop.Post, Store: store, Creds: config.Credentials{Dir: store.Dir()}, Version: "test",
-		Now: func() time.Time { return now }})
+		Now: func() time.Time { return now }, TimeZone: func() string { return "UTC" }})
 	if err != nil {
 		t.Fatal(err)
 	}

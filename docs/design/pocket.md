@@ -201,15 +201,20 @@ Shift controls remain `/team-shift status`, `stop` and `resume` in the composer.
 
 The session inspector opens a background-task reader with bounded output (the
 latest 20,000 characters), task status and Stop. It refreshes every three seconds
-while open, and discards results after a session change. Stop uses the numeric
+while open, and discards results after a session change. A missing output does
+not hide a fresh task list or keep polling that missing record. Terminal control
+sequences are removed from displayed output. Stop uses the numeric
 server task ID; output uses the background record ID. Subagent rows also show
 peek activity and the session's last activity time.
 
 Scheduled messages arrive through the session stream. The inspector creates them
-from a time-and-message phrase with an explicit timezone, and can cancel them.
+from a time-and-message phrase, defaulting to the device's IANA timezone when
+known (an empty field leaves the choice to the server), and can cancel them.
 A server-provided schedule version enables Edit and Pause/Resume. Edits keep
 the original version and repeat rule while changing the message or next time;
-a rejected edit keeps its draft. Mutation controls are hidden for viewers.
+a rejected edit keeps its draft and a conflict explains how to reopen the latest
+schedule. Calendar repeats set their own next time, so that field is read-only.
+Mutation controls are hidden for viewers.
 
 The session inspector can watch the agent's browser read-only. Watching is
 explicit, uses authenticated GETs for its state and JPEG frames, and stops when

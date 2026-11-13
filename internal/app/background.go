@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -29,16 +31,18 @@ func (a *App) openBackground() {
 
 func (a *App) loadBackground() {
 	s := a.background
-	if s == nil || !s.open || s.loading || s.session != a.current {
+	if s == nil || !s.open || s.loading || s.session != a.current || a.link.client == nil {
 		return
 	}
 	s.loading = true
 	selected := s.selected
 	var tasks []pocket.BackgroundTask
 	var output *pocket.BackgroundOutput
+	var listErr error
 	a.request("Reading background tasks", func(ctx context.Context, c *pocket.Client) error {
 		var err error
-		tasks, err = c.Background(ctx, s.session)
+		tasks, listErr = c.Background(ctx, s.session)
+		err = listErr
 		if err == nil && selected != "" {
 			output, err = c.BackgroundOutput(ctx, s.session, selected)
 		}
@@ -48,6 +52,9 @@ func (a *App) loadBackground() {
 			return
 		}
 		s.loading = false
+		if listErr == nil {
+			s.tasks = tasks
+		}
 		if selected != s.selected {
 			a.loadBackground()
 			return
@@ -55,6 +62,10 @@ func (a *App) loadBackground() {
 		s.err = ""
 		if err != nil {
 			s.err = err.Error()
+			var api *pocket.APIError
+			if listErr == nil && errors.As(err, &api) && api.Status == 404 {
+				s.selected, s.output = "", nil
+			}
 		} else {
 			s.tasks, s.output = tasks, output
 		}
@@ -139,9 +150,43 @@ func (a *App) backgroundDialog(c *ui.Context) {
 					if s.output.Skipped > 0 {
 						frostui.Caption(c, fmt.Sprintf("Latest output; %d earlier bytes omitted", s.output.Skipped))
 					}
-					ui.Scroll(c).Height(260).Children(func() { frostui.Mono(c, s.output.Text).Wrap().Selectable() })
+					ui.Scroll(c).Height(260).Children(func() { frostui.Mono(c, plainOutput(s.output.Text)).Wrap().Selectable() })
 				}
 			}
 		})
 	})
+}
+
+// plainOutput keeps a log readable without interpreting terminal controls.
+func plainOutput(text string) string {
+	var out strings.Builder
+	for i := 0; i < len(text); i++ {
+		b := text[i]
+		if b == 0x1b {
+			i++
+			if i >= len(text) {
+				break
+			}
+			switch text[i] {
+			case '[':
+				for i++; i < len(text) && (text[i] < 0x40 || text[i] > 0x7e); i++ {
+				}
+			case ']', 'P', 'X', '^', '_':
+				for i++; i < len(text); i++ {
+					if text[i] == 7 {
+						break
+					}
+					if text[i] == 0x1b && i+1 < len(text) && text[i+1] == '\\' {
+						i++
+						break
+					}
+				}
+			}
+			continue
+		}
+		if b >= 0x20 || b == '\n' || b == '\t' {
+			out.WriteByte(b)
+		}
+	}
+	return out.String()
 }

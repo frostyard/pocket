@@ -499,7 +499,7 @@ func (a *App) boardRow(c *ui.Context, r pocket.BoardRow) {
 		case "launched":
 			if th := a.desk.thread(r.Thread); th != nil {
 				if ui.Button(c, "Thread").Clicked() {
-					a.selected = "x:motion"
+					a.goPlace("x:motion")
 					a.threadSel = th.ID
 				}
 			}

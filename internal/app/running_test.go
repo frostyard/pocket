@@ -42,11 +42,13 @@ func TestBackgroundUsesTaskIDAndIgnoresOldOutput(t *testing.T) {
 	a.opts.After = func(time.Duration, func()) {}
 	a.current = 7
 	entered, release := make(chan struct{}), make(chan struct{})
+	stopped := make(chan struct{}, 1)
 	a.link.client.HTTP = &http.Client{Transport: sessionToolsHTTP(func(r *http.Request) (*http.Response, error) {
 		switch r.URL.Path {
 		case "/api/c/7/background":
 			return reply(r, `{"tasks":[{"id":"bg-1","taskId":42,"command":"make test","status":"running"}]}`), nil
 		case "/api/c/7/background/42/stop":
+			stopped <- struct{}{}
 			return reply(r, `{}`), nil
 		case "/api/c/7/background/bg-1/output":
 			close(entered)
@@ -61,6 +63,9 @@ func TestBackgroundUsesTaskIDAndIgnoresOldOutput(t *testing.T) {
 	loop.RunUntil(t, func() bool { return !a.background.loading })
 	a.stopBackground(a.background.tasks[0])
 	loop.RunUntil(t, func() bool { return !a.background.busy && !a.background.loading })
+	if len(stopped) != 1 {
+		t.Fatal("background stop route was not called")
+	}
 	a.background.selected = "bg-1"
 	a.loadBackground()
 	<-entered

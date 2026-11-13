@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 )
 
 type RunningTask struct {
@@ -104,7 +105,11 @@ func (c *Client) BackgroundOutput(ctx context.Context, id int, task string) (*Ba
 	return &out, err
 }
 func (c *Client) Schedule(ctx context.Context, id int, when, zone string) error {
-	return c.Post(ctx, conv(id, "schedules"), map[string]any{"when": when, "zone": zone}, nil)
+	body := map[string]any{"when": when}
+	if zone = strings.TrimSpace(zone); zone != "" {
+		body["zone"] = zone
+	}
+	return c.Post(ctx, conv(id, "schedules"), body, nil)
 }
 func (c *Client) CancelSchedule(ctx context.Context, id int, sid string) error {
 	return c.Post(ctx, conv(id, "schedules/"+url.PathEscape(sid)+"/cancel"), map[string]any{}, nil)

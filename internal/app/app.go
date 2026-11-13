@@ -45,6 +45,8 @@ type Options struct {
 	After func(time.Duration, func())
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
+	// TimeZone gives the device's IANA zone, or empty when it is unknown.
+	TimeZone func() string
 }
 
 // App is the window's state.
@@ -133,6 +135,9 @@ type App struct {
 func New(opts Options) (*App, error) {
 	if opts.Now == nil {
 		opts.Now = time.Now
+	}
+	if opts.TimeZone == nil {
+		opts.TimeZone = localTimeZone
 	}
 	st, err := opts.Store.Load()
 	if err != nil {
