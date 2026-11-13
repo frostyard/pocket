@@ -107,10 +107,11 @@ type App struct {
 	sidebar  frostui.SourceList[string]
 	filter   string
 
-	sessionOp *sessionOperation
-	tr        transcript
-	composer  composer
-	md        markdown.Options
+	sessionOp       *sessionOperation
+	newSessionDraft *newSessionDraft
+	tr              transcript
+	composer        composer
+	md              markdown.Options
 
 	notified      map[string]time.Time
 	notifiedTimer bool
@@ -219,6 +220,7 @@ func (a *App) reset() {
 	a.composer.resetRequests()
 	a.tr = transcript{}
 	a.sessionOp = nil
+	a.newSessionDraft = nil
 	a.hello = nil
 	a.notified = map[string]time.Time{}
 	a.sessions = nil

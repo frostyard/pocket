@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -475,21 +474,4 @@ func (a *App) taskSource() int {
 		return a.lastOpen
 	}
 	return 0
-}
-
-// newSession makes a session in cwd ("" for the server's default) and
-// opens it.
-func (a *App) newSession(cwd string) {
-	var id int
-	a.console.Add(frostui.LevelCommand, "send", "New session "+cwd)
-	a.request("Starting a session", func(ctx context.Context, c *pocket.Client) error {
-		var err error
-		id, err = c.NewSession(ctx, cwd, "", false)
-		return err
-	}, func(err error) {
-		if err == nil && id != 0 {
-			a.loading = id
-			a.open(id)
-		}
-	})
 }

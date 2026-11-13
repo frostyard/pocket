@@ -95,6 +95,8 @@ internal/icons ── the icons Pocket draws itself
   Unattributed records have their own action. Every drill-down keeps the shown
   snapshot's scope, and an older response cannot replace a newer filter selection.
   Coverage limits and metric definitions explain what the totals omit.
+  The daily closure chart has an integer count axis; hover or keyboard focus
+  shows the day's date and count beneath it, including zero-closure days.
 - **Wiki** (⌘6) — the homewiki module's pages, read-only, rendered natively;
   links between pages stay in the wiki, and it reads again as pages change.
 - **Artifacts** (⌘7) — every session's artifacts, newest first: an SVG drawn
@@ -158,6 +160,12 @@ Inbox benchmarks in `internal/app/derived_test.go` measure rendering and the
 derived-data work separately.
 
 ### A session
+
+New Session (⌘N / Ctrl N), the sidebar's plus button and `/new` open a working
+directory prompt before sending a request. The command and `/new` offer the
+current session's folder; otherwise the prompt offers the server default.
+The path is on the Pi Pocket server, and leaving it empty uses that server's
+default. Creation errors keep the entered path available to correct.
 
 Find (⌘F / Ctrl F) searches loaded transcript rows, including folded text,
 commands and literal tool output; Previous/Next reveal the matching row.

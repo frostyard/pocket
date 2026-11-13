@@ -79,7 +79,7 @@ type suggestion struct {
 
 // builtins are the commands Pocket runs itself.
 var builtins = []suggestion{
-	{insert: "/new", title: "/new", detail: "Start a new session in this folder", icon: "pocket-new"},
+	{insert: "/new", title: "/new", detail: "Choose a folder for a new session", icon: "pocket-new"},
 	{insert: "/stop", title: "/stop", detail: "Stop the run (Esc)", icon: "process-stop"},
 	{insert: "/compact", title: "/compact", detail: "Compact the context", icon: "edit-clear-all"},
 	{insert: "/plan", title: "/plan", detail: "Turn plan mode on or off", icon: "view-list"},
