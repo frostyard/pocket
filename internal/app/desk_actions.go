@@ -53,12 +53,12 @@ func (a *App) threadActions(c *ui.Context, t *pocket.DeskThread) {
 		}
 	}
 	ui.Row(c).Gap(frostui.SpaceS).Wrap().Children(func() {
-		if t.Stale || (t.State == "closed" && canWatch(t, a.serverNow())) {
+		if t.Group() == "stale" {
 			if ui.Button(c, "Keep").Disabled(busy).Clicked() {
 				a.threadAct(t, "keep", nil)
 			}
 		}
-		if t.State == "open" && t.Origin != "found" {
+		if t.State == "open" && (t.Group() == "stale" || t.Group() == "working" || t.Group() == "review") {
 			if ui.Button(c, "Park").Disabled(busy).Clicked() {
 				a.threadAct(t, "park", nil)
 			}
@@ -68,7 +68,7 @@ func (a *App) threadActions(c *ui.Context, t *pocket.DeskThread) {
 				a.threadAct(t, "wake", nil)
 			}
 		}
-		if t.State != "closed" {
+		if t.State != "closed" && t.Origin != "plan" {
 			if t.Origin == "found" && ui.Button(c, "Attach…").Disabled(busy).Clicked() {
 				toggle("attach")
 			}

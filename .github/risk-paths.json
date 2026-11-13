@@ -91,6 +91,11 @@
       "glob": "internal/app/desk_actions.go",
       "level": "L2",
       "why": "destructive operations: owner controls can drop or close Desk threads"
+    },
+    {
+      "glob": "internal/pocket/desk.go",
+      "level": "L2",
+      "why": "destructive operations: sends Desk drop and close requests"
     }
   ]
 }

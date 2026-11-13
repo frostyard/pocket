@@ -146,6 +146,9 @@ func TestDeskSeenKeepsPreviousLookAndReadyLevelOrder(t *testing.T) {
 			seen.Add(1)
 			return reply(r, `{}`), nil
 		}
+		if seen.Load() > 0 {
+			return reply(r, `{"seen":100,"threads":[{"id":"T1","title":"New activity","state":"open","lastEventAt":20}]}`), nil
+		}
 		return reply(r, `{"seen":10,"threads":[{"id":"T1","title":"New activity","state":"open","lastEventAt":20}]}`), nil
 	})}
 	a.goPlace("x:motion")
@@ -153,7 +156,11 @@ func TestDeskSeenKeepsPreviousLookAndReadyLevelOrder(t *testing.T) {
 	if a.desk.seenBefore != 10 {
 		t.Fatalf("previous look=%d", a.desk.seenBefore)
 	}
-	a.desk.view.Seen = 100
+	a.loadDesk()
+	loop.RunUntil(t, func() bool { return !a.desk.loading })
+	if seen.Load() != 1 {
+		t.Fatal("ordinary refresh stamped another visit")
+	}
 	if a.desk.seenBefore != 10 {
 		t.Fatal("fresh marks lost after stamp")
 	}
@@ -190,4 +197,73 @@ func TestDeskSupplementaryListsSnapshot(t *testing.T) {
 		}
 	}
 	writePNG(t, tt, "desk-supplementary-lists")
+}
+
+func TestPlanAndSleepingThreadsDoNotExposeGenericDestructiveActions(t *testing.T) {
+	a, _ := teamApp(t)
+	th := &pocket.DeskThread{ID: "T1", State: "open", Origin: "plan"}
+	tt := ui.NewTesterWith(func(c *ui.Context) { frostui.Adapt(c); ui.Column(c).Children(func() { a.threadActions(c, th) }) }, 400, 500, ui.TesterOptions{})
+	tt.Frame()
+	for _, label := range []string{"Drop…", "Park", "Watch…", "Keep"} {
+		if tt.HasText(label) {
+			t.Errorf("plan exposes %s", label)
+		}
+	}
+	th.Origin = "delegate"
+	th.Asleep = true
+	tt.Frame()
+	if tt.HasText("Park") {
+		t.Fatal("sleeping thread can be parked")
+	}
+	th.Asleep = false
+	th.State = "closed"
+	th.Stale = true
+	tt.Frame()
+	if tt.HasText("Keep") {
+		t.Fatal("closed thread can be kept")
+	}
+}
+
+func TestThreadActionBodies(t *testing.T) {
+	cases := []struct {
+		action string
+		body   map[string]any
+	}{
+		{"watch", map[string]any{"checkOn": "2026-11-20 09:00", "check": "Builds pass"}},
+		{"attach", map[string]any{"into": "T2"}},
+		{"result", map[string]any{"pass": true, "text": "Passed in Pocket."}},
+		{"result", map[string]any{"pass": false, "text": "Build failed"}},
+		{"unwatch", nil}, {"keep", nil}, {"park", nil}, {"wake", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.action, func(t *testing.T) {
+			a, loop := teamApp(t)
+			posts := make(chan map[string]any, 1)
+			a.link.client.HTTP = &http.Client{Transport: actionHTTP(func(r *http.Request) (*http.Response, error) {
+				if r.Method == "POST" {
+					if r.URL.Path != "/api/x/desk/threads/T1/"+tc.action {
+						t.Errorf("path %s", r.URL)
+					}
+					var body map[string]any
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						t.Error(err)
+					}
+					posts <- body
+				}
+				return reply(r, `{"threads":[]}`), nil
+			})}
+			a.threadAct(&pocket.DeskThread{ID: "T1"}, tc.action, tc.body)
+			loop.RunUntil(t, func() bool { return !a.desk.busy["act:T1"] && !a.desk.loading })
+			got := <-posts
+			want := tc.body
+			if want == nil {
+				want = map[string]any{}
+			}
+			gb, _ := json.Marshal(got)
+			wb, _ := json.Marshal(want)
+			if string(gb) != string(wb) {
+				t.Fatalf("body %s, want %s", gb, wb)
+			}
+		})
+	}
 }
