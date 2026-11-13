@@ -2,7 +2,7 @@
 
 What Pocket delivers, in order: a desktop client of the owner's Pi Pocket
 server that surpasses its web app at a desk. Phases 1 to 4 shipped on
-2026-11-12; phase 5 is next.
+2026-11-12; phase 5 is in progress.
 
 ## Phase 1 — A session, native (done)
 
@@ -44,7 +44,7 @@ server that surpasses its web app at a desk. Phases 1 to 4 shipped on
 - Hover hints on the sidebar's agent rows, with frostui v0.6.0's
   `SourceRow.Tooltip` (done, 2026-11-12).
 - Identity for the open session (use an agent in this session) in the
-  inspector.
+  inspector (not yet implemented; [#20](https://github.com/frostyard/pocket/issues/20)).
 - The terminal module's shells in a Terminal place, with Ghostty's emulator
   (done, 2026-11-12).
 - **Done when:** the owner uses Pocket for a full working day without opening

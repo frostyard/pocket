@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"fmt"
 	"slices"
 	"strconv"
@@ -760,6 +759,3 @@ func (a *App) moveInbox(step int) {
 	at = max(0, min(len(items)-1, at))
 	a.inboxSel = items[at].key
 }
-
-// unused keeps context imported for request closures written inline.
-var _ = context.Background

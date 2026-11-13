@@ -391,11 +391,11 @@ func (a *App) setUpCommands() {
 				a.newTerminal(place)
 			}},
 		frostui.Command{ID: "inbox-next", Title: "Next in the Inbox", Group: "Inbox", Unlisted: true,
-			Enabled:  func() (bool, string) { return a.current == 0 && a.selected == "" || a.selected == "x:inbox", "" },
+			Enabled:  inInbox,
 			Bindings: []frostui.KeyBinding{{Key: ui.KeyJ, Scope: frostui.OutsideText}},
 			Run:      func() { a.moveInbox(1) }},
 		frostui.Command{ID: "inbox-prev", Title: "Previous in the Inbox", Group: "Inbox", Unlisted: true,
-			Enabled:  func() (bool, string) { return a.current == 0 && a.selected == "" || a.selected == "x:inbox", "" },
+			Enabled:  inInbox,
 			Bindings: []frostui.KeyBinding{{Key: ui.KeyK, Scope: frostui.OutsideText}},
 			Run:      func() { a.moveInbox(-1) }},
 		frostui.Command{ID: "next-waiting", Title: "Next Session That Needs You", Group: "Go to", Icon: "pocket-waiting",
