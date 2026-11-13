@@ -160,6 +160,7 @@ func TestRoute401ReleasesComposerAndRestoresDraft(t *testing.T) {
 		return resp, nil
 	})
 	a.current = 7
+	a.hello = &pocket.Hello{User: pocket.User{ID: "u1", Role: "owner"}}
 	a.composer.session = 7
 	a.composer.answered = map[string]bool{"approval": true}
 	a.composer.promptsFor = 7

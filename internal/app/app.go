@@ -24,6 +24,7 @@ type Notifier interface {
 
 // Options are what the program gives the app.
 type Options struct {
+	PickFiles func(context.Context) ([]string, error)
 	// SaveFile runs on a worker; it presents a save dialog and writes only the chosen path.
 	SaveFile func(context.Context, string, []byte) (bool, error)
 	Version  string

@@ -41,6 +41,8 @@ server that surpasses its web app at a desk. Phases 1 to 4 shipped on
 
 ## Phase 5 — Polish from daily use
 
+- File attachments by picker, drop and clipboard, plus queued/held message
+  controls ([design](../design/pocket.md#a-session); implemented 2026-11-12).
 - Hover hints on the sidebar's agent rows, with frostui v0.6.0's
   `SourceRow.Tooltip` (done, 2026-11-12).
 - Identity for the open session (use an agent in this session) in the
@@ -58,7 +60,6 @@ server that surpasses its web app at a desk. Phases 1 to 4 shipped on
 
 - Plans: a native plan view (stepper, sections, asks with criteria and marks,
   approve).
-- Attachments: drop files on the composer (`/upload`).
 - The supervisor's "Needs you: T13a" line as chips linked to the Inbox.
 - A first release: `.svu.yml`, `make bump`, a signed and notarized Mac build,
   and a `site/` (core ADR-0012, ADR-0070).

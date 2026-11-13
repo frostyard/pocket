@@ -141,6 +141,21 @@
       "glob": "internal/app/schedules.go",
       "level": "L2",
       "why": "destructive operations: stops running tasks or cancels scheduled messages"
+    },
+    {
+      "glob": "internal/pocket/attachments.go",
+      "level": "L2",
+      "why": "filesystem and destructive operations: uploads selected files and withdraws queued messages"
+    },
+    {
+      "glob": "internal/app/attachments.go",
+      "level": "L2",
+      "why": "filesystem and destructive operations: uploads selected files and withdraws queued messages"
+    },
+    {
+      "glob": "internal/app/upload_file_*.go",
+      "level": "L2",
+      "why": "filesystem: opens upload sources without blocking on special files"
     }
   ]
 }

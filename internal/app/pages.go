@@ -124,15 +124,7 @@ func (a *App) inspectorPane(c *ui.Context) {
 					a.subagentRow(c.Key(sa.ConversationID), sa)
 				}
 			}
-			if len(v.Inbox) > 0 {
-				frostui.SectionHeader(c, frostui.SectionHead{Title: "Queued", Aside: fmt.Sprint(len(v.Inbox)), Quiet: true})
-				for _, q := range v.Inbox {
-					ui.Row(c.Key(q.ID)).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
-						frostui.Pill(c, q.Mode, frostui.Neutral)
-						frostui.Muted(c, truncate(firstLine(firstNonEmpty(q.Label, q.Text)), 80)).SingleLine().Grow(1)
-					})
-				}
-			}
+			a.queueSection(c)
 		})
 	})
 }
