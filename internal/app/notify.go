@@ -33,15 +33,32 @@ type note struct {
 	session int
 	// inbox, when not empty, is the Inbox item a click chooses.
 	inbox string
+	// who is the sign-in that made the note, fixed when it is delivered:
+	// another sign-in's session may carry the same number.
+	who *pocket.Client
 }
 
 // notes is the queue of notifications in a burst.
 type notes struct {
 	// open is true while a burst's window runs: what comes waits in held.
 	open bool
+	// who is the sign-in whose window is open; its notes never show
+	// under another one.
+	who *pocket.Client
+	// win numbers windows. A timer of an older window does nothing, so a
+	// sign-out cannot end the next sign-in's burst early.
+	win  int
 	held []note
 	// quieted counts what do not disturb kept back since it began.
 	quieted int
+}
+
+// reset forgets a window: what it held never shows, and its timer cannot
+// close the next sign-in's window.
+func (ns *notes) reset() {
+	ns.open, ns.who, ns.held = false, nil, nil
+	ns.win++
+	ns.quieted = 0
 }
 
 // noteKind reads a notification's kind from its tag ("done-12").
@@ -144,6 +161,10 @@ func (a *App) deliver(n note) {
 	if a.opts.Notify == nil || !a.wants(n) {
 		return
 	}
+	n.who = a.link.client
+	if a.notes.open && a.notes.who != n.who {
+		a.notes.reset() // a burst of another sign-in never shows here
+	}
 	if quiet, _ := a.quietNow(); quiet && (n.kind != noteApproval || !a.settings.Notes().Urgent) {
 		a.notes.quieted++
 		return
@@ -160,14 +181,40 @@ func (a *App) deliver(n note) {
 	// The first of a burst shows at once; what follows it in the window
 	// waits and shows as one.
 	a.show(n)
-	a.notes.open = true
-	a.after(batchWindow, a.flushNotes)
+	a.notes.open, a.notes.who = true, n.who
+	a.notes.win++
+	win := a.notes.win
+	a.after(batchWindow, func() { a.flushNotes(win) })
 }
 
-// flushNotes ends a burst's window: what came in it shows as one.
-func (a *App) flushNotes() {
-	held := a.notes.held
-	a.notes.open, a.notes.held = false, nil
+// flushNotes ends the burst window numbered win: what came in it shows as
+// one, as the settings, the clock and the sign-in say now.
+func (a *App) flushNotes(win int) {
+	if win != a.notes.win || !a.notes.open {
+		return // the window ended already, or another one replaced it
+	}
+	held, who := a.notes.held, a.notes.who
+	a.notes.open, a.notes.who, a.notes.held = false, nil, nil
+	if a.opts.Notify == nil || who != a.link.client {
+		return // a burst of a sign-in the window has left
+	}
+	// The person may have changed the settings, or the clock may have
+	// reached do not disturb, since the burst began: apply it now, as
+	// deliver does, so nothing waits in a window that has ended.
+	quiet, _ := a.quietNow()
+	urgent := a.settings.Notes().Urgent
+	kept := make([]note, 0, len(held))
+	for _, n := range held {
+		switch {
+		case !a.wants(n):
+			// this kind, or every notification, is off now
+		case quiet && (n.kind != noteApproval || !urgent):
+			a.notes.quieted++
+		default:
+			kept = append(kept, n)
+		}
+	}
+	held = kept
 	switch len(held) {
 	case 0:
 		return
@@ -187,7 +234,7 @@ func (a *App) flushNotes() {
 		}
 		lines = append(lines, "• "+n.title)
 	}
-	sum := note{kind: "batch", title: summaryTitle(held), body: strings.Join(lines, "\n")}
+	sum := note{kind: "batch", title: summaryTitle(held), body: strings.Join(lines, "\n"), who: who}
 	if len(sessions) == 1 && held[0].session != 0 {
 		sum.session = held[0].session
 	}
@@ -216,10 +263,19 @@ func summaryTitle(held []note) string {
 }
 
 // show hands a notification to the desktop; a click opens what it is
-// about.
+// about, on the sign-in that made it.
 func (a *App) show(n note) {
+	who := n.who
 	a.opts.Notify.Notify(n.title, n.body, func() {
 		a.post(func() {
+			if a.link.client != who {
+				// The note belongs to a sign-in the window has left (a sign-out, or
+				// another server): a session with that number there is another
+				// session, and an ask with that id is another ask. So open nothing,
+				// and only show the Inbox of the sign-in that holds now.
+				a.goPlace("x:inbox")
+				return
+			}
 			switch {
 			case n.session != 0:
 				a.open(n.session)
