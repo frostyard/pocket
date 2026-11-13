@@ -47,7 +47,13 @@ internal/icons ── the icons Pocket draws itself
   the most pressing first: calls to allow and questions waiting in sessions
   (subagents' included), the Desk's decisions, PRs ready to merge (by review
   level), a full desk (Allow 1), failed runs, found work, threads gone quiet,
-  and lessons to review (which the badge does not count). A decision or report
+  and lessons to review (which the badge does not count). Team lessons and
+  Pi Pocket's own pending lessons appear together, with the latter labeled
+  “Pi Pocket memory”. Approve sends the proposal shown; Discard withdraws it.
+  The core queue uses the owner's private PiP id from the stream's `pip` event,
+  reads again on hello and `memory` events, and requires a `pendingAll`
+  response. If PiP has never been opened, the Inbox explains how to enable
+  the queue; it never substitutes an ordinary session. A decision or report
   that names an artifact (`artifact:<id>`, as the Desk writes it) links it,
   and gets a button titled as the artifact that opens it in Artifacts: the
   id is looked up across sessions, the thread's own session first, then its
@@ -176,7 +182,11 @@ server's facts. The status bar shows do not disturb while it holds.
   field the server sent in a shape Pocket does not read.
 - The stream reconnects with a growing wait (the server's `retry`, doubling
   to 30 s, with jitter); a stream silent past 75 seconds (five of the server's 15 s pings)
-  counts as dead. A rejected token signs out and shows the sign-in screen.
+  counts as dead. A rejected token, on the stream or any ordinary route, signs out and shows
+  the sign-in screen. Route answers from a previous sign-in are ignored.
+- Every stream hello refreshes the team and its lessons, and the artifacts
+  if already loaded. Artifacts refresh on entry and once a minute while the
+  place stays open; reads requested during a read run again afterward.
 - Reading the Desk can take long: it sweeps GitHub first when nothing swept
   for 5 minutes. Pocket gives it 3 minutes and keeps the last Desk on screen
   when a read fails.
