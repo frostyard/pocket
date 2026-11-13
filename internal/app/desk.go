@@ -24,9 +24,15 @@ type desk struct {
 	at    time.Time
 	err   string
 
-	details map[string]*pocket.DeskThreadDetail
-	answers map[string]string
-	busy    map[string]bool
+	details                           map[string]*pocket.DeskThreadDetail
+	answers                           map[string]string
+	busy                              map[string]bool
+	editors                           map[string]*threadEditor
+	seenPending, seenReady            bool
+	seenBefore                        pocket.Millis
+	completed                         []pocket.CompletedPlan
+	completedLoading, completedLoaded bool
+	completedErr                      string
 
 	dash                         *pocket.Dashboard
 	dashDays                     int
@@ -81,6 +87,9 @@ func (a *App) loadDesk() {
 				a.desk.at = a.opts.Now()
 				a.desk.details = nil // read again as they show
 				a.notifyNewAsks(view)
+				if a.desk.seenPending {
+					a.stampDeskSeen()
+				}
 			}
 		}
 		if a.desk.dirty {
@@ -164,16 +173,32 @@ func (a *App) answerAsk(ask *pocket.DeskAsk, words string) {
 	})
 }
 
-// threadAct runs keep, park, wake or drop on a thread.
+// threadAct runs an owner action and refreshes even after a conflict.
 func (a *App) threadAct(t *pocket.DeskThread, action string, body map[string]any) {
 	id := t.ID
+	key := "act:" + id
+	if a.desk.busy == nil {
+		a.desk.busy = map[string]bool{}
+	}
+	if a.desk.busy[key] {
+		return
+	}
+	a.desk.busy[key] = true
+	client := a.link.client
 	a.console.Add(frostui.LevelCommand, "desk", action+" "+id)
 	a.request(strings.ToUpper(action[:1])+action[1:]+" "+id, func(ctx context.Context, c *pocket.Client) error {
 		return c.DeskAct(ctx, id, action, body)
 	}, func(err error) {
-		if err == nil {
-			a.loadDesk()
+		if a.link.client != client {
+			return
 		}
+		delete(a.desk.busy, key)
+		if err != nil {
+			a.toast("Thread unchanged: " + err.Error())
+		} else {
+			delete(a.desk.editors, id)
+		}
+		a.loadDesk()
 	})
 }
 

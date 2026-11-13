@@ -24,6 +24,7 @@ type inboxKind int
 const (
 	inboxApproval inboxKind = iota // a call or question waiting in a session
 	inboxAsk                       // a decision a Desk thread asks for
+	inboxWatch                     // a dated check waiting on the owner
 	inboxReady                     // a PR ready to merge
 	inboxFailed                    // a session that failed
 	inboxStale                     // a thread with no news for days
@@ -83,6 +84,9 @@ func (a *App) inboxItems() []inboxItem {
 			for j := range t.Asks {
 				items = append(items, inboxItem{key: "a:" + t.Asks[j].ID, kind: inboxAsk, thread: t, ask: &t.Asks[j], firstAsk: j == 0, groupAt: oldest, at: t.Asks[j].At.Time()})
 			}
+			if dueWatch(t) {
+				items = append(items, inboxItem{key: "w:" + t.ID, kind: inboxWatch, thread: t, at: t.LastEventAt.Time()})
+			}
 			if len(t.Asks) > 0 || t.State == "closed" || t.State == "parked" {
 				continue
 			}
@@ -109,7 +113,7 @@ func (a *App) inboxItems() []inboxItem {
 			}
 		}
 	}
-	rank := map[inboxKind]int{inboxFull: 0, inboxApproval: 1, inboxAsk: 2, inboxReady: 3, inboxFailed: 4, inboxFound: 5, inboxStale: 6, inboxLesson: 7}
+	rank := map[inboxKind]int{inboxFull: 0, inboxApproval: 1, inboxAsk: 2, inboxWatch: 3, inboxReady: 4, inboxFailed: 5, inboxFound: 6, inboxStale: 7, inboxLesson: 8}
 	slices.SortStableFunc(items, func(x, y inboxItem) int {
 		if rank[x.kind] != rank[y.kind] {
 			return rank[x.kind] - rank[y.kind]
@@ -118,6 +122,15 @@ func (a *App) inboxItems() []inboxItem {
 			// The stable sort preserves each thread's server filing order,
 			// including ties between the oldest ask of different threads.
 			return x.groupAt.Compare(y.groupAt)
+		}
+		if x.kind == inboxReady {
+			if d := reviewOrder(x.pr.Level) - reviewOrder(y.pr.Level); d != 0 {
+				return d
+			}
+			if d := x.at.Compare(y.at); d != 0 {
+				return d
+			}
+			return strings.Compare(x.pr.Ref, y.pr.Ref)
 		}
 		return x.at.Compare(y.at)
 	})
@@ -129,7 +142,7 @@ func (a *App) inboxCount() int {
 	n := 0
 	for _, it := range a.inboxItems() {
 		switch it.kind {
-		case inboxApproval, inboxAsk, inboxReady, inboxFull:
+		case inboxApproval, inboxAsk, inboxWatch, inboxReady, inboxFull:
 			n++
 		}
 	}
@@ -192,6 +205,8 @@ func inboxHeading(k inboxKind) string {
 		return "Waiting in sessions"
 	case inboxAsk:
 		return "Decisions"
+	case inboxWatch:
+		return "Checks due"
 	case inboxReady:
 		return "Ready to merge"
 	case inboxFailed:
@@ -218,6 +233,9 @@ func (a *App) inboxLine(items []inboxItem) string {
 	}
 	if n := counts[inboxApproval]; n > 0 {
 		parts = append(parts, plural(n, "call to allow", "calls to allow"))
+	}
+	if n := counts[inboxWatch]; n > 0 {
+		parts = append(parts, plural(n, "check due", "checks due"))
 	}
 	if n := counts[inboxReady]; n > 0 {
 		parts = append(parts, plural(n, "PR to merge", "PRs to merge"))
@@ -287,6 +305,8 @@ func (a *App) inboxCard(c *ui.Context, it *inboxItem) {
 		a.approvalItem(c, it)
 	case inboxAsk:
 		a.askItem(c, it)
+	case inboxWatch:
+		a.watchItem(c, it)
 	case inboxReady:
 		a.readyItem(c, it)
 	case inboxFailed:
@@ -314,7 +334,7 @@ func (a *App) inboxCard(c *ui.Context, it *inboxItem) {
 		t := it.thread
 		what := "No news for days."
 		if it.kind == inboxFound {
-			what = "The Desk found work with no thread: attach it or drop it from the supervisor's session."
+			what = "The Desk found work with no thread: select it to attach it or drop it."
 		}
 		a.card(c, it.key, frostui.Neutral, t.Title, func() {
 			a.threadHead(c, t)
@@ -619,6 +639,7 @@ func (a *App) threadContext(c *ui.Context, t *pocket.DeskThread) {
 			frostui.Caption(c, "Now: "+truncate(step, 120)).Wrap()
 		}
 	}
+	a.threadActions(c, t)
 	if len(t.Open) > 0 {
 		frostui.SectionHeader(c, frostui.SectionHead{Title: "Keeps it open", Quiet: true})
 		for i, o := range t.Open {
@@ -634,6 +655,18 @@ func (a *App) threadContext(c *ui.Context, t *pocket.DeskThread) {
 	if t.Watch != nil {
 		frostui.SectionHeader(c, frostui.SectionHead{Title: "Watch", Quiet: true})
 		frostui.Caption(c, strings.TrimSpace(t.Watch.CheckOn+" "+t.Watch.CheckTime)+": "+t.Watch.Check).Wrap()
+	}
+	if len(t.Resolved) > 0 {
+		frostui.SectionHeader(c, frostui.SectionHead{Title: "Resolved or withdrawn", Quiet: true})
+		for _, ask := range t.Resolved {
+			ui.Column(c.Key("resolved:" + ask.ID)).Gap(2).Children(func() {
+				frostui.Caption(c, ask.ID+" · "+ask.Text).Wrap().MaxLines(2).Tooltip(ask.Text)
+				frostui.Body(c, ask.Why).Wrap().MaxLines(2).Tooltip(ask.Why)
+				if ask.By != "" {
+					frostui.Caption(c, "by "+ask.By)
+				}
+			})
+		}
 	}
 	if len(t.Answered) > 0 {
 		frostui.SectionHeader(c, frostui.SectionHead{Title: "Answered", Quiet: true})
@@ -686,7 +719,7 @@ func (a *App) prRow(c *ui.Context, pr pocket.DeskPR) {
 	row.Children(func() {
 		frostui.Pill(c, strings.ToLower(firstNonEmpty(pr.State, "?")), prTone(pr.State))
 		frostui.Mono(c, pr.Ref).SingleLine()
-		if pr.Ready {
+		if pr.Ready || pr.Next == "brian" {
 			frostui.Pill(c, "ready", frostui.Success)
 		}
 		if pr.Level != "" {

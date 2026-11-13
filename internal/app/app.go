@@ -500,6 +500,11 @@ func (a *App) goPlace(key string) {
 	a.selected = key
 	a.sidebar.Select("places", key)
 	switch key {
+	case "x:motion":
+		a.desk.seenPending, a.desk.seenReady = true, false
+		if a.desk.on {
+			a.loadDesk()
+		}
 	case "x:board":
 		if a.desk.on {
 			a.loadBoard()
