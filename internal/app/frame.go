@@ -22,6 +22,7 @@ func (a *App) View(c *ui.Context) {
 		a.setBadge(a.inboxCount())
 	}
 	a.applyTheme(c)
+	c.SetZoom(a.zoom())
 	if !a.signedIn() {
 		frostui.Adapt(c)
 		a.signInView(c)
@@ -495,6 +496,7 @@ func (a *App) setUpCommands() {
 			}},
 	)
 	a.table.Add(answers...)
+	a.table.Add(a.zoomCommands()...)
 }
 
 // sessionSource finds sessions by title or folder for the palette.

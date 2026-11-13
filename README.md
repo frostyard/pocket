@@ -20,6 +20,7 @@ Pocket is a desktop app for people who run a team of agents on a [Pi Pocket](htt
 - **Wiki and artifacts.** The homelab wiki and every session's pages, documents and pictures, read in the app. On systems without a web view, pages open in your browser using its own sign-in. Choose the latest or an older artifact version. The artifact list refreshes while open; reconnecting refreshes the team and its lessons. [Design](docs/design/pocket.md#places)
 - **Terminal.** Server shells retain their screen on attachment without replaying historical query replies into the live shell. [Design](docs/design/pocket.md#the-protocol)
 - **Calm notifications.** By kind, bursts gathered into one, do not disturb and quiet hours, without changing what your phone gets. [Design](docs/design/pocket.md#notifications-and-settings)
+- **Zoom.** Everything in the window larger or smaller, 50% to 300%, from Settings or ⌘+, ⌘- and ⌘0 (Ctrl on Linux and Windows). [Design](docs/design/pocket.md#notifications-and-settings)
 
 ## Requirements
 

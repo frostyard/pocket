@@ -1,6 +1,8 @@
 package app
 
 import (
+	"fmt"
+	"math"
 	"runtime"
 	"strings"
 
@@ -16,6 +18,7 @@ type prefs struct {
 	layout   frostui.Settings
 	finished string
 	theme    string
+	zoom     string
 }
 
 var finishedChoices = []struct{ value, label string }{
@@ -51,6 +54,7 @@ func (a *App) settingsDialog(c *ui.Context) {
 			a.prefs.theme = th.label
 		}
 	}
+	a.prefs.zoom = zoomLabel(a.zoom())
 	save := a.saveSettings
 	off := !ns.Enabled
 	quietOff := off || !ns.Quiet
@@ -95,7 +99,7 @@ func (a *App) settingsDialog(c *ui.Context) {
 					}},
 				}},
 			}},
-		{ID: "appearance", Title: "Appearance", Icon: "pocket-sparkle", Keywords: "dark light theme",
+		{ID: "appearance", Title: "Appearance", Icon: "pocket-sparkle", Keywords: "dark light theme zoom scale font text size",
 			Groups: []frostui.SettingsGroup{{Settings: []frostui.Setting{
 				{Title: "Theme", Choice: &a.prefs.theme, Options: labels(themeChoices), OnChange: func() {
 					for _, th := range themeChoices {
@@ -105,6 +109,14 @@ func (a *App) settingsDialog(c *ui.Context) {
 					}
 					save()
 				}},
+				{Title: "Zoom", Subtitle: "Text, icons and spacing together (" + keys("Cmd") + " +, " + keys("Cmd") + " -, " + keys("Cmd") + " 0)",
+					Choice: &a.prefs.zoom, Options: zoomLabels(), Keywords: "scale font text size bigger smaller", OnChange: func() {
+						for _, z := range zoomLevels {
+							if zoomLabel(z) == a.prefs.zoom {
+								a.setZoom(z)
+							}
+						}
+					}},
 			}}}},
 		{ID: "server", Title: "Server", Icon: "network-server", Keywords: "connection sign out account",
 			Groups: []frostui.SettingsGroup{{
@@ -196,4 +208,94 @@ func (a *App) applyTheme(c *ui.Context) {
 	p := c.Preferences()
 	p.Accent = ui.Color{}
 	c.SetTheme(frostui.FrostyardTheme(a.settings.Theme == "dark").WithPreferences(p))
+}
+
+// zoomLevels are the window's zooms, in the steps a browser takes.
+var zoomLevels = []float32{0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3}
+
+// zoomIndex is the level nearest to z.
+func zoomIndex(z float32) int {
+	best := 0
+	for i, l := range zoomLevels {
+		if math.Abs(float64(l-z)) < math.Abs(float64(zoomLevels[best]-z)) {
+			best = i
+		}
+	}
+	return best
+}
+
+// zoom is the window's zoom, the level nearest to the saved one; 1 when
+// none is saved.
+func (a *App) zoom() float32 {
+	if a.settings.Zoom <= 0 {
+		return 1
+	}
+	return zoomLevels[zoomIndex(a.settings.Zoom)]
+}
+
+// setZoom zooms the window to z and saves it; 1 saves none.
+func (a *App) setZoom(z float32) {
+	z = zoomLevels[zoomIndex(z)]
+	if z == 1 {
+		z = 0
+	}
+	if z == a.settings.Zoom {
+		return
+	}
+	a.settings.Zoom = z
+	a.saveSettings()
+}
+
+// zoomBy zooms steps levels in (out when negative), staying within the
+// levels.
+func (a *App) zoomBy(steps int) {
+	i := min(max(zoomIndex(a.zoom())+steps, 0), len(zoomLevels)-1)
+	a.setZoom(zoomLevels[i])
+}
+
+func zoomLabel(z float32) string { return fmt.Sprintf("%d%%", int(math.Round(float64(z)*100))) }
+
+func zoomLabels() []string {
+	out := make([]string, len(zoomLevels))
+	for i, z := range zoomLevels {
+		out[i] = zoomLabel(z)
+	}
+	return out
+}
+
+// zoomCommands zoom the window, with the keys a browser zooms with: Cmd
+// = (and Cmd + with Shift), Cmd - and Cmd 0.
+func (a *App) zoomCommands() []frostui.Command {
+	return []frostui.Command{
+		{ID: "zoom-in", Title: "Zoom In", Group: "View", Icon: "zoom-in",
+			Bindings: []frostui.KeyBinding{
+				{Mods: ui.Cmd, Key: ui.KeyEqual, Scope: frostui.Everywhere},
+				{Mods: ui.Cmd | ui.Shift, Key: ui.KeyEqual, Scope: frostui.Everywhere},
+			},
+			Enabled: func() (bool, string) {
+				if a.zoom() >= zoomLevels[len(zoomLevels)-1] {
+					return false, "Pocket is at its largest"
+				}
+				return true, ""
+			},
+			Run: func() { a.zoomBy(1) }},
+		{ID: "zoom-out", Title: "Zoom Out", Group: "View", Icon: "zoom-out",
+			Bindings: []frostui.KeyBinding{{Mods: ui.Cmd, Key: ui.KeyMinus, Scope: frostui.Everywhere}},
+			Enabled: func() (bool, string) {
+				if a.zoom() <= zoomLevels[0] {
+					return false, "Pocket is at its smallest"
+				}
+				return true, ""
+			},
+			Run: func() { a.zoomBy(-1) }},
+		{ID: "zoom-reset", Title: "Actual Size", Group: "View",
+			Bindings: []frostui.KeyBinding{{Mods: ui.Cmd, Key: ui.Key0, Scope: frostui.Everywhere}},
+			Enabled: func() (bool, string) {
+				if a.zoom() == 1 {
+					return false, "Pocket is at 100%"
+				}
+				return true, ""
+			},
+			Run: func() { a.setZoom(1) }},
+	}
 }

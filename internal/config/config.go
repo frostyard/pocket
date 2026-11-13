@@ -33,6 +33,9 @@ type Settings struct {
 	Notifications *Notifications `json:"notifications,omitempty"`
 	// Theme is "system" (or empty), "light" or "dark".
 	Theme string `json:"theme,omitempty"`
+	// Zoom scales everything in the window, as a browser zooms a page:
+	// 1.25 for 125%. Zero is 100%.
+	Zoom float32 `json:"zoom,omitempty"`
 	// LastSession is the conversation shown when Pocket last closed.
 	LastSession string `json:"lastSession,omitempty"`
 	// Seen is when the person last saw each session, by the server's

@@ -169,6 +169,16 @@ func (a *App) termOptions(conn io.ReadWriteCloser) terminal.Options {
 			}
 			return true // handled: nothing else opens it
 		},
+		// The terminal's zoom (the wheel with Ctrl held, its font size
+		// keys) zooms the whole window, as Pocket's keys do, not one font.
+		OnZoom: func(z terminal.Zoom) bool {
+			if z.Reset {
+				a.setZoom(1)
+			} else {
+				a.zoomBy(z.Steps)
+			}
+			return true
+		},
 	}
 }
 
