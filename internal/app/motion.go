@@ -57,6 +57,7 @@ func (a *App) motionPane(c *ui.Context) {
 					}
 					if frostui.IconButton(c, "view-refresh", "Read the Desk again").Clicked() {
 						a.loadDesk()
+						a.loadRunning()
 					}
 				})
 				switch {
@@ -72,6 +73,7 @@ func (a *App) motionPane(c *ui.Context) {
 				if v != nil && v.GitHub != nil && !v.GitHub.OK && v.GitHub.Error != "" {
 					frostui.Banner(c, frostui.Warning, "GitHub could not be read", v.GitHub.Error, "", false)
 				}
+				a.runningSection(c)
 				claimed := map[int]bool{}
 				if v != nil {
 					for _, g := range motionGroups {

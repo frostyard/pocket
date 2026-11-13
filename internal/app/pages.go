@@ -114,6 +114,10 @@ func (a *App) inspectorPane(c *ui.Context) {
 			}
 
 			a.browserWatchPane(c)
+			if ui.Button(c, "Background tasks").Clicked() {
+				a.openBackground()
+			}
+			a.schedulesSection(c)
 			if len(v.Subagents) > 0 {
 				frostui.SectionHeader(c, frostui.SectionHead{Title: "Subagents", Aside: fmt.Sprint(len(v.Subagents)), Quiet: true})
 				for _, sa := range v.Subagents {
@@ -157,6 +161,12 @@ func (a *App) subagentRow(c *ui.Context, sa pocket.Subagent) {
 			frostui.Strong(c, sa.Name).SingleLine()
 			if sa.Asked != "" {
 				frostui.Caption(c, truncate(firstLine(sa.Asked), 70)).SingleLine()
+			}
+			if step := a.lastStep(sa.ConversationID); step != "" {
+				frostui.Caption(c, step).Wrap()
+			}
+			if session := a.byID[sa.ConversationID]; session != nil && session.UpdatedAt > 0 {
+				frostui.Caption(c, "Last activity "+ago(a.opts.Now(), session.UpdatedAt.Time()))
 			}
 		})
 		frostui.JobStatus(c, frostui.RowStatus{State: state, Compact: true, Tooltip: sa.Error})

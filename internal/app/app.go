@@ -49,11 +49,15 @@ type Options struct {
 
 // App is the window's state.
 type App struct {
-	browser  *browserWatch
-	opts     Options
-	post     func(func())
-	settings config.Settings
-	derived  *derived
+	running      *runningState
+	background   *backgroundState
+	scheduleForm *scheduleForm
+	scheduleBusy bool
+	browser      *browserWatch
+	opts         Options
+	post         func(func())
+	settings     config.Settings
+	derived      *derived
 
 	shell   frostui.PaneShell
 	table   *frostui.CommandTable
@@ -215,6 +219,8 @@ func (a *App) saveSettings() {
 
 // reset forgets what the server said, as after signing out.
 func (a *App) reset() {
+	a.running, a.background, a.scheduleForm = nil, nil, nil
+	a.scheduleBusy = false
 	a.invalidateDerived()
 	a.stopBrowserWatch()
 	a.composer.resetRequests()
@@ -282,6 +288,7 @@ func (a *App) handle(ev pocket.Event) {
 		a.loadTerminals()
 		a.loadSessionIdentity()
 		a.loadShiftGoal()
+		a.loadRunning()
 		a.loadTeam()
 		if a.arts.loaded || a.arts.loading {
 			a.loadArtifacts()
@@ -484,6 +491,7 @@ func (a *App) open(id int) {
 	}
 	a.stopBrowserWatch()
 	a.current = id
+	a.background, a.scheduleForm = nil, nil
 	a.details = nil
 	a.view = pocket.NewView()
 	a.tr = transcript{}
@@ -516,6 +524,7 @@ func (a *App) goPlace(key string) {
 	a.sidebar.Select("places", key)
 	switch key {
 	case "x:motion":
+		a.loadRunning()
 		a.desk.seenPending, a.desk.seenReady = true, false
 		if a.desk.on {
 			a.loadDesk()

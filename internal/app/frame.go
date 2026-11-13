@@ -56,6 +56,8 @@ func (a *App) View(c *ui.Context) {
 	a.deskFileDialog(c)
 	a.numberRecordsDialog(c)
 	a.newSessionDialog(c)
+	a.backgroundDialog(c)
+	a.scheduleDialog(c)
 }
 
 func (a *App) mainPane(c *ui.Context) {

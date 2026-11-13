@@ -17,7 +17,13 @@ type RunningTask struct {
 	ConversationID int    `json:"conversationId"`
 	Subagent       string `json:"subagent"`
 	Since          Millis `json:"since"`
+	Stalled        Millis `json:"stalled"`
 }
+
+func (t RunningTask) Stoppable() bool {
+	return t.Kind == "pocket.shell" || t.Kind == "pocket.background" || t.Kind == "pocket.extension-command" || (t.Kind == "pi.generation" && t.Subagent != "")
+}
+
 type RunningSession struct {
 	ID        int           `json:"id"`
 	Title     string        `json:"title"`

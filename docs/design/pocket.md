@@ -74,6 +74,10 @@ internal/icons ── the icons Pocket draws itself
   at work that no thread holds. Double-click opens the thread's bound session. The optional Desk `session`
   field is authoritative, even when that session is missing locally; only older
   modules without the field use the title-and-agent fallback.
+  Running now reads the server task board every five seconds while this place is
+  open. It shows task labels, subagent names, start times and server-reported
+  stalls, with Stop for supported task kinds; scheduled messages link to their
+  session. A hidden place stops polling; stale reads cannot cross sign-ins.
 - **Team** (⌘3) — the lessons agents want to keep, to approve, edit or
   discard (a change to an approved one shows old and new), and the roster.
   Each agent's page has a task card, its sessions, its lessons (forget,
@@ -194,6 +198,18 @@ shows the objective, stop condition, state, round count and deadline when a
 night-shift goal exists. Both read on session entry and reconnect, and on
 their matching module events; late answers for a session left are discarded.
 Shift controls remain `/team-shift status`, `stop` and `resume` in the composer.
+
+The session inspector opens a background-task reader with bounded output (the
+latest 20,000 characters), task status and Stop. It refreshes every three seconds
+while open, and discards results after a session change. Stop uses the numeric
+server task ID; output uses the background record ID. Subagent rows also show
+peek activity and the session's last activity time.
+
+Scheduled messages arrive through the session stream. The inspector creates them
+from a time-and-message phrase with an explicit timezone, and can cancel them.
+A server-provided schedule version enables Edit and Pause/Resume. Edits keep
+the original version and repeat rule while changing the message or next time;
+a rejected edit keeps its draft. Mutation controls are hidden for viewers.
 
 The session inspector can watch the agent's browser read-only. Watching is
 explicit, uses authenticated GETs for its state and JPEG frames, and stops when
