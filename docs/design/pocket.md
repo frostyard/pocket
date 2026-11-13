@@ -50,9 +50,12 @@ internal/icons ── the icons Pocket draws itself
   that names an artifact (`artifact:<id>`, as the Desk writes it) links it,
   and gets a button titled as the artifact that opens it in Artifacts: the
   id is looked up across sessions, the thread's own session first, then its
-  supervisor's, then the newest. Each is answered on its card; J/K move, 1–6 answer a decision with
+  supervisor's, then the newest. Decisions stay together by thread, oldest thread first, with asks in the
+  server's filing order and one thread heading. Reopened asks start a fresh
+  draft and notify again. Each is answered on its card; J/K move, 1–6 answer a decision with
   that option, ⌥Y / ⌥N allow or deny. The right pane shows the chosen item's
   context: a thread's PRs, reports and events, or a session's last steps.
+  Events and answered words take at most two lines; hover shows the full text.
 - **In motion** (⌘2) — every thread under way, grouped by who moves it next
   (agents at work, with the supervisor, in review, plans, watching, parked),
   each with what its session does now from the server's peek feed, and runs
