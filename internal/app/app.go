@@ -287,6 +287,27 @@ func (a *App) adoptAccount(user string) {
 	a.composer.adopt(key)
 }
 
+// leaveOtherAccount ends the account the window shows when a hello on the
+// same sign-in names another user, as a sign-out would: the drafts, an
+// unacknowledged send among them, go aside for the account they belong to,
+// the session shown and everything else the server said are forgotten, and
+// a copy of the client replaces it, so that no answer to a request of the
+// account left reaches the new one (requestWithin compares the client). It
+// reports whether it ended one.
+func (a *App) leaveOtherAccount(user string) bool {
+	if !a.account.set() || a.link.client == nil {
+		return false
+	}
+	if (accountKey{server: a.link.client.Base.String(), user: user}) == a.account {
+		return false
+	}
+	a.console.Add(frostui.LevelWarn, "link", "This sign-in now names another user; showing that user's sessions from the start")
+	client := *a.link.client
+	a.reset()
+	a.link.client = &client
+	return true
+}
+
 // migrateLegacyPrefs moves the pins, seen marks and last session that Pocket
 // kept before settings belonged to accounts into p, when they are p's
 // server's. Another server never sees them.
@@ -360,6 +381,9 @@ func (a *App) handle(ev pocket.Event) {
 		if !a.decode(ev, &h) {
 			return
 		}
+		// Before anything of the new hello is kept: a hello that names
+		// another user ends the account the window showed.
+		changed := a.leaveOtherAccount(h.User.ID)
 		a.hello = &h
 		a.link.streamID = h.Connection
 		a.link.failures = 0
@@ -389,7 +413,7 @@ func (a *App) handle(ev pocket.Event) {
 		if a.arts.loaded || a.arts.loading {
 			a.loadArtifacts()
 		}
-		if first {
+		if first || changed {
 			last := ""
 			if p := a.accountPrefs(); p != nil {
 				last = p.LastSession
@@ -748,7 +772,9 @@ func (a *App) requestWithin(limit time.Duration, what string, fn func(ctx contex
 		err := fn(ctx, client)
 		a.post(func() {
 			if a.link.client != client {
-				return // an answer from a sign-in the window has left
+				// An answer from a sign-in the window has left.
+				a.console.Add(frostui.LevelInfo, "api", "Dropped the answer of an earlier sign-in: "+what)
+				return
 			}
 			if pocket.IsSignedOut(err) {
 				a.signedOut("The server no longer accepts this device's sign-in. Paste a new sign-in link.")

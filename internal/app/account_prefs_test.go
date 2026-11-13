@@ -3,6 +3,8 @@ package app
 import (
 	"testing"
 
+	"github.com/frostyard/frostui"
+
 	"github.com/frostyard/pocket/internal/config"
 )
 
@@ -119,4 +121,48 @@ func TestLegacySettingsMoveToTheAccountOfTheirServer(t *testing.T) {
 			t.Fatalf("the legacy settings were given away: %+v", saved)
 		}
 	})
+}
+
+// TestAccountChangeRestoresTheNewAccountsSelection checks that a hello naming
+// another user on a connection that is already up (not a first connection)
+// shows that user's own last session, and that Close keeps each account's
+// selection apart.
+func TestAccountChangeRestoresTheNewAccountsSelection(t *testing.T) {
+	dir := t.TempDir()
+	a, loop := scopeApp(t, dir)
+	other, _ := a.settings.EnsureAccount(serverOne, "u2")
+	other.LastSession = "9"
+	signInTo(t, a, loop, serverOne, "u1")
+	a.setSessions(scopeSessions(7, 9))
+	a.open(7)
+
+	a.conn.State = frostui.Connected // a reconnect, not a first connection
+	helloAs(a, "u2")
+	if a.current != 0 || a.loading != 9 {
+		t.Fatalf("current %d loading %d, want the new user's last session 9", a.current, a.loading)
+	}
+	a.setSessions(scopeSessions(7, 9))
+	loop.Flush()
+	if a.current != 9 {
+		t.Fatalf("session 9 was not opened: %d", a.current)
+	}
+	if p := a.settings.Account(serverOne, "u2"); p == nil || p.Seen["7"] != 0 {
+		t.Fatalf("the new user marked the first user's session seen: %+v", p)
+	}
+	a.Close()
+
+	store, err := config.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if one := saved.Account(serverOne, "u1"); one == nil || one.LastSession != "7" {
+		t.Fatalf("first user's settings: %+v", one)
+	}
+	if two := saved.Account(serverOne, "u2"); two == nil || two.LastSession != "9" {
+		t.Fatalf("second user's settings: %+v", two)
+	}
 }
