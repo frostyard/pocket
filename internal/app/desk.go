@@ -209,10 +209,12 @@ func (a *App) grant() {
 	})
 }
 
-// sessionForThread finds the session that works on a thread: the Desk's
-// view names none, but each delegation's session is titled after its
-// thread, and is the agent's.
+// sessionForThread uses the Desk binding. Only older module views without
+// a session field fall back to matching delegation titles.
 func (a *App) sessionForThread(t *pocket.DeskThread) *pocket.Session {
+	if t.Session != nil {
+		return a.byID[*t.Session]
+	}
 	title := strings.ToLower(strings.TrimSpace(t.Title))
 	if title == "" {
 		return nil
