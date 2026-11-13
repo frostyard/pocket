@@ -293,8 +293,11 @@ UI thread and rejects frames larger than 16 million pixels.
 
 Every notification passes `deliver` (`internal/app/notify.go`): the kinds the
 owner chose, do not disturb (now, snoozed, quiet hours; calls to allow may
-come through), and bursts gathered into one. Approval notification tags expire after a day
-and clear on sign-out. The Settings dialog
+come through), and bursts gathered into one. A burst belongs to the sign-in that
+started it: when its window ends the settings and the clock are read again, so a
+kind turned off or do not disturb begun in the meantime holds it. Sign-out drops
+it, and a click never opens another sign-in's session. Approval notification
+tags expire after a day and clear on sign-out. The Settings dialog
 (`internal/app/settings.go`, ⌘,) holds those choices, the theme, the zoom and
 the server's facts. The status bar shows do not disturb while it holds.
 
