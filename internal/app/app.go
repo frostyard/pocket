@@ -78,6 +78,7 @@ type App struct {
 
 	team    team
 	desk    desk
+	core    *coreMemory
 	lessons lessons
 	wiki    wiki
 	arts    artifacts
@@ -216,6 +217,7 @@ func (a *App) reset() {
 	a.team = team{}
 	a.desk = desk{}
 	a.closeTerminals()
+	a.core = nil
 	a.lessons, a.wiki, a.arts, a.terms = lessons{}, wiki{}, artifacts{}, terms{}
 	a.peeks, a.peekIDs, a.asksSeen = map[int]*pocket.Peek{}, nil, nil
 	a.selected = ""
@@ -258,6 +260,7 @@ func (a *App) handle(ev pocket.Event) {
 		}
 		a.peekIDs = nil // a new connection watches nothing yet
 		a.loadDesk()
+		a.loadCoreMemory()
 		a.loadWiki()
 		a.loadTerminals()
 		a.loadTeam()
@@ -272,6 +275,20 @@ func (a *App) handle(ev pocket.Event) {
 				}
 			}
 		}
+	case "pip":
+		var pip *struct {
+			ID int `json:"id"`
+		}
+		if a.decode(ev, &pip) {
+			if pip == nil {
+				a.core = nil
+			} else if a.core == nil || a.core.pip != pip.ID {
+				a.core = &coreMemory{pip: pip.ID}
+				a.loadCoreMemory()
+			}
+		}
+	case "memory":
+		a.loadCoreMemory()
 	case "sessions":
 		var list []pocket.Session
 		if !a.decode(ev, &list) {

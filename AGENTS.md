@@ -43,12 +43,12 @@ them rather than improvising, whichever agent you are. Start a new one from
 
 - **Layout.** `cmd/pocket` is the program (window, keyring, notifications,
   badge). `internal/pocket` is the server's client and holds no UI:
-  `client.go`, `api.go`, `desk.go`, `extras.go` (routes), `types.go` (wire
+  `client.go`, `api.go`, `desk.go`, `extras.go`, `memory.go` (routes), `types.go` (wire
   types), `terminal.go` (shell transport), `stream.go` and `sse.go` (the
   event stream), `view.go` (`View.Apply`, the port of the web app's
   `mergeView`). `internal/app` is the window: `app.go` (state, events),
   `conn.go` (the link), `frame.go` (frame, commands, palette), `sidebar.go`,
-  `inbox.go`, `motion.go` (In motion, Shift board, Numbers), `desk.go`,
+  `inbox.go`, `core_memory.go` (Pi Pocket lessons), `motion.go` (In motion, Shift board, Numbers), `desk.go`,
   `transcript.go`, `composer.go`, `pages.go`, `notify.go`, `settings.go`,
   `terminals.go` (the Terminal place, over `pocket.TermConn`),
   `terminal_replay.go` (isolated history rendering), `artifacts.go`,
