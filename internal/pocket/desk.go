@@ -397,7 +397,7 @@ type MeterWindow struct {
 type MeterGrant struct {
 	Label      string  `json:"label"`
 	Type       string  `json:"type,omitempty"`
-	ResetsLeft int     `json:"resetsLeft"`
+	ResetsLeft float64 `json:"resetsLeft"`
 	EndsAt     *Millis `json:"endsAt,omitempty"`
 }
 

@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-14",
+  "scope": "client-wire-types",
+  "correction": "Decode a server field with the server's own numeric type: the Desk meter's grant resetsLeft is a number, not an integer.",
+  "evidence": "frostyard/pocket#91, cross-review (openai/gpt-6.1-sol) of head b74405d7a640b150dc2292ccd0fb5a576c59ff4f",
+  "promoted_to": "internal/app/numbers_test.go TestMeterFractionalGrants"
+}

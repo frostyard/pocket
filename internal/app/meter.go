@@ -88,7 +88,12 @@ func meterPercent(p *float64) string {
 	if p == nil {
 		return "?"
 	}
-	return strconv.FormatFloat(*p, 'f', -1, 64)
+	return meterNumber(*p)
+}
+
+// meterNumber writes a number as the server sends it: "2", "1.5".
+func meterNumber(v float64) string {
+	return strconv.FormatFloat(v, 'f', -1, 64)
 }
 
 // meterGrantsText groups the granted resets by label: "resets granted:
@@ -103,7 +108,7 @@ func meterGrantsText(p pocket.MeterProvider, at pocket.Millis) string {
 	}
 	type group struct {
 		label string
-		left  int
+		left  float64
 		first *pocket.Millis
 	}
 	var groups []*group
@@ -127,7 +132,7 @@ func meterGrantsText(p pocket.MeterProvider, at pocket.Millis) string {
 	}
 	parts := make([]string, 0, len(groups))
 	for _, g := range groups {
-		part := fmt.Sprintf("%s ×%d", g.label, g.left)
+		part := g.label + " ×" + meterNumber(g.left)
 		if g.first != nil {
 			part += " (first expires in " + meterLeft(int64(*g.first-at)) + ")"
 		}

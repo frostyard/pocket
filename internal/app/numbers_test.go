@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -269,4 +270,23 @@ func TestNumbersMeterSnapshot(t *testing.T) {
 		}
 	}
 	writePNG(t, tt, "numbers-meter")
+}
+
+// TestMeterFractionalGrants checks that a grant's resetsLeft, a number on
+// the wire, decodes and adds up when it is not a whole number.
+func TestMeterFractionalGrants(t *testing.T) {
+	d := decodeMeterDashboard(t, `{"meter":{"at":1700000000000,"providers":[{"provider":"example-a","label":"Example A","line":"Example A: week 10% used",
+"mainWindowId":"week","windows":[{"id":"week","label":"week","scoped":false,"state":"fresh","percent":10,"active":true}],
+"grants":[{"label":"Weekly","resetsLeft":1.5,"endsAt":1700277200000},{"label":"Weekly","resetsLeft":1}],
+"ledger":{"lastHour":0,"today":0,"days7":0,"partial":false,"top":[]}}],"coverage":{"complete":true,"done":1,"total":1}}}`)
+	if d.Meter == nil || len(d.Meter.Providers) != 1 || len(d.Meter.Providers[0].Grants) != 2 {
+		t.Fatalf("meter = %+v", d.Meter)
+	}
+	// Compared as text, so the test also builds (and fails) with an int type.
+	if got := fmt.Sprint(d.Meter.Providers[0].Grants[0].ResetsLeft); got != "1.5" {
+		t.Fatalf("resetsLeft = %s", got)
+	}
+	if got, want := meterRows(d.Meter)[0].Grants, "resets granted: Weekly ×2.5 (first expires in 3d)"; got != want {
+		t.Fatalf("grants = %q, want %q", got, want)
+	}
 }
