@@ -1735,7 +1735,8 @@ func (a *App) githubSettingsBody(c *ui.Context) {
 			return
 		}
 		frostui.Muted(c, "Approve + merge acts as "+github.Login+" with a fine-grained token for each owner, kept in the desktop keyring only. "+
-			"Permissions: Pull requests, Contents and Workflows read and write; Checks, Commit statuses and Metadata read.").Wrap()
+			"Permissions: Pull requests, Contents and Workflows read and write; Commit statuses and Metadata read. "+
+			"A fine-grained token cannot read check runs (GitHub offers no Checks permission for it), so a PR with check runs gets no button.").Wrap()
 		a.journalSettings(c)
 		for _, owner := range githubOwners {
 			a.ownerSettings(c.Key(owner), owner)

@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-14",
+  "scope": "approve-merge",
+  "correction": "A fine-grained token has no Checks permission, so GitHub refuses the PR query's CheckRun nodes: refuse such a PR by name (ErrChecksUnreadable), never meet a required check without its app, and name the call, type and path in every GitHub error.",
+  "evidence": "Owner's field test on 2026-11-14 with a fine-grained token on a private repository (\"Resource not accessible by personal access token\"); docs/adr/0009-read-check-runs-only-with-a-token-that-can.md",
+  "promoted_to": "internal/github/client_test.go TestChecksUnreadable"
+}

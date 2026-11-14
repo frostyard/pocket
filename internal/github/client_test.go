@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -221,4 +222,236 @@ func TestNoAnswer(t *testing.T) {
 	if err := c.REST(context.Background(), "/user", nil); err == nil {
 		t.Fatal("a request with no token")
 	}
+}
+
+// gqlEntry is 1 entry of a GraphQL answer's `errors`, as JSON.
+func gqlEntry(typ string, path []any, msg string) json.RawMessage {
+	e := map[string]any{"message": msg}
+	if typ != "" {
+		e["type"] = typ
+	}
+	if path != nil {
+		e["path"] = path
+	}
+	b, err := json.Marshal(e)
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+// gqlAnswer is a 200 answer with `data` and the given `errors`.
+func gqlAnswer(data string, entries ...json.RawMessage) string {
+	parts := make([]string, 0, len(entries))
+	for _, e := range entries {
+		parts = append(parts, string(e))
+	}
+	return `{"data":` + data + `,"errors":[` + strings.Join(parts, ",") + `]}`
+}
+
+// TestGraphQLNamesTheCall: an `errors` answer names the call and the
+// operation, shows the type and path of 3 entries and the count of the
+// rest, and holds no token.
+func TestGraphQLNamesTheCall(t *testing.T) {
+	rollup := func(node int) []any {
+		return []any{"repository", "pullRequest", "commits", "nodes", 0, "commit", "statusCheckRollup", "contexts", "nodes", node}
+	}
+	body := gqlAnswer("null",
+		gqlEntry("FORBIDDEN", rollup(0), "Resource not accessible by personal access token ("+testToken+")"),
+		gqlEntry("FORBIDDEN", rollup(1), "Resource not accessible by personal access token"),
+		gqlEntry("FORBIDDEN", rollup(2), "Resource not accessible by personal access token"),
+		gqlEntry("FORBIDDEN", rollup(3), "Resource not accessible by personal access token"),
+		gqlEntry("FORBIDDEN", rollup(4), "Resource not accessible by personal access token ("+testToken+")"),
+	)
+	c := New(testToken)
+	c.BaseURL = "https://api.example.org"
+	c.HTTP.Transport = roundTrip(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}}, nil
+	})
+	var out json.RawMessage
+	err := c.GraphQL(context.Background(), prQuery, nil, &out)
+	if !errors.Is(err, ErrIncomplete) {
+		t.Fatalf("err %v", err)
+	}
+	text := err.Error()
+	if !strings.HasPrefix(text, "GraphQL PocketPR: ") {
+		t.Errorf("the call is not named: %s", text)
+	}
+	want := "FORBIDDEN at repository.pullRequest.commits.nodes.0.commit.statusCheckRollup.contexts.nodes.0: "
+	if !strings.Contains(text, want) {
+		t.Errorf("the type and path are not shown: %s", text)
+	}
+	if !strings.Contains(text, "and 2 more") {
+		t.Errorf("the rest of the entries is not counted: %s", text)
+	}
+	if strings.Contains(text, testToken) {
+		t.Errorf("the error holds the token: %s", text)
+	}
+	var g *gqlErrors
+	if !errors.As(err, &g) || len(g.list) != 5 {
+		t.Fatalf("the entries are lost: %v", err)
+	}
+	for _, e := range g.list {
+		if strings.Contains(e.Message, testToken) || strings.Contains(e.where(), testToken) {
+			t.Errorf("an entry holds the token: %+v", e)
+		}
+	}
+}
+
+// TestGQLErrorText: each entry in words, and 3 entries at most in the
+// message.
+func TestGQLErrorText(t *testing.T) {
+	raw := func(s ...string) []json.RawMessage {
+		out := make([]json.RawMessage, 0, len(s))
+		for _, seg := range s {
+			out = append(out, json.RawMessage(seg))
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		name string
+		err  gqlError
+		want string
+	}{
+		{"type and path", gqlError{Type: "FORBIDDEN", Path: raw(`"repository"`, `0`, `"labels"`), Message: "no"}, "FORBIDDEN at repository.0.labels: no"},
+		{"path only", gqlError{Path: raw(`"a"`, `"b"`), Message: "no"}, "a.b: no"},
+		{"type only", gqlError{Type: "NOT_FOUND", Message: "no"}, "NOT_FOUND: no"},
+		{"neither", gqlError{Message: "no"}, "no"},
+	} {
+		if got := tc.err.text(); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	list := []gqlError{{Message: "a"}, {Message: "b"}, {Message: "c"}, {Message: "d"}, {Message: "e"}}
+	if got := gqlMsg(list); got != "a; b; c; and 2 more" {
+		t.Errorf("5 entries: %q", got)
+	}
+	if got := gqlMsg(list[:3]); got != "a; b; c" {
+		t.Errorf("3 entries: %q", got)
+	}
+}
+
+// TestRESTNamesTheCall: an error names the GET it answered, with the
+// permissions GitHub accepted and no query string.
+func TestRESTNamesTheCall(t *testing.T) {
+	f := direct(t)
+	f.restFail = func(path string) (int, string, http.Header) {
+		if strings.Contains(path, "/rules/branches/") {
+			return 403, `{"message":"Resource not accessible by personal access token"}`, http.Header{"X-Accepted-Github-Permissions": {"metadata=read"}}
+		}
+		return 0, "", nil
+	}
+	_, err := f.client().Preview(context.Background(), f.ref)
+	if err == nil {
+		t.Fatal("the rules read passed")
+	}
+	text := err.Error()
+	for _, want := range []string{
+		"GET /repos/bketelsen/pi-pocket-team/rules/branches/main: GitHub answered 403",
+		"(accepted permissions: metadata=read)",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the error holds no %q: %s", want, text)
+		}
+	}
+	if strings.Contains(text, "?per_page") {
+		t.Errorf("the error holds the query string: %s", text)
+	}
+	var api *APIError
+	if !errors.As(err, &api) || api.Accepted != "metadata=read" {
+		t.Errorf("err %v", err)
+	}
+}
+
+// TestRefusedMutationKeepsItsKind: a mutation refused before any request is
+// still errNotSent through the call's name.
+func TestRefusedMutationKeepsItsKind(t *testing.T) {
+	var sent int
+	c := New(testToken)
+	c.BaseURL = "https://api.example.org"
+	c.HTTP.Transport = roundTrip(func(*http.Request) (*http.Response, error) {
+		sent++
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":{}}`)), Header: http.Header{}}, nil
+	})
+	err := c.GraphQL(context.Background(), "mutation PocketNope { mergeBranch }", nil, nil)
+	if !errors.Is(err, errNotSent) || sent != 0 {
+		t.Fatalf("err %v, %d requests sent", err, sent)
+	}
+	if !strings.HasPrefix(err.Error(), "GraphQL PocketNope: ") {
+		t.Errorf("the call is not named: %v", err)
+	}
+}
+
+// checksRefusedAnswer is a 200 answer for f's PR query: every check node null,
+// and 1 FORBIDDEN entry at statusCheckRollup for each, as a fine-grained
+// token without the Checks permission gets.
+func checksRefusedAnswer(f *fake) string {
+	data := copyJSON(f.data)
+	pr := obj(data, "repository", "pullRequest")
+	commit := pr["commits"].(map[string]any)["nodes"].([]any)[0].(map[string]any)["commit"].(map[string]any)
+	contexts := commit["statusCheckRollup"].(map[string]any)["contexts"].(map[string]any)
+	got := contexts["nodes"].([]any)
+	entries := make([]json.RawMessage, 0, len(got))
+	for i := range got {
+		got[i] = nil
+		entries = append(entries, gqlEntry("FORBIDDEN",
+			[]any{"repository", "pullRequest", "commits", "nodes", 0, "commit", "statusCheckRollup", "contexts", "nodes", i},
+			"Resource not accessible by personal access token"))
+	}
+	b, err := json.Marshal(map[string]any{"data": data, "errors": entries})
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
+}
+
+// TestChecksUnreadable: a token that GitHub refuses the check runs to is
+// refused by name, and Pocket sends no mutation.
+func TestChecksUnreadable(t *testing.T) {
+	t.Run("check runs", func(t *testing.T) {
+		f := direct(t)
+		c := f.client()
+		p, err := c.Preview(context.Background(), f.ref)
+		if err != nil || !p.Eligible {
+			t.Fatalf("preview %+v, %v", p, err)
+		}
+		f.prFail = func(int) (int, string, http.Header) { return 200, checksRefusedAnswer(f), nil }
+
+		_, err = c.Preview(context.Background(), f.ref)
+		if !errors.Is(err, ErrChecksUnreadable) || !errors.Is(err, ErrIncomplete) {
+			t.Fatalf("err %v", err)
+		}
+		var g *gqlErrors
+		if !errors.As(err, &g) || len(g.list) == 0 {
+			t.Errorf("the entries are lost: %v", err)
+		}
+		if !strings.Contains(err.Error(), "statusCheckRollup") {
+			t.Errorf("the error names no check run: %v", err)
+		}
+		row := c.Preflight(context.Background(), f.ref)
+		if row.Readable || !strings.Contains(row.Reason, "cannot read the PR's check runs") {
+			t.Errorf("row %+v", row)
+		}
+
+		f.reset()
+		res := c.Act(context.Background(), Intent{Preview: p, Mode: "single"}, "op-1", nil)
+		if res.Kind != "failed" || res.Step != "read" || !errors.Is(res.Err, ErrChecksUnreadable) {
+			t.Errorf("result %+v", res)
+		}
+		if len(f.mutations) != 0 {
+			t.Errorf("mutations %v", f.mutations)
+		}
+	})
+	t.Run("another path", func(t *testing.T) {
+		f := direct(t)
+		f.prFail = func(int) (int, string, http.Header) {
+			return 200, gqlAnswer("null", gqlEntry("FORBIDDEN",
+				[]any{"repository", "pullRequest", "labels"},
+				"Resource not accessible by personal access token")), nil
+		}
+		_, err := f.client().Preview(context.Background(), f.ref)
+		if err == nil || errors.Is(err, ErrChecksUnreadable) || !errors.Is(err, ErrIncomplete) {
+			t.Fatalf("err %v", err)
+		}
+	})
 }

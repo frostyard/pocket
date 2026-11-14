@@ -21,6 +21,7 @@ Docs are split by the question they answer:
 - [0006 — Filter notifications in the client](adr/0006-filter-notifications-in-the-client.md)
 - [0007 — Render terminal history before attaching](adr/0007-render-terminal-history-before-attaching.md)
 - [0008 — Approve and merge as the owner from the desktop](adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md)
+- [0009 — Read check runs only with a token that can](adr/0009-read-check-runs-only-with-a-token-that-can.md)
 
 ### Org-wide decisions
 

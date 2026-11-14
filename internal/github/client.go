@@ -36,6 +36,13 @@ var (
 	// ErrNoAnswer is a request with no HTTP answer, a timeout or a 5xx: the
 	// outcome of a mutation is unknown.
 	ErrNoAnswer = errors.New("GitHub gave no answer")
+	// ErrChecksUnreadable is a token that GitHub refuses the check runs to:
+	// a fine-grained token has no Checks permission, so GitHub refuses every
+	// CheckRun node of the PR query's statusCheckRollup, with partial data and
+	// an `errors` list. It is a refusal, never a retry: Pocket cannot check
+	// the required checks, so it sends no mutation
+	// (docs/adr/0009-read-check-runs-only-with-a-token-that-can.md).
+	ErrChecksUnreadable = errors.New("this token cannot read the PR's check runs (a fine-grained token has no Checks permission)")
 
 	errRedirect = errors.New("redirect refused")
 	// errNotSent is an error before any request went out: nothing reached
@@ -54,10 +61,33 @@ type localError struct{ msg string }
 func (e *localError) Error() string        { return e.msg }
 func (e *localError) Is(target error) bool { return target == errNotSent }
 
+// callError is an error with the name of the call that failed: its text is
+// "<call>: <err>", and errors.Is and errors.As reach the error under it.
+type callError struct {
+	call string
+	err  error
+}
+
+func (e *callError) Error() string { return e.call + ": " + e.err.Error() }
+func (e *callError) Unwrap() error { return e.err }
+
+// onCall is err with the name of the call that failed; nil stays nil.
+func onCall(call string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &callError{call: call, err: err}
+}
+
 // gqlErrors is a 200 answer with an `errors` list: ErrIncomplete, with
 // GitHub's messages. To a mutation it proves nothing: GitHub can make the
 // change, then null the result on a later error.
-type gqlErrors struct{ msg string }
+type gqlErrors struct {
+	msg string
+	// list is every entry of `errors`, with the token redacted: a caller
+	// reads its type and path, as pr does for the check runs.
+	list []gqlError
+}
 
 func (e *gqlErrors) Error() string        { return ErrIncomplete.Error() + ": " + e.msg }
 func (e *gqlErrors) Is(target error) bool { return target == ErrIncomplete }
@@ -74,10 +104,14 @@ type APIError struct {
 }
 
 func (e *APIError) Error() string {
+	msg := fmt.Sprintf("GitHub answered %d", e.Status)
 	if e.Message != "" {
-		return fmt.Sprintf("GitHub answered %d: %s", e.Status, e.Message)
+		msg += ": " + e.Message
 	}
-	return fmt.Sprintf("GitHub answered %d", e.Status)
+	if e.Accepted != "" {
+		msg += " (accepted permissions: " + e.Accepted + ")"
+	}
+	return msg
 }
 
 // Client calls GitHub's API with 1 token.
@@ -154,7 +188,20 @@ func (c *Client) redact(s string) string {
 	return strings.ReplaceAll(s, c.Token, "[token]")
 }
 
-// REST reads path (a GET) into out.
+// redactPath redacts the token in each segment of a GraphQL path.
+func (c *Client) redactPath(p []json.RawMessage) []json.RawMessage {
+	if len(p) == 0 || c.Token == "" {
+		return p
+	}
+	out := make([]json.RawMessage, 0, len(p))
+	for _, seg := range p {
+		out = append(out, json.RawMessage(c.redact(string(seg))))
+	}
+	return out
+}
+
+// REST reads path (a GET) into out. Every error names the call: "GET" and
+// the path, without its query string, which holds no fact.
 func (c *Client) REST(ctx context.Context, path string, out any) error {
 	data, err := c.do(ctx, http.MethodGet, path, nil)
 	if err == nil && out != nil {
@@ -162,17 +209,108 @@ func (c *Client) REST(ctx context.Context, path string, out any) error {
 			err = fmt.Errorf("%w: %s", ErrIncomplete, c.redact(jerr.Error()))
 		}
 	}
-	return Redact(err, c.Token)
+	return Redact(onCall("GET "+noQuery(path), err), c.Token)
+}
+
+// noQuery is path without its query string.
+func noQuery(path string) string {
+	if i := strings.Index(path, "?"); i >= 0 {
+		return path[:i]
+	}
+	return path
 }
 
 type gqlError struct {
-	Message string `json:"message"`
+	Message string            `json:"message"`
+	Type    string            `json:"type"`
+	Path    []json.RawMessage `json:"path"`
+}
+
+// segments is the path, each JSON string segment unquoted and each other
+// segment as written.
+func (e gqlError) segments() []string {
+	if len(e.Path) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(e.Path))
+	for _, p := range e.Path {
+		var s string
+		if json.Unmarshal(p, &s) == nil {
+			out = append(out, s)
+			continue
+		}
+		out = append(out, string(p))
+	}
+	return out
+}
+
+// where is the path as segments joined by "."; "" when there is none.
+func (e gqlError) where() string { return strings.Join(e.segments(), ".") }
+
+// text is the entry in words: "TYPE at a.b.0.c: message", with the type or
+// the path left out when GitHub gives none.
+func (e gqlError) text() string {
+	where := e.where()
+	switch {
+	case e.Type != "" && where != "":
+		return e.Type + " at " + where + ": " + e.Message
+	case where != "":
+		return where + ": " + e.Message
+	case e.Type != "":
+		return e.Type + ": " + e.Message
+	}
+	return e.Message
+}
+
+// maxGQLErrors is how many entries gqlErrors.msg shows.
+const maxGQLErrors = 3
+
+// gqlMsg is the entries in words, 3 at most, then the count of the rest.
+func gqlMsg(list []gqlError) string {
+	shown := list
+	more := 0
+	if len(list) > maxGQLErrors {
+		shown, more = list[:maxGQLErrors], len(list)-maxGQLErrors
+	}
+	parts := make([]string, 0, len(shown)+1)
+	for _, e := range shown {
+		parts = append(parts, e.text())
+	}
+	msg := strings.Join(parts, "; ")
+	if more > 0 {
+		msg += fmt.Sprintf("; and %d more", more)
+	}
+	return msg
+}
+
+// opName is the operation name of a GraphQL text: its 2nd field, cut at the
+// first "(" or "{" ("query PocketPR($owner..." is PocketPR); "query" when
+// the text names none.
+func opName(query string) string {
+	fields := strings.Fields(query)
+	if len(fields) < 2 {
+		return "query"
+	}
+	name := fields[1]
+	if i := strings.IndexAny(name, "({"); i >= 0 {
+		name = name[:i]
+	}
+	if name == "" {
+		return "query"
+	}
+	return name
 }
 
 // GraphQL sends query with vars and decodes the answer's `data` into out.
 // A 200 with an `errors` list is ErrIncomplete with GitHub's messages. A
-// mutation must be 1 of Pocket's 3, with exactly its inputs.
+// mutation must be 1 of Pocket's 3, with exactly its inputs. Every error
+// names the call: "GraphQL" and the operation's name.
 func (c *Client) GraphQL(ctx context.Context, query string, vars map[string]any, out any) error {
+	return Redact(onCall("GraphQL "+opName(query), c.graphql(ctx, query, vars, out)), c.Token)
+}
+
+// graphql is GraphQL's work, without the name of the call.
+func (c *Client) graphql(ctx context.Context, query string, vars map[string]any, out any) error {
 	if err := allowed(query, vars); err != nil {
 		return err
 	}
@@ -183,18 +321,18 @@ func (c *Client) GraphQL(ctx context.Context, query string, vars map[string]any,
 	body := map[string]any{"query": query, "variables": vars}
 	data, err := c.do(ctx, http.MethodPost, "/graphql", body)
 	if err != nil {
-		return Redact(err, c.Token)
+		return err
 	}
 	// An answer that does not parse says nothing of what GitHub did.
 	if err := json.Unmarshal(data, &answer); err != nil {
 		return fmt.Errorf("%w: the answer does not parse", ErrNoAnswer)
 	}
 	if len(answer.Errors) > 0 {
-		msgs := make([]string, 0, len(answer.Errors))
+		list := make([]gqlError, 0, len(answer.Errors))
 		for _, e := range answer.Errors {
-			msgs = append(msgs, c.redact(e.Message))
+			list = append(list, gqlError{Message: c.redact(e.Message), Type: c.redact(e.Type), Path: c.redactPath(e.Path)})
 		}
-		return &gqlErrors{msg: strings.Join(msgs, "; ")}
+		return &gqlErrors{msg: gqlMsg(list), list: list}
 	}
 	if out == nil {
 		return nil
