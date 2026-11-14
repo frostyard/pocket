@@ -84,6 +84,11 @@ type fake struct {
 	afterMerge   func(pr map[string]any)
 	afterEnqueue func(pr map[string]any)
 
+	// user is the login GET /user answers; expiry its expiry header.
+	user, expiry string
+	// gets are the REST paths read, in order.
+	gets []string
+
 	mutations []string         // the mutations received, in order
 	inputs    []map[string]any // their inputs
 	requests  int
@@ -267,11 +272,28 @@ func (f *fake) serve(w http.ResponseWriter, r *http.Request) {
 		t.Errorf("REST %s %s: only GET is allowed", r.Method, r.URL)
 		return
 	}
+	f.gets = append(f.gets, r.URL.Path)
 	if f.restFail != nil {
 		if status, body, h := f.restFail(r.URL.Path); status != 0 {
 			f.write(w, status, body, h)
 			return
 		}
+	}
+	switch r.URL.Path {
+	case "/user":
+		user := f.user
+		if user == "" {
+			user = Login
+		}
+		var h http.Header
+		if f.expiry != "" {
+			h = http.Header{"Github-Authentication-Token-Expiration": {f.expiry}}
+		}
+		f.write(w, 200, `{"login":"`+user+`","id":1}`, h)
+		return
+	case "/repos/" + f.ref.Owner + "/" + f.ref.Name:
+		f.write(w, 200, `{"full_name":"`+f.ref.Owner+"/"+f.ref.Name+`"}`, nil)
+		return
 	}
 	prefix := "/repos/" + f.ref.Owner + "/" + f.ref.Name + "/"
 	rest, ok := strings.CutPrefix(r.URL.Path, prefix)

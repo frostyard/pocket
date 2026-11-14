@@ -16,6 +16,7 @@ import (
 
 	"github.com/frostyard/pocket/internal/app"
 	"github.com/frostyard/pocket/internal/config"
+	"github.com/frostyard/pocket/internal/github"
 	"github.com/frostyard/pocket/internal/icons"
 )
 
@@ -53,17 +54,20 @@ func run() error {
 	if mygo.WebViewAvailable() {
 		web = pane
 	}
+	tokens, gh := githubTokens()
 	a, err := app.New(app.Options{
-		Version:   version,
-		SaveFile:  saveFile,
-		PickFiles: pickFiles,
-		Post:      p.post,
-		Store:     store,
-		Creds:     creds(store.Dir()),
-		Notify:    notifier{win: func() *mygo.Window { return win }},
-		Web:       web,
-		Quit:      mygo.App.Quit,
-		Badge:     mygo.App.SetBadgeCount,
+		Version:      version,
+		GitHub:       gh,
+		GitHubTokens: tokens,
+		SaveFile:     saveFile,
+		PickFiles:    pickFiles,
+		Post:         p.post,
+		Store:        store,
+		Creds:        creds(store.Dir()),
+		Notify:       notifier{win: func() *mygo.Window { return win }},
+		Web:          web,
+		Quit:         mygo.App.Quit,
+		Badge:        mygo.App.SetBadgeCount,
 		Raise: func() {
 			if win != nil {
 				win.Restore()
@@ -155,6 +159,27 @@ func creds(dir string) config.Credentials {
 		return config.Credentials{Dir: dir}
 	}
 	return config.Credentials{Ring: secrets{}, NotFound: mygo.ErrSecretNotFound, Dir: dir}
+}
+
+// githubTokens keeps the owner's GitHub tokens in the keyring only
+// (ADR-0008), and builds a client of api.github.com with the kept token of
+// a resource owner. With POCKET_NO_KEYRING set, both are nil: Approve +
+// merge is off, and no token ever goes to a file.
+func githubTokens() (app.TokenStore, func(owner string) (*github.Client, error)) {
+	if os.Getenv("POCKET_NO_KEYRING") != "" {
+		return nil, nil
+	}
+	tokens := config.GitHubTokens{Ring: secrets{}, NotFound: mygo.ErrSecretNotFound}
+	return tokens, func(owner string) (*github.Client, error) {
+		tok, err := tokens.Get(owner)
+		if err != nil {
+			return nil, err
+		}
+		if tok == "" {
+			return nil, fmt.Errorf("no token for %s", owner)
+		}
+		return github.New(tok), nil
+	}
 }
 
 // secrets is mygo.Secrets as a config.Keyring.

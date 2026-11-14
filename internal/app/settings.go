@@ -129,6 +129,7 @@ func (a *App) settingsDialog(c *ui.Context) {
 						}
 					}},
 				}}}},
+		a.githubSettingsPage(),
 		{ID: "about", Title: "About", Icon: "help-about",
 			Groups: []frostui.SettingsGroup{{Values: []frostui.KeyValue{
 				{Key: "Pocket", Value: firstNonEmpty(a.opts.Version, "dev")},

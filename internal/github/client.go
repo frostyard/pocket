@@ -68,6 +68,9 @@ type APIError struct {
 	Message string
 	// RetryAfter is when a rate limit ends; zero when the answer names none.
 	RetryAfter time.Time
+	// Accepted is the header X-Accepted-GitHub-Permissions of a 403 or 404
+	// answer: the fine-grained permissions the call needs; "" when absent.
+	Accepted string
 }
 
 func (e *APIError) Error() string {
@@ -207,31 +210,37 @@ func (c *Client) GraphQL(ctx context.Context, query string, vars map[string]any,
 
 // do sends 1 request and gives the body of a 2xx answer.
 func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte, error) {
+	data, _, err := c.doHeaders(ctx, method, path, body)
+	return data, err
+}
+
+// doHeaders is do that also gives the headers of a 2xx answer.
+func (c *Client) doHeaders(ctx context.Context, method, path string, body any) ([]byte, http.Header, error) {
 	if c.Token == "" {
-		return nil, notSent("no GitHub token")
+		return nil, nil, notSent("no GitHub token")
 	}
 	if !strings.HasPrefix(path, "/") || strings.Contains(path, "://") {
-		return nil, notSent("refused path %q", path)
+		return nil, nil, notSent("refused path %q", path)
 	}
 	base, err := url.Parse(c.BaseURL)
 	if err != nil || base.Host == "" {
-		return nil, notSent("bad GitHub base URL")
+		return nil, nil, notSent("bad GitHub base URL")
 	}
 	target := strings.TrimRight(c.BaseURL, "/") + path
 	var r io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
-			return nil, notSent("%s", err)
+			return nil, nil, notSent("%s", err)
 		}
 		r = bytes.NewReader(b)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, target, r)
 	if err != nil {
-		return nil, notSent("%s", c.redact(err.Error()))
+		return nil, nil, notSent("%s", c.redact(err.Error()))
 	}
 	if req.URL.Host != base.Host || req.URL.Scheme != base.Scheme {
-		return nil, notSent("refused path %q", path)
+		return nil, nil, notSent("refused path %q", path)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Accept", "application/vnd.github+json")
@@ -252,21 +261,21 @@ func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte,
 		if resp != nil {
 			status = resp.StatusCode
 		}
-		return nil, &APIError{Status: status, Message: "GitHub answered with a redirect, which Pocket does not follow"}
+		return nil, nil, &APIError{Status: status, Message: "GitHub answered with a redirect, which Pocket does not follow"}
 	}
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrNoAnswer, c.redact(err.Error()))
+		return nil, nil, fmt.Errorf("%w: %s", ErrNoAnswer, c.redact(err.Error()))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrNoAnswer, c.redact(err.Error()))
+		return nil, nil, fmt.Errorf("%w: %s", ErrNoAnswer, c.redact(err.Error()))
 	}
 	if len(data) > maxBody {
-		return nil, fmt.Errorf("%w: the answer is too large", ErrNoAnswer)
+		return nil, nil, fmt.Errorf("%w: the answer is too large", ErrNoAnswer)
 	}
 	if resp.StatusCode >= 500 {
-		return nil, fmt.Errorf("%w: GitHub answered %d", ErrNoAnswer, resp.StatusCode)
+		return nil, nil, fmt.Errorf("%w: GitHub answered %d", ErrNoAnswer, resp.StatusCode)
 	}
 	if resp.StatusCode/100 != 2 {
 		var e struct {
@@ -277,9 +286,12 @@ func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte,
 		if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests {
 			apiErr.RetryAfter = c.retryAfter(resp.Header)
 		}
-		return nil, apiErr
+		if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound {
+			apiErr.Accepted = strings.TrimSpace(resp.Header.Get("X-Accepted-GitHub-Permissions"))
+		}
+		return nil, nil, apiErr
 	}
-	return data, nil
+	return data, resp.Header, nil
 }
 
 // retryAfter reads a rate limit's end: `retry-after` (seconds or a date),

@@ -14,6 +14,7 @@ import (
 	"github.com/frostyard/frostui"
 
 	"github.com/frostyard/pocket/internal/config"
+	"github.com/frostyard/pocket/internal/github"
 	"github.com/frostyard/pocket/internal/pocket"
 )
 
@@ -54,6 +55,11 @@ type Options struct {
 	Now func() time.Time
 	// TimeZone gives the device's IANA zone, or empty when it is unknown.
 	TimeZone func() string
+	// GitHub gives a GitHub client with the owner's kept token for a
+	// resource owner, and GitHubTokens keeps those tokens (ADR-0008). Both
+	// nil turn Approve + merge off.
+	GitHub       func(owner string) (*github.Client, error)
+	GitHubTokens TokenStore
 }
 
 // App is the window's state.
@@ -105,6 +111,8 @@ type App struct {
 	arts    artifacts
 	terms   terms
 	arrakis arrakis
+	// gh is Approve + merge (merge.go); a sign-out keeps it.
+	gh ghState
 	// views counts the window's views: a place tells from it whether the
 	// view before drew it.
 	views int
@@ -180,6 +188,7 @@ func New(opts Options) (*App, error) {
 	a.setUpCommands()
 	a.guardShellKeys()
 	a.shell.Palette.Sources = []frostui.PaletteSource{a.sessionSource(), a.agentSource()}
+	a.initGitHub()
 	return a, nil
 }
 
@@ -187,6 +196,7 @@ func New(opts Options) (*App, error) {
 func (a *App) Start() {
 	a.post(func() {
 		a.started = true
+		a.startGitHub()
 		server := a.settings.Server
 		if server == "" {
 			return
@@ -209,6 +219,7 @@ func (a *App) Close() {
 	a.closeTerminals()
 	a.disconnect()
 	a.link.client = nil
+	a.closeGitHub()
 	a.settings.Widths = a.shell.Panes.Layout.Widths
 	a.settings.Collapsed = a.shell.Panes.Layout.Collapsed
 	if p := a.accountPrefs(); p != nil {
@@ -658,6 +669,8 @@ func (a *App) goPlace(key string) {
 	a.selected = key
 	a.sidebar.Select("places", key)
 	switch key {
+	case "x:inbox":
+		a.ghPreviewReady()
 	case "x:motion":
 		a.loadRunning()
 		a.desk.seenPending, a.desk.seenReady = true, false

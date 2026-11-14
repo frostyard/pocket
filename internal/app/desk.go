@@ -114,6 +114,7 @@ func (a *App) loadDesk() {
 				if a.desk.seenPending {
 					a.stampDeskSeen()
 				}
+				a.githubDeskRead()
 			}
 		}
 		if a.desk.dirty {

@@ -62,6 +62,7 @@ func (a *App) View(c *ui.Context) {
 	a.scheduleDialog(c)
 	a.planActionDialog(c)
 	a.newPlanDialog(c)
+	a.mergeDialogView(c)
 	// Confirmations must sit above sheets such as Changes and files.
 	a.dialogs.View(c)
 }

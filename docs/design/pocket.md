@@ -47,7 +47,9 @@ internal/icons ── the icons Pocket draws itself
 - **Inbox** (⌘1 / Ctrl 1) — one queue of everything that waits on the owner,
   the most pressing first: calls to allow and questions waiting in sessions
   (subagents' included), the Desk's decisions, PRs ready to merge (by review
-  level), a full desk (Allow 1), failed runs, found work, threads gone quiet,
+  level, each with Approve + merge as the owner when GitHub's gates pass:
+  see [the protocol](#the-protocol)), a full desk (Allow 1), failed runs,
+  found work, threads gone quiet,
   and lessons to review (which the badge does not count). Team lessons and
   Pi Pocket's own pending lessons appear together, with the latter labeled
   “Pi Pocket memory”. Approve sends the proposal shown; Discard withdraws it.
@@ -390,8 +392,9 @@ started it: when its window ends the settings and the clock are read again, so a
 kind turned off or do not disturb begun in the meantime holds it. Sign-out drops
 it, and a click never opens another sign-in's session. Approval notification
 tags expire after a day and clear on sign-out. The Settings dialog
-(`internal/app/settings.go`, ⌘,) holds those choices, the theme, the zoom and
-the server's facts. The status bar shows do not disturb while it holds.
+(`internal/app/settings.go`, ⌘,) holds those choices, the theme, the zoom,
+the server's facts and GitHub (the tokens, the preflight and Batches of
+Approve + merge). The status bar shows do not disturb while it holds.
 
 The zoom scales the whole window, text, icons and spacing together, as a
 browser zooms a page (MyGo's `Context.SetZoom`, drawn sharp at every level):
@@ -440,10 +443,10 @@ panes less room.
   A replay-render failure ends the attachment. A thread's session is matched
   by title. A session's agent comes from its folder: an agent's home, or a
   delegation's worktree `<checkout>--<agent>-<slug>`.
-- **GitHub (client built, no UI yet):** Approve + merge on the Inbox's
-  ready cards calls `api.github.com` with the owner's own fine-grained
-  tokens from the desktop keyring, never through the server, under
-  [ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md).
+- **GitHub (Approve + merge):** the owner approves and merges a ready PR
+  as `bketelsen` from the Inbox, calling `api.github.com` with his own
+  fine-grained tokens from the desktop keyring, never through the server,
+  under [ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md).
   `internal/github` holds the client: `Preview` reads the PR query, the
   rules, rulesets and branch protection of its base, and runs the gates;
   `Act` re-reads before each of its 3 allowed mutations (approve at the
@@ -453,12 +456,111 @@ panes less room.
   then null the result); only a 4xx is a refusal, and its 1 read only
   upgrades it when the effect is there. Every read fails closed: a null
   that the Nulls rule does not allow, a null rules page or an unknown merge
-  state refuses. It follows no
-  redirect and redacts the token from every error. `config.GitHubTokens`
-  keeps the tokens in the keyring with no file fallback, and
-  `pocket.Client.RecordMerge` posts each result to the Desk's
-  `POST /api/x/desk/threads/:id/merges` as information only. Its recorded
-  GitHub answers are in `internal/github/testdata/`.
+  state refuses. It follows no redirect and redacts the token from every
+  error; a 403 or 404 keeps GitHub's `X-Accepted-GitHub-Permissions` as the
+  missing permission. The reads of Settings and of an earlier attempt send
+  no mutation: `Whoami` (`GET /user`, the login and the header
+  `github-authentication-token-expiration`), `CheckRepo`, `Preflight`
+  (the full read of 1 ready PR, gates 1 and 2), `State` (1 PR query) and
+  `Settle` (1 read, or 4 with waits: merged or queued by the owner at the
+  shown head, a merge by another actor refused and never claimed, the
+  owner's approval "approved, not merged", else unknown).
+  `config.GitHubTokens` keeps the tokens in the keyring with no file
+  fallback. Its recorded GitHub answers are in `internal/github/testdata/`.
+  - **Cards** (`internal/app/merge.go`): each ready card whose `ref` parses
+    and whose owner (`bketelsen`, `frostyard`) has a kept token gets a
+    preview, read on entering the Inbox, after each Desk read and when a
+    dialog opens, 4 at a time, kept 60 seconds, never in a frame's draw.
+    An eligible card gets **Approve + merge**; a failed gate shows its
+    reason; a GitHub head newer than the Desk's says "new commit since the
+    Desk read". A `risk:high` card gets **Open diff** (the three-dot
+    compare of the base and the shown head, opened only by Pocket's own
+    URL) and no check box; its button turns on only after the opener
+    reports no error at that head, and a new head locks it again. The
+    Desk's `url` is never used for a GitHub call, nor opened: **Review on
+    GitHub** opens `https://github.com/<owner>/<name>/pull/<n>`, built from
+    the ref (any owner), and a ref that does not parse gets no button.
+  - **Dialog:** the confirm dialog reads each PR again and lists its ref,
+    title, head and method; its 1 button (**Approve + merge as bketelsen**,
+    **Approve + merge N as bketelsen**, or **I read the diff at abc1234:
+    approve + merge**) is the only path that starts a mutation. The dialog
+    keeps the server and user the window showed when it opened (and each
+    row's Desk thread): every attempt records that origin, and under
+    another account the dialog does not start ("signed in to another
+    account: close and open again"). Pocket works
+    the list 1 PR at a time in Inbox order: a refusal stops only that PR, a
+    401 stops that owner's PRs and marks the token bad, a rate limit stops
+    the batch ("not started: rate limit until HH:MM"), and **Stop** starts
+    no other PR. The end shows each result and a toast with the totals.
+  - **Batches:** Settings > GitHub > Batches (off by default,
+    `githubBatches` in the settings) adds check boxes, **Select all
+    eligible** (the first 25) and **Approve + merge N**. `risk:high` is
+    never in a batch.
+  - **Results:** a merged card leaves the Inbox, and stays hidden while
+    GitHub says MERGED (a `State` read at each Desk read). A queued card
+    shows "In merge queue" with no button; at start and at each Desk read
+    `Settle` reads every queued attempt, whether the Desk still lists its PR
+    or not, and finds it merged (only with the queue's method from the
+    rules: a failed rules read, or rules with no queue method, claim
+    nothing, and the attempt stays queued), still queued, or out of the
+    queue (the card comes back, the attempt ends as approved: "left the
+    merge queue"). An unknown outcome keeps the PR
+    locked, with **Check again** (reads only), **Open on GitHub** and **Try
+    again** (a new attempt through the dialog). GitHub work runs on
+    `githubDo`, whose result reaches the window whatever the server sign-in
+    is then.
+  - **Journal** (`internal/app/merge_journal.go`): `operations.json` in
+    the config folder (mode 0600, no token) keeps each attempt: its origin
+    (server, user, thread), its intent, its last step and result, and its
+    Desk receipt. Each write goes to `operations.json.tmp`, is synced and
+    renamed. Pocket writes the checkpoints "about to approve" and "about to
+    merge" before each mutation, and a failed write sends nothing; no other
+    step replaces a checkpoint before the result is saved, so a crash after
+    a merge was sent reads as "merge may be pending" (unknown, locked).
+    `operations.lock` (created with `O_EXCL` at start, removed at exit)
+    keeps 1 Pocket on it;
+    a held lock or a file that does not parse turns the buttons off until
+    the owner clicks **Release the journal lock** or **Start a new journal**
+    in Settings > GitHub. A file does not parse when it is not JSON, has an
+    unknown version, or holds an op or receipt that is null, has an empty or
+    unknown result or state, or repeats a result of its op (checked after a
+    version 1 migration, in which an attempt with a result needs a receipt
+    with a known state). Then Pocket writes the marker `operations.corrupt`
+    (atomic, 0600): the name of a new copy `operations.json.corrupt-<time>`
+    (a free name: an earlier copy is never written over) and the SHA-256
+    of the corrupt bytes. It keeps the journal corrupt across restarts.
+    Then Pocket copies the file there (a synced copy, renamed); the original
+    stays. Each open with the marker leaves a copy whose digest matches
+    alone; else it copies `operations.json` only when its digest matches the
+    marker's, and checks the digest again; else the journal is broken ("the
+    kept copy of the corrupt journal is missing"). **Start a new journal**
+    checks the copy's digest, saves the new empty journal, then removes the
+    marker: a crash or a failed removal between the 2 leaves the journal
+    corrupt with the copy whole, and a second click is safe. A marker with
+    no valid digest or safe name, or a marker or copy that cannot be
+    written, leaves the journal broken, and no reset runs. Each atomic
+    write also syncs the folder, so the steps reach the disk in order. At
+    start each unfinished or unknown attempt is settled by reads only; a batch never resumes. An ended attempt whose
+    receipts all settled is kept 7 days. The file is version 2 (a list of
+    receipts per attempt); a version 1 file's single receipt is migrated.
+  - **Receipts:** `pocket.Client.RecordMerge` posts each result to the
+    Desk's `POST /api/x/desk/threads/:id/merges` as information only, and
+    only while the window is signed in to the attempt's server and user.
+    An attempt keeps 1 receipt per result (the Desk keys them
+    `<op>:<result>`): a later result, such as merged after queued, adds its
+    own and never replaces another's. A receipt that waits shows "not
+    recorded on the Desk" and goes again with the same `op` at start and at
+    each Desk read for 24 hours, then gives up; a 400 or 409 is rejected. A receipt never hides or undoes the GitHub result.
+  - **Settings > GitHub:** a masked field per owner with **Check** (the
+    token must sign in as `bketelsen` and read a ready repository of that
+    owner; only then is it saved, so with no ready PR of that owner a typed
+    token is not kept, and a kept one shows only its login and expiry) and
+    **Forget**; the login, expiry and
+    missing permission; the read-only preflight table (repository,
+    readable, bypass, classic protection, missing permission or reason),
+    whose failed repositories get no button; and Batches. Without a
+    keyring (or with `POCKET_NO_KEYRING`) it says "Approve + merge needs the
+    desktop keyring" and no card gets a button.
 - **Threads:** the client's goroutines never touch UI state; they post
   functions to the window (`Window.Update`).
 
