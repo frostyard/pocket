@@ -628,5 +628,6 @@ Desk list, so older closures and their reports remain readable in the inspector.
 ## References
 
 - Rationale: [ADR-0004](../adr/0004-build-a-native-client-of-pi-pockets-own-api.md), [ADR-0005](../adr/0005-organize-the-window-around-what-needs-the-owner.md), [ADR-0006](../adr/0006-filter-notifications-in-the-client.md), [ADR-0007](../adr/0007-render-terminal-history-before-attaching.md), [ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md), [ADR-0009](../adr/0009-read-check-runs-only-with-a-token-that-can.md)
+- Owner's GitHub sign-in (to come): [ADR-0010](../adr/0010-act-as-the-owner-through-a-github-app-user-token.md)
 - Repository structure: [agent-ready repository](agent-ready-repository.md)
 - Built in: [roadmap](../plans/roadmap.md)
