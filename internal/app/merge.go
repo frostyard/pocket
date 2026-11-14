@@ -355,13 +355,15 @@ func (a *App) ghTokenRefused(owner string, err error) bool {
 }
 
 // mergeHidden says a ready PR's card leaves the Inbox: an attempt merged
-// it, and GitHub has not said otherwise since.
+// it, the journal holds that result, and GitHub has not said otherwise
+// since. A merge whose journal write failed stays, locked, with Check
+// again.
 func (a *App) mergeHidden(ref string) bool {
 	if !a.ghOn() || a.gh.j == nil {
 		return false
 	}
 	o := a.gh.j.latest(ref)
-	return o != nil && o.Result == "merged" && !a.gh.notMerged[ref]
+	return o != nil && o.Result == "merged" && !o.unsaved && !a.gh.notMerged[ref]
 }
 
 // inRunningDialog says ref has a place in a dialog that runs.
@@ -463,7 +465,7 @@ func (a *App) mergeControls(c *ui.Context, p *pocket.ReadyPR) {
 			frostui.Caption(c, note).Wrap()
 		}
 	}
-	if mc.running || mc.queued {
+	if mc.running || (mc.queued && !mc.op.unsaved) {
 		return // the result line says it all; no button
 	}
 	if mc.newHead && mc.prev != nil {
@@ -1319,7 +1321,36 @@ func (a *App) githubDeskRead() {
 			a.settleOp(o, false, func(res github.Result) { a.settleQueued(o, res) })
 		}
 	}
+	a.resaveJournal()
 	a.retryReceipts()
+}
+
+// resaveJournal writes the journal again when the write of a result
+// failed. On success those attempts leave the journal-write lock (an
+// unknown result keeps its own lock), and retryReceipts posts their
+// receipts.
+func (a *App) resaveJournal() {
+	if !a.gh.j.ok() {
+		return
+	}
+	var unsaved []*mergeOp
+	for _, o := range a.gh.j.ops {
+		if o.unsaved {
+			unsaved = append(unsaved, o)
+		}
+	}
+	if len(unsaved) == 0 {
+		return
+	}
+	if err := a.gh.j.save(); err != nil {
+		a.console.Add(frostui.LevelError, "github", "journal write failed again: "+err.Error())
+		return
+	}
+	for _, o := range unsaved {
+		o.unsaved = false
+		a.console.Add(frostui.LevelInfo, "github", o.Intent.Ref+": "+o.Result+" written to the journal")
+	}
+	a.invalidateDerived()
 }
 
 // mergedState reads a merged PR the Desk still lists: its card shows again

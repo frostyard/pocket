@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-14",
+  "scope": "approve-merge",
+  "correction": "A result whose journal write failed must keep its card, its lock and Check again over the merged hide and the queued view, and each Desk read must write the journal again before the receipt goes out.",
+  "evidence": "frostyard/pocket#97, verification review of frostyard/pocket 1e37479 (merged and queued results whose journal write failed)",
+  "promoted_to": "internal/app/merge_review_test.go TestUnsavedResultKeepsCheckAgain"
+}
