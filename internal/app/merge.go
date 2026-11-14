@@ -1326,8 +1326,9 @@ func (a *App) githubDeskRead() {
 }
 
 // resaveJournal writes the journal again when the write of a result
-// failed. On success those attempts leave their lock, and retryReceipts
-// posts their receipts.
+// failed. On success those attempts leave the journal-write lock (an
+// unknown result keeps its own lock), and retryReceipts posts their
+// receipts.
 func (a *App) resaveJournal() {
 	if !a.gh.j.ok() {
 		return

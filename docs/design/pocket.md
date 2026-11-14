@@ -510,7 +510,8 @@ panes less room.
     write failed shows with "journal write failed" and keeps the same lock
     and **Check again**: it wins over the merged hide and the queued view,
     and no receipt goes out. Each Desk read writes the journal again; on
-    success the lock ends and the receipt is posted. GitHub work runs on
+    success the journal-write lock ends (an unknown result keeps its own
+    lock and **Check again**) and the receipt is posted. GitHub work runs on
     `githubDo`, whose result reaches the window whatever the server sign-in
     is then.
   - **Journal** (`internal/app/merge_journal.go`): `operations.json` in
