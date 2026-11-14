@@ -142,6 +142,12 @@ Metadata: read.
 - The rules, rulesets and branch answers of frostyard/core (merge queue) and
   bketelsen/pi-pocket-team (no queue), and the PR query for merged PRs of
   frostyard/core, bketelsen/pi-pocket-team and bketelsen/pi-pocket-config.
+- The PR query for an open PR of bketelsen/pi-pocket-team before its
+  approval: `mergeable` MERGEABLE, `mergeStateStatus` BLOCKED,
+  `reviewDecision` REVIEW_REQUIRED, `viewerLatestReview` null. A required
+  check that has not run yet is absent from `statusCheckRollup`, and a check
+  in progress has `status` IN_PROGRESS and `conclusion` null: a check that
+  is not complete, which the gates refuse, not an incomplete answer.
 - `GET /repos/{o}/{r}/rulesets/{id}` answers for an organization ruleset
   (frostyard's `default branch: humans merge`) through the repository path,
   with `source_type: Organization`.

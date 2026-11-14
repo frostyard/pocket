@@ -1,0 +1,127 @@
+{
+  "data": {
+    "viewer": {
+      "login": "frostyard-machines"
+    },
+    "repository": {
+      "viewerDefaultMergeMethod": "MERGE",
+      "mergeCommitAllowed": true,
+      "squashMergeAllowed": true,
+      "rebaseMergeAllowed": true,
+      "pullRequest": {
+        "id": "PR_kwDOVRnVrM8AAAABPJCHjA",
+        "number": 238,
+        "title": "desk: owner route POST threads/:id/merges stores Pocket's merge receipts",
+        "state": "OPEN",
+        "isDraft": false,
+        "viewerDidAuthor": true,
+        "baseRefName": "main",
+        "baseRefOid": "6b189e0e2f432ca2a74a330a135e643f3b280dc7",
+        "headRefOid": "3721d27e51c1d046da5d955c6354bb6f1ce0e5f5",
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "BLOCKED",
+        "reviewDecision": "REVIEW_REQUIRED",
+        "isMergeQueueEnabled": false,
+        "isInMergeQueue": false,
+        "viewerLatestReview": null,
+        "labels": {
+          "pageInfo": {
+            "hasNextPage": false
+          },
+          "nodes": [
+            {
+              "name": "risk:high"
+            },
+            {
+              "name": "level:L1"
+            }
+          ]
+        },
+        "latestOpinionatedReviews": {
+          "pageInfo": {
+            "hasNextPage": false
+          },
+          "nodes": []
+        },
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "oid": "3721d27e51c1d046da5d955c6354bb6f1ce0e5f5",
+                "statusCheckRollup": {
+                  "contexts": {
+                    "pageInfo": {
+                      "hasNextPage": false,
+                      "endCursor": "NQ"
+                    },
+                    "nodes": [
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Test on Pi Pocket v0.27.0",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "checkSuite": {
+                          "app": {
+                            "databaseId": 15368
+                          }
+                        }
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "pr-triage / pr-triage",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "checkSuite": {
+                          "app": {
+                            "databaseId": 15368
+                          }
+                        }
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "build",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "checkSuite": {
+                          "app": {
+                            "databaseId": 15368
+                          }
+                        }
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Test on Pi Pocket v0.28.1-bk.1",
+                        "status": "IN_PROGRESS",
+                        "conclusion": null,
+                        "checkSuite": {
+                          "app": {
+                            "databaseId": 15368
+                          }
+                        }
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "deploy",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "checkSuite": {
+                          "app": {
+                            "databaseId": 15368
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "mergedBy": null,
+        "mergeCommit": null,
+        "mergedAt": null,
+        "mergeQueueEntry": null
+      }
+    }
+  }
+}
