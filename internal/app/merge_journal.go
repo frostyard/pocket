@@ -2,12 +2,15 @@ package app
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -126,27 +129,39 @@ func (o *mergeOp) settled() bool {
 }
 
 // migrate moves a version 1 receipt into the list, as the receipt of the
-// result the attempt had then.
-func (o *mergeOp) migrate() {
-	if o.Receipt == nil {
-		return
+// result the attempt had then. An attempt with a result must have a
+// receipt with a known state: else the file is corrupt, and its bytes are
+// kept, never dropped. An attempt with no result (it ran at the crash) has
+// no receipt yet: an empty one goes.
+func (o *mergeOp) migrate() error {
+	if len(o.Receipts) > 0 {
+		return errors.New("a version 1 attempt with a list of receipts")
 	}
-	if len(o.Receipts) == 0 && o.Receipt.State != "" && o.Result != "" {
-		r := *o.Receipt
-		r.Result = o.Result
-		switch o.Result {
-		case "merged":
-			r.Method = firstNonEmpty(o.Method, "merge")
-		case "queued":
-			r.Method = "queue"
-		case "approved":
-			r.Reason = o.Reason
-		default:
-			r.Reason = firstNonEmpty(o.Reason, o.Step, o.Result)
-		}
-		o.Receipts = []*opReceipt{&r}
-	}
+	legacy := o.Receipt
 	o.Receipt = nil
+	if o.Result == "" {
+		if legacy != nil && (legacy.State != "" || legacy.Result != "") {
+			return errors.New("a receipt on an attempt with no result")
+		}
+		return nil
+	}
+	if legacy == nil || !receiptStates[legacy.State] || (legacy.Result != "" && legacy.Result != o.Result) {
+		return errors.New("an attempt with a result and no valid receipt")
+	}
+	r := *legacy
+	r.Result = o.Result
+	switch o.Result {
+	case "merged":
+		r.Method = firstNonEmpty(o.Method, "merge")
+	case "queued":
+		r.Method = "queue"
+	case "approved":
+		r.Reason = o.Reason
+	default:
+		r.Reason = firstNonEmpty(o.Reason, o.Step, o.Result)
+	}
+	o.Receipts = []*opReceipt{&r}
+	return nil
 }
 
 // ended says the attempt's result is final: not running, not queued, not
@@ -180,15 +195,19 @@ type journal struct {
 	// why says what is wrong when the state is not journalOK; corrupt is
 	// the name the unreadable file was given.
 	why, corrupt string
-	held         bool
-	ops          []*mergeOp
-	now          func() time.Time
-	// rename replaces the file with the written copy; tests make it fail.
+	// digest is the SHA-256 (hex) of the corrupt bytes the kept copy holds.
+	digest string
+	held   bool
+	ops    []*mergeOp
+	now    func() time.Time
+	// rename replaces the file with the written copy, and remove removes
+	// the corrupt marker; tests make them fail.
 	rename func(oldpath, newpath string) error
+	remove func(path string) error
 }
 
 func newJournal(dir string, now func() time.Time) *journal {
-	return &journal{dir: dir, now: now, rename: os.Rename}
+	return &journal{dir: dir, now: now, rename: os.Rename, remove: os.Remove}
 }
 
 func (j *journal) path() string   { return filepath.Join(j.dir, journalName) }
@@ -201,7 +220,7 @@ func (j *journal) ok() bool { return j != nil && j.state == journalOK }
 // open takes the lock and reads the file. A held lock, an unreadable file
 // or a file that does not parse leave the journal closed to mutations.
 func (j *journal) open() {
-	j.ops, j.why, j.corrupt = nil, "", ""
+	j.ops, j.why, j.corrupt, j.digest = nil, "", "", ""
 	if !j.held {
 		if err := os.MkdirAll(j.dir, 0o700); err != nil {
 			j.state, j.why = journalBroken, "the config folder: "+err.Error()
@@ -221,22 +240,23 @@ func (j *journal) open() {
 		j.held = true
 	}
 	// A journal found corrupt before stays corrupt until the owner starts a
-	// new one, also when operations.json is gone. Its copy is checked again
-	// on each open: a crash may have come before the copy was whole.
+	// new one, also when operations.json is gone or newer. Its kept copy is
+	// bound to the SHA-256 of the corrupt bytes: only those bytes are ever
+	// copied there.
 	switch kept, err := os.ReadFile(j.marker()); {
 	case err == nil:
-		name := string(kept)
-		if !validArchiveName(name) {
-			j.state, j.why = journalBroken, "the journal's corrupt marker names no kept copy: "+name
+		m, merr := parseMarker(kept)
+		if merr != nil {
+			j.state, j.why = journalBroken, "the journal's corrupt marker is not valid: "+merr.Error()
 			return
 		}
-		j.corrupt = name
-		if err := j.keepCopy(); err != nil {
-			j.state, j.why = journalBroken, "the journal did not parse, and keeping a copy as "+name+" failed: "+err.Error()
+		j.corrupt, j.digest = m.Archive, m.SHA256
+		if err := j.ensureCopy(); err != nil {
+			j.state, j.why = journalBroken, err.Error()
 			return
 		}
 		j.state = journalCorrupt
-		j.why = "the journal did not parse; Pocket kept it as " + name
+		j.why = "the journal did not parse; Pocket kept it as " + j.corrupt
 		return
 	case !errors.Is(err, fs.ErrNotExist):
 		j.state, j.why = journalBroken, "reading the journal's corrupt marker: "+err.Error()
@@ -251,40 +271,115 @@ func (j *journal) open() {
 		j.state, j.why = journalBroken, "reading the journal: "+err.Error()
 		return
 	}
+	if file, ok := parseJournal(data); ok {
+		j.ops = file.Ops
+		j.state = journalOK
+		if j.prune() {
+			_ = j.save()
+		}
+		return
+	}
+	// The file does not parse: 1. the marker, with the copy's name and the
+	// digest of these bytes (without it a restart would open as new);
+	// 2. a synced copy of the bytes. The original stays until the owner's
+	// Start a new journal replaces it.
+	name, err := j.freeArchiveName()
+	if err != nil {
+		j.state, j.why = journalBroken, "the journal does not parse, and no name is free for its copy: "+err.Error()
+		return
+	}
+	j.corrupt, j.digest = name, digestOf(data)
+	marker, _ := json.Marshal(corruptMarker{Archive: name, SHA256: j.digest})
+	if err := j.writeAtomic(j.marker(), marker); err != nil {
+		j.state, j.why = journalBroken, "the journal does not parse, and marking it failed: "+err.Error()
+		return
+	}
+	if err := j.ensureCopy(); err != nil {
+		j.state, j.why = journalBroken, err.Error()
+		return
+	}
+	j.state = journalCorrupt
+	j.why = "the journal did not parse; Pocket kept it as " + name
+}
+
+// parseJournal reads a journal file: version 1 (migrated) or 2, with every
+// op and receipt valid. ok is false for anything else.
+func parseJournal(data []byte) (journalFile, bool) {
 	var file journalFile
-	err = json.Unmarshal(data, &file)
-	if err == nil && (file.Version == 1 || file.Version == journalVersion) {
+	if err := json.Unmarshal(data, &file); err != nil {
+		return file, false
+	}
+	switch file.Version {
+	case 1:
 		for _, o := range file.Ops {
-			if o != nil {
-				o.migrate()
+			if o == nil || o.migrate() != nil {
+				return file, false
 			}
 		}
+	case journalVersion:
+		for _, o := range file.Ops {
+			if o != nil && o.Receipt != nil {
+				return file, false // a version 2 file has no legacy receipt
+			}
+		}
+	default:
+		return file, false
 	}
 	// The ops are checked after the migration: what Pocket reads is what
 	// it checks.
-	if err != nil || (file.Version != 1 && file.Version != journalVersion) || !validOps(file.Ops) {
-		name := journalName + ".corrupt-" + j.now().UTC().Format("20060102T150405Z")
-		// 1. The marker first: without it a restart would open as new.
-		if werr := j.writeAtomic(j.marker(), []byte(name)); werr != nil {
-			j.state, j.why = journalBroken, "the journal does not parse, and marking it failed: "+werr.Error()
-			return
-		}
-		// 2. A copy, synced; the original stays until a new journal
-		// replaces it.
-		j.corrupt = name
-		if cerr := j.keepCopy(); cerr != nil {
-			j.state, j.why = journalBroken, "the journal does not parse, and keeping a copy as "+name+" failed: "+cerr.Error()
-			return
-		}
-		j.state = journalCorrupt
-		j.why = "the journal did not parse; Pocket kept it as " + name
-		return
+	return file, validOps(file.Ops)
+}
+
+// corruptMarker is operations.corrupt: the kept copy's name and the
+// SHA-256 (hex) of the corrupt bytes it holds.
+type corruptMarker struct {
+	Archive string `json:"archive"`
+	SHA256  string `json:"sha256"`
+}
+
+var digestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// parseMarker reads a marker: exactly its 2 fields, a safe name and a
+// SHA-256 digest.
+func parseMarker(b []byte) (corruptMarker, error) {
+	var m corruptMarker
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&m); err != nil {
+		return m, err
 	}
-	j.ops = file.Ops
-	j.state = journalOK
-	if j.prune() {
-		_ = j.save()
+	if !validArchiveName(m.Archive) {
+		return m, errors.New("no safe name of a kept copy: " + m.Archive)
 	}
+	if !digestPattern.MatchString(m.SHA256) {
+		return m, errors.New("no SHA-256 digest")
+	}
+	return m, nil
+}
+
+func digestOf(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+// freeArchiveName is a name for a new kept copy that no file has: an
+// earlier copy is never written over.
+func (j *journal) freeArchiveName() (string, error) {
+	base := journalName + ".corrupt-" + j.now().UTC().Format("20060102T150405Z")
+	for i := 1; i <= 100; i++ {
+		name := base
+		if i > 1 {
+			name = fmt.Sprintf("%s-%d", base, i)
+		}
+		_, err := os.Lstat(filepath.Join(j.dir, name))
+		if errors.Is(err, fs.ErrNotExist) {
+			return name, nil
+		}
+		if err != nil {
+			return "", err
+		}
+	}
+	return "", errors.New("100 copies have that time")
 }
 
 // receiptResults and receiptStates are the values a receipt may hold.
@@ -319,31 +414,40 @@ func validArchiveName(name string) bool {
 
 func (j *journal) archive() string { return filepath.Join(j.dir, j.corrupt) }
 
-// keepCopy makes the kept copy of a corrupt journal whole: while
-// operations.json is there, the copy must hold its bytes (else Pocket
-// writes it again: a copy, synced, renamed); without operations.json the
-// copy must exist.
-func (j *journal) keepCopy() error {
-	original, err := os.ReadFile(j.path())
-	if errors.Is(err, fs.ErrNotExist) {
-		if _, err := os.Stat(j.archive()); err != nil {
-			return fmt.Errorf("the kept copy is missing: %w", err)
-		}
-		return nil
-	}
+// errCopyMissing is a corrupt journal whose bytes Pocket no longer has.
+var errCopyMissing = errors.New("the kept copy of the corrupt journal is missing")
+
+// copyIntact says the kept copy holds the bytes the marker names.
+func (j *journal) copyIntact() error {
+	b, err := os.ReadFile(j.archive())
 	if err != nil {
-		return err
+		if errors.Is(err, fs.ErrNotExist) {
+			return errCopyMissing
+		}
+		return fmt.Errorf("reading the kept copy %s: %w", j.corrupt, err)
 	}
-	if kept, err := os.ReadFile(j.archive()); err == nil && bytes.Equal(kept, original) {
-		return nil
-	}
-	if err := j.writeAtomic(j.archive(), original); err != nil {
-		return err
-	}
-	if kept, err := os.ReadFile(j.archive()); err != nil || !bytes.Equal(kept, original) {
-		return errors.New("the kept copy does not match the journal")
+	if digestOf(b) != j.digest {
+		return errors.New("the kept copy " + j.corrupt + " does not hold the corrupt journal")
 	}
 	return nil
+}
+
+// ensureCopy makes the kept copy hold the marker's bytes. A copy that does
+// is left alone. Else only operations.json with exactly those bytes is
+// copied (synced, renamed, then checked again); any other file is never
+// copied, and the copy is missing.
+func (j *journal) ensureCopy() error {
+	if j.copyIntact() == nil {
+		return nil
+	}
+	original, err := os.ReadFile(j.path())
+	if err != nil || digestOf(original) != j.digest {
+		return errCopyMissing
+	}
+	if err := j.writeAtomic(j.archive(), original); err != nil {
+		return fmt.Errorf("keeping a copy of the corrupt journal as %s failed: %w", j.corrupt, err)
+	}
+	return j.copyIntact()
 }
 
 // close removes the lock this Pocket holds.
@@ -367,13 +471,16 @@ func (j *journal) releaseLock() {
 }
 
 // startNew is the owner's click after a corrupt file: an empty journal.
+// It checks the kept copy against the marker's digest, saves the empty
+// journal, and only then removes the marker. A crash between the 2 leaves
+// the marker: the next open finds the copy whole and stays corrupt, and a
+// second click is safe, as it checks only the copy.
 func (j *journal) startNew() error {
 	if j.state != journalCorrupt {
 		return errors.New("only a corrupt journal starts again: " + firstNonEmpty(j.why, "the journal is not corrupt"))
 	}
-	// The kept copy first: a reset never loses the corrupt file.
-	if err := j.keepCopy(); err != nil {
-		j.why = "keeping a copy as " + j.corrupt + " failed, so Pocket keeps the journal: " + err.Error()
+	if err := j.copyIntact(); err != nil {
+		j.why = "Pocket keeps the corrupt journal: " + err.Error()
 		return errors.New(j.why)
 	}
 	j.ops = nil
@@ -382,12 +489,12 @@ func (j *journal) startNew() error {
 		j.state = journalCorrupt
 		return err
 	}
-	// The marker goes only once the new journal is on disk.
-	if err := os.Remove(j.marker()); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := j.remove(j.marker()); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		j.state = journalCorrupt
-		return err
+		j.why = "the new journal is saved, but removing the corrupt marker failed: " + err.Error() + "; Start a new journal again"
+		return errors.New(j.why)
 	}
-	j.why, j.corrupt = "", ""
+	j.why, j.corrupt, j.digest = "", "", ""
 	return nil
 }
 
@@ -448,7 +555,19 @@ func (j *journal) writeAtomic(path string, data []byte) error {
 		_ = os.Remove(tmp)
 		return err
 	}
+	syncDir(filepath.Dir(path))
 	return nil
+}
+
+// syncDir makes a rename in dir durable before the next file step, so a
+// power loss cannot keep a later step (the new journal) and lose an earlier
+// one (the marker or the copy). Best effort: some systems (Windows) cannot
+// sync a folder.
+func syncDir(dir string) {
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		_ = d.Close()
+	}
 }
 
 // find is the attempt with id.

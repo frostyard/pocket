@@ -516,22 +516,31 @@ panes less room.
     renamed. Pocket writes the checkpoints "about to approve" and "about to
     merge" before each mutation, and a failed write sends nothing; no other
     step replaces a checkpoint before the result is saved, so a crash after
-    a merge was sent reads as "merge may be pending" (unknown, locked). `operations.lock`
-    (created with `O_EXCL` at start, removed at exit) keeps 1 Pocket on it;
+    a merge was sent reads as "merge may be pending" (unknown, locked).
+    `operations.lock` (created with `O_EXCL` at start, removed at exit)
+    keeps 1 Pocket on it;
     a held lock or a file that does not parse turns the buttons off until
     the owner clicks **Release the journal lock** or **Start a new journal**
     in Settings > GitHub. A file does not parse when it is not JSON, has an
     unknown version, or holds an op or receipt that is null, has an empty or
     unknown result or state, or repeats a result of its op (checked after a
-    version 1 migration). Then Pocket writes the marker `operations.corrupt`
-    (atomic, 0600), which names the copy `operations.json.corrupt-<time>`
-    and keeps the journal corrupt across restarts, and copies the file
-    there (a synced copy, renamed); the original stays. Each open with the
-    marker writes the copy again when it is missing or differs. **Start a
-    new journal** first checks the copy, then saves the new empty journal,
-    then removes the marker. A marker or a copy that cannot be written
-    leaves the journal broken, and no reset runs. At start each unfinished or unknown attempt is
-    settled by reads only; a batch never resumes. An ended attempt whose
+    version 1 migration, in which an attempt with a result needs a receipt
+    with a known state). Then Pocket writes the marker `operations.corrupt`
+    (atomic, 0600): the name of a new copy `operations.json.corrupt-<time>`
+    (a free name: an earlier copy is never written over) and the SHA-256
+    of the corrupt bytes. It keeps the journal corrupt across restarts.
+    Then Pocket copies the file there (a synced copy, renamed); the original
+    stays. Each open with the marker leaves a copy whose digest matches
+    alone; else it copies `operations.json` only when its digest matches the
+    marker's, and checks the digest again; else the journal is broken ("the
+    kept copy of the corrupt journal is missing"). **Start a new journal**
+    checks the copy's digest, saves the new empty journal, then removes the
+    marker: a crash or a failed removal between the 2 leaves the journal
+    corrupt with the copy whole, and a second click is safe. A marker with
+    no valid digest or safe name, or a marker or copy that cannot be
+    written, leaves the journal broken, and no reset runs. Each atomic
+    write also syncs the folder, so the steps reach the disk in order. At
+    start each unfinished or unknown attempt is settled by reads only; a batch never resumes. An ended attempt whose
     receipts all settled is kept 7 days. The file is version 2 (a list of
     receipts per attempt); a version 1 file's single receipt is migrated.
   - **Receipts:** `pocket.Client.RecordMerge` posts each result to the

@@ -510,7 +510,7 @@ func TestMergedLeavesAndQueuedComesBack(t *testing.T) {
 
 func writeJournal(t *testing.T, dir string, ops ...*mergeOp) {
 	t.Helper()
-	data, err := json.Marshal(journalFile{Version: 1, Ops: ops})
+	data, err := json.Marshal(journalFile{Version: journalVersion, Ops: ops})
 	if err != nil {
 		t.Fatal(err)
 	}

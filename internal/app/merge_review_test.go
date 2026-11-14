@@ -104,8 +104,10 @@ func TestCorruptJournalStaysCorruptAfterARestart(t *testing.T) {
 	if j.state != journalCorrupt || j.corrupt != kept {
 		t.Fatalf("state %d corrupt %q", j.state, j.corrupt)
 	}
-	if b, err := os.ReadFile(filepath.Join(dir, corruptName)); err != nil || string(b) != kept {
-		t.Fatalf("marker %q %v", b, err)
+	if b, err := os.ReadFile(filepath.Join(dir, corruptName)); err != nil {
+		t.Fatal(err)
+	} else if m, err := parseMarker(b); err != nil || m.Archive != kept || m.SHA256 != digestOf([]byte("{not json")) {
+		t.Fatalf("marker %q %+v %v", b, m, err)
 	}
 	if info, _ := os.Stat(filepath.Join(dir, corruptName)); info.Mode().Perm() != 0o600 {
 		t.Errorf("marker mode %v", info.Mode())
@@ -424,7 +426,8 @@ func TestCorruptJournalCrashBeforeTheCopy(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, journalName), original, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, corruptName), []byte(kept), 0o600); err != nil {
+	marker, _ := json.Marshal(corruptMarker{Archive: kept, SHA256: digestOf(original)})
+	if err := os.WriteFile(filepath.Join(dir, corruptName), marker, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	j := newJournal(dir, now)
@@ -436,9 +439,19 @@ func TestCorruptJournalCrashBeforeTheCopy(t *testing.T) {
 	if b, err := os.ReadFile(filepath.Join(dir, kept)); err != nil || !bytes.Equal(b, original) {
 		t.Fatalf("the copy after the open: %q %v", b, err)
 	}
-	// A copy that differs (cut short) is written again before a reset.
+	// A copy that differs (cut short) refuses the reset; the next open
+	// writes it again from the bytes the marker names.
 	if err := os.WriteFile(filepath.Join(dir, kept), original[:10], 0o600); err != nil {
 		t.Fatal(err)
+	}
+	if err := j.startNew(); err == nil || j.ok() {
+		t.Fatalf("a reset over a copy that differs: %v", err)
+	}
+	j.close()
+	j = newJournal(dir, now)
+	j.open()
+	if j.state != journalCorrupt {
+		t.Fatalf("state %d why %q", j.state, j.why)
 	}
 	if err := j.startNew(); err != nil || !j.ok() {
 		t.Fatalf("start new: %v state %d", err, j.state)
@@ -508,5 +521,229 @@ func TestCorruptJournalCopyFailureRefusesTheReset(t *testing.T) {
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, name)); err != nil || !bytes.Equal(b, original) {
 		t.Errorf("the copy %q %v", b, err)
+	}
+}
+
+// The guards of re-review 2 of frostyard/pocket#96 (record
+// .memory/corrections/2026-11-14-pr-96-journal-digest.json).
+
+// corruptDir is a config folder whose journal Pocket found corrupt: the
+// journal is open, its marker and kept copy written.
+func corruptDir(t *testing.T, original []byte) (string, *journal, func() time.Time) {
+	t.Helper()
+	dir := t.TempDir()
+	now := func() time.Time { return time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC) }
+	if err := os.WriteFile(filepath.Join(dir, journalName), original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	j := newJournal(dir, now)
+	j.open()
+	if j.state != journalCorrupt {
+		t.Fatalf("state %d why %q", j.state, j.why)
+	}
+	return dir, j, now
+}
+
+func fileBytes(t *testing.T, path string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// emptyJournal says path holds a new, empty journal.
+func emptyJournal(t *testing.T, path string) {
+	t.Helper()
+	var file journalFile
+	if err := json.Unmarshal(fileBytes(t, path), &file); err != nil || file.Version != journalVersion || len(file.Ops) != 0 {
+		t.Errorf("not an empty journal: %q %v", fileBytes(t, path), err)
+	}
+}
+
+// TestCorruptJournalCrashAfterTheNewJournal: a crash after Start a new
+// journal saved the empty journal, before it removed the marker. The next
+// open keeps the copy of the corrupt bytes; it never copies the new
+// journal over it.
+func TestCorruptJournalCrashAfterTheNewJournal(t *testing.T) {
+	original := []byte("{the corrupt journal")
+	dir, j, now := corruptDir(t, original)
+	kept := filepath.Join(dir, j.corrupt)
+	// The crash: the empty journal is on disk, the marker stays.
+	j.ops = nil
+	j.state = journalOK
+	if err := j.save(); err != nil {
+		t.Fatal(err)
+	}
+	j.close()
+
+	again := newJournal(dir, now)
+	again.open()
+	defer again.close()
+	if again.state != journalCorrupt {
+		t.Fatalf("state %d why %q", again.state, again.why)
+	}
+	if !bytes.Equal(fileBytes(t, kept), original) {
+		t.Fatalf("the copy after the open: %q", fileBytes(t, kept))
+	}
+	if err := again.startNew(); err != nil || !again.ok() {
+		t.Fatalf("start new: %v state %d", err, again.state)
+	}
+	if !bytes.Equal(fileBytes(t, kept), original) {
+		t.Errorf("the copy after the reset: %q", fileBytes(t, kept))
+	}
+	emptyJournal(t, filepath.Join(dir, journalName))
+}
+
+// TestCorruptJournalMarkerRemovalFails: the empty journal is saved, the
+// marker stays; the journal stays corrupt, and a second Start a new journal
+// (also after a restart) keeps the copy unchanged.
+func TestCorruptJournalMarkerRemovalFails(t *testing.T) {
+	original := []byte("{the corrupt journal")
+	dir, j, now := corruptDir(t, original)
+	kept := filepath.Join(dir, j.corrupt)
+	j.remove = func(string) error { return errors.New("permission denied") }
+	if err := j.startNew(); err == nil || j.ok() || !strings.Contains(j.why, "removing the corrupt marker failed") {
+		t.Fatalf("start new: %v state %d why %q", err, j.state, j.why)
+	}
+	emptyJournal(t, filepath.Join(dir, journalName))
+	if err := j.startNew(); err == nil || j.ok() {
+		t.Fatalf("a second start with the marker stuck: %v", err)
+	}
+	if !bytes.Equal(fileBytes(t, kept), original) {
+		t.Fatalf("the copy: %q", fileBytes(t, kept))
+	}
+	j.close()
+
+	again := newJournal(dir, now)
+	again.open()
+	defer again.close()
+	if again.state != journalCorrupt || !bytes.Equal(fileBytes(t, kept), original) {
+		t.Fatalf("after a restart: state %d copy %q", again.state, fileBytes(t, kept))
+	}
+	if err := again.startNew(); err != nil || !again.ok() {
+		t.Fatalf("start new: %v", err)
+	}
+	if !bytes.Equal(fileBytes(t, kept), original) {
+		t.Errorf("the copy after the reset: %q", fileBytes(t, kept))
+	}
+}
+
+// TestCorruptJournalMissingCopyIsBroken: with the copy gone and a journal
+// of other bytes, nothing is copied, the journal is broken and the reset
+// refuses; a marker without a valid digest or a safe name is broken too.
+func TestCorruptJournalMissingCopyIsBroken(t *testing.T) {
+	original := []byte("{the corrupt journal")
+	dir, j, now := corruptDir(t, original)
+	kept := filepath.Join(dir, j.corrupt)
+	j.close()
+	if err := os.Remove(kept); err != nil {
+		t.Fatal(err)
+	}
+	other := []byte(`{"version":2,"ops":[]}`)
+	if err := os.WriteFile(filepath.Join(dir, journalName), other, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	again := newJournal(dir, now)
+	again.open()
+	if again.state != journalBroken || !strings.Contains(again.why, "the kept copy of the corrupt journal is missing") {
+		t.Fatalf("state %d why %q", again.state, again.why)
+	}
+	if _, err := os.Stat(kept); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a copy of other bytes: %v", err)
+	}
+	if err := again.startNew(); err == nil || again.ok() {
+		t.Fatalf("the reset went: %v", err)
+	}
+	if !bytes.Equal(fileBytes(t, filepath.Join(dir, journalName)), other) {
+		t.Error("the journal changed")
+	}
+	again.close()
+
+	digest := digestOf(original)
+	// A file the marker must never name, with the digest it gives: only the
+	// marker check keeps the journal from taking it as the kept copy.
+	settings := []byte(`{"theme":"dark"}`)
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), settings, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, marker := range map[string]string{
+		"a name only":   "operations.json.corrupt-20261114T120000Z",
+		"no digest":     `{"archive":"operations.json.corrupt-20261114T120000Z","sha256":""}`,
+		"bad digest":    `{"archive":"operations.json.corrupt-20261114T120000Z","sha256":"xyz"}`,
+		"unsafe name":   `{"archive":"../operations.json.corrupt-1","sha256":"` + digest + `"}`,
+		"another file":  `{"archive":"settings.json","sha256":"` + digestOf(settings) + `"}`,
+		"another field": `{"archive":"operations.json.corrupt-20261114T120000Z","sha256":"` + digest + `","ok":true}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := os.WriteFile(filepath.Join(dir, corruptName), []byte(marker), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			j := newJournal(dir, now)
+			j.open()
+			defer j.close()
+			if j.state != journalBroken || !strings.Contains(j.why, "corrupt marker is not valid") {
+				t.Errorf("state %d why %q", j.state, j.why)
+			}
+		})
+	}
+}
+
+// TestJournalVersion1ReceiptNeedsAState: a version 1 attempt with a result
+// keeps its receipt only with a known state; else the file is corrupt and
+// its bytes are kept. A running attempt's empty receipt migrates.
+func TestJournalVersion1ReceiptNeedsAState(t *testing.T) {
+	v1 := func(result, receipt string) []byte {
+		return []byte(`{"version":1,"ops":[{"id":"op-1","origin":{"server":"https://example.org","user":"u1","thread":"T1"},` +
+			`"intent":{"ref":"frostyard/core#1","nodeId":"PR_x","baseRef":"main","head":"` + oid('a') + `","method":"merge","queue":false,"mode":"single","risk":false},` +
+			`"step":"merge","result":"` + result + `","method":"merge"` + receipt + `,"at":"2026-10-01T10:00:00Z","endedAt":"2026-10-01T11:00:00Z"}]}`)
+	}
+	for name, file := range map[string][]byte{
+		"merged, empty state":   v1("merged", `,"receipt":{"state":""}`),
+		"merged, no receipt":    v1("merged", ``),
+		"merged, unknown state": v1("merged", `,"receipt":{"state":"posted"}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir, j, _ := corruptDir(t, file)
+			defer j.close()
+			if !bytes.Equal(fileBytes(t, filepath.Join(dir, j.corrupt)), file) {
+				t.Errorf("the copy: %q", fileBytes(t, filepath.Join(dir, j.corrupt)))
+			}
+		})
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, journalName), v1("", `,"receipt":{"state":""}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	j := newJournal(dir, func() time.Time { return time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC) })
+	j.open()
+	defer j.close()
+	if !j.ok() || len(j.ops) != 1 || len(j.ops[0].Receipts) != 0 || j.ops[0].Receipt != nil {
+		t.Fatalf("a running attempt: state %d why %q ops %+v", j.state, j.why, j.ops)
+	}
+}
+
+// TestCorruptJournalNeverOverwritesAnEarlierCopy: a new corrupt journal
+// found in the same second as an earlier copy gets a name of its own.
+func TestCorruptJournalNeverOverwritesAnEarlierCopy(t *testing.T) {
+	dir := t.TempDir()
+	earlier := []byte("{an earlier corrupt journal")
+	name := "operations.json.corrupt-20261114T120000Z"
+	if err := os.WriteFile(filepath.Join(dir, name), earlier, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte("{a new corrupt journal")
+	if err := os.WriteFile(filepath.Join(dir, journalName), original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	j := newJournal(dir, func() time.Time { return time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC) })
+	j.open()
+	defer j.close()
+	if j.state != journalCorrupt || j.corrupt != name+"-2" {
+		t.Fatalf("state %d corrupt %q why %q", j.state, j.corrupt, j.why)
+	}
+	if !bytes.Equal(fileBytes(t, filepath.Join(dir, name)), earlier) || !bytes.Equal(fileBytes(t, filepath.Join(dir, j.corrupt)), original) {
+		t.Error("a copy was written over")
 	}
 }

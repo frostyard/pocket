@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-14",
+  "scope": "approve-merge",
+  "correction": "Bind the corrupt journal's kept copy to the SHA-256 of the original bytes, so no recovery or retry copies a newer file over it, and validate a version 1 receipt before the migration drops it.",
+  "evidence": "frostyard/pocket#96, cross-review (openai/gpt-6.1-sol) of head 8bc190cf963db1b07a1ef3b8e6e86c68e30548dd",
+  "promoted_to": "internal/app/merge_review_test.go TestCorruptJournalCrashAfterTheNewJournal, internal/app/merge_review_test.go TestCorruptJournalMarkerRemovalFails, internal/app/merge_review_test.go TestCorruptJournalMissingCopyIsBroken, internal/app/merge_review_test.go TestJournalVersion1ReceiptNeedsAState, internal/app/merge_review_test.go TestCorruptJournalNeverOverwritesAnEarlierCopy"
+}
