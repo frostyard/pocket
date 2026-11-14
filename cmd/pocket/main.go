@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -54,20 +55,20 @@ func run() error {
 	if mygo.WebViewAvailable() {
 		web = pane
 	}
-	tokens, gh := githubTokens()
+	gh, auth := githubAuthOptions()
 	a, err := app.New(app.Options{
-		Version:      version,
-		GitHub:       gh,
-		GitHubTokens: tokens,
-		SaveFile:     saveFile,
-		PickFiles:    pickFiles,
-		Post:         p.post,
-		Store:        store,
-		Creds:        creds(store.Dir()),
-		Notify:       notifier{win: func() *mygo.Window { return win }},
-		Web:          web,
-		Quit:         mygo.App.Quit,
-		Badge:        mygo.App.SetBadgeCount,
+		Version:    version,
+		GitHub:     gh,
+		GitHubAuth: auth,
+		SaveFile:   saveFile,
+		PickFiles:  pickFiles,
+		Post:       p.post,
+		Store:      store,
+		Creds:      creds(store.Dir()),
+		Notify:     notifier{win: func() *mygo.Window { return win }},
+		Web:        web,
+		Quit:       mygo.App.Quit,
+		Badge:      mygo.App.SetBadgeCount,
 		Raise: func() {
 			if win != nil {
 				win.Restore()
@@ -161,25 +162,23 @@ func creds(dir string) config.Credentials {
 	return config.Credentials{Ring: secrets{}, NotFound: mygo.ErrSecretNotFound, Dir: dir}
 }
 
-// githubTokens keeps the owner's GitHub tokens in the keyring only
-// (ADR-0008), and builds a client of api.github.com with the kept token of
-// a resource owner. With POCKET_NO_KEYRING set, both are nil: Approve +
-// merge is off, and no token ever goes to a file.
-func githubTokens() (app.TokenStore, func(owner string) (*github.Client, error)) {
+// githubAuthOptions joins the GitHub App's sign-in (ADR-0010): the client a
+// job works with, on 1 leased token, and the sign-in itself. With
+// POCKET_NO_KEYRING set, both are nil: Approve + merge is off, and no
+// token ever goes to a file.
+func githubAuthOptions() (func(ctx context.Context, owner string) (*github.Client, int, func(), error), app.GitHubAuth) {
 	if os.Getenv("POCKET_NO_KEYRING") != "" {
 		return nil, nil
 	}
-	tokens := config.GitHubTokens{Ring: secrets{}, NotFound: mygo.ErrSecretNotFound}
-	return tokens, func(owner string) (*github.Client, error) {
-		tok, err := tokens.Get(owner)
+	auth := newGitHubAuth()
+	lease := func(ctx context.Context, _ string) (*github.Client, int, func(), error) {
+		tok, gen, release, err := auth.src.Lease(ctx)
 		if err != nil {
-			return nil, err
+			return nil, 0, nil, err
 		}
-		if tok == "" {
-			return nil, fmt.Errorf("no token for %s", owner)
-		}
-		return github.New(tok), nil
+		return github.New(tok), gen, release, nil
 	}
+	return lease, auth
 }
 
 // secrets is mygo.Secrets as a config.Keyring.

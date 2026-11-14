@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -147,6 +148,16 @@ func (g *githubServer) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	repo := "/repos/bketelsen/pi-pocket-team/"
 	switch {
+	case r.URL.Path == "/user":
+		g.write(w, 200, []byte(`{"login":"`+github.Login+`","id":1}`))
+	case r.URL.Path == "/user/installations":
+		installs := []string{}
+		for _, owner := range githubOwners {
+			installs = append(installs, `{"app_slug":"`+github.AppSlug+`","account":{"login":"`+owner+`"},"suspended_at":null,`+
+				`"permissions":{"checks":"read","statuses":"read","contents":"write","metadata":"read",`+
+				`"pull_requests":"write","workflows":"write","merge_queues":"write"}}`)
+		}
+		g.write(w, 200, []byte(`{"total_count":2,"installations":[`+strings.Join(installs, ",")+`]}`))
 	case r.URL.Path == "/graphql":
 		var body struct {
 			Query     string         `json:"query"`
@@ -205,10 +216,10 @@ func realGitHubApp(t *testing.T, g *githubServer) (*App, *frostuitest.Loop, *rec
 	head := g.head()
 	a.desk.view.Ready = []pocket.ReadyPR{readyPR(ref, head)}
 	a.invalidateDerived()
-	a.gh.api = func(owner string) (ghAPI, error) {
+	a.gh.api = func(_ context.Context, _ string) (ghAPI, int, func(), error) {
 		c := github.New(testGitHubToken)
 		c.BaseURL = g.srv.URL
-		return c, nil
+		return c, 1, func() {}, nil
 	}
 	h := &receiptHTTP{}
 	a.link.client.HTTP = &http.Client{Transport: h}
@@ -297,7 +308,8 @@ func TestConfirmClickApprovesAndMergesWithARealClient(t *testing.T) {
 }
 
 // TestTheTokenNeverLeaks drives a real client against a GitHub that echoes
-// the token in its errors: the journal, Activity and toasts never hold it.
+// the token in its errors: the journal, Activity, the toasts, the cards and
+// the sign-in's own state never hold it.
 func TestTheTokenNeverLeaks(t *testing.T) {
 	g := newGitHubServer(t)
 	a, loop, _ := realGitHubApp(t, g)
@@ -315,40 +327,52 @@ func TestTheTokenNeverLeaks(t *testing.T) {
 		t.Fatalf("result %+v", r)
 	}
 	a.closeMergeDialog()
-	// A preview read and a Check with the refused token.
-	a.gh.previews[ref].at = time.Time{}
-	delete(a.gh.bad, "bketelsen")
+	// A preview read with the refused token.
 	a.ghPreviewReady()
 	loop.RunUntil(t, func() bool { return a.gh.inflight == 0 })
+	// A sign-in whose CheckApp meets the echoed token.
+	auth := a.opts.GitHubAuth.(*fakeAuth)
+	auth.setPoll(github.AppToken{ClientID: github.AppClientID, Access: testGitHubToken, Refresh: "refresh-not-real",
+		AccessExpires: a.opts.Now().Add(8 * time.Hour), RefreshExpires: a.opts.Now().Add(24 * time.Hour)})
 	a.gh.newClient = func(tok string) ghAPI {
 		c := github.New(tok)
 		c.BaseURL = g.srv.URL
 		return c
 	}
-	f := a.tokenForm("bketelsen")
-	f.text = testGitHubToken
-	a.githubCheck("bketelsen")
-	loop.RunUntil(t, func() bool { return !f.busy })
-	f.text = ""
+	a.githubSignIn()
+	loop.RunUntil(t, func() bool { return !a.busySignIn() })
+	if a.gh.fail == "" {
+		t.Fatal("the sign-in did not fail")
+	}
 	var texts []string
 	for _, l := range a.console.Lines(nil, "") {
 		texts = append(texts, l.Text)
 	}
+	activity := strings.Join(texts, "\n")
 	data, _ := os.ReadFile(filepath.Join(a.opts.Store.Dir(), journalName))
-	for name, s := range map[string]string{
-		"Activity": strings.Join(texts, "\n"), "toasts": strings.Join(a.pendingToasts, "\n"), "journal": string(data),
-		"card": a.gh.previews[ref].err, "settings": f.fail,
+	settings := strings.Join(settingsTester(t, a).Texts(), "\n")
+	for name, held := range map[string]string{
+		"Activity": activity, "toasts": strings.Join(a.pendingToasts, "\n"), "journal": string(data),
+		"card": cardErr(a, ref), "sign-in": a.gh.fail, "settings": settings,
 	} {
-		if strings.Contains(s, testGitHubToken) {
-			t.Errorf("%s holds the token:\n%s", name, s)
+		if strings.Contains(held, testGitHubToken) {
+			t.Errorf("%s holds the token:\n%s", name, held)
 		}
 	}
-	if !strings.Contains(strings.Join(texts, "\n"), "[token]") {
-		t.Error("the redacted error is not in Activity")
+	if !strings.Contains(activity, "[token]") || !strings.Contains(a.gh.fail, "[token]") {
+		t.Errorf("the redacted errors are not where they should show:\n%s\n%s", activity, a.gh.fail)
 	}
 	if len(g.mutations) != 0 {
 		t.Errorf("mutations %v", g.mutations)
 	}
+}
+
+// cardErr is the error the preview of ref shows, or "".
+func cardErr(a *App, ref string) string {
+	if pv := a.gh.previews[ref]; pv != nil {
+		return pv.err
+	}
+	return ""
 }
 
 // mergeSnapshotApp is a team with ready cards in every state.
@@ -438,17 +462,15 @@ func TestMergeSnapshots(t *testing.T) {
 	writePNG(t, tt, "merge-dialog-risk")
 	a.closeMergeDialog()
 
-	// Settings > GitHub after a Check and a preflight.
+	// Settings > GitHub after a sign-in and a preflight.
 	gh.rows = map[string]github.PreflightRow{
 		"frostyard/nsl":  {Repo: "frostyard/nsl", Readable: true, Bypass: "always", Reason: "you can bypass a rule here (always): Pocket refuses to merge"},
-		"frostyard/snow": {Repo: "frostyard/snow", Missing: "pull_requests=read", Reason: "GitHub answered 403: Resource not accessible by personal access token"},
+		"frostyard/snow": {Repo: "frostyard/snow", Missing: "pull_requests=read", Reason: "the Pocket App needs Pull requests: read on frostyard"},
 	}
-	a.gh.forms["frostyard"] = &tokenForm{login: github.Login, checked: true, expires: time.Date(2027, 2, 12, 10, 0, 0, 0, time.UTC),
-		result: "Signs in as bketelsen; kept in the keyring"}
-	a.githubPreflight("frostyard")
-	loop.RunUntil(t, func() bool { return !a.gh.preflight["frostyard"].busy })
+	a.githubPreflight()
+	loop.RunUntil(t, func() bool { return !a.preflightBusy() })
 	st := settingsTester(t, a)
-	for _, want := range []string{"Signs in as bketelsen", "Repository", "frostyard/nsl", "pull_requests=read", "Batches", "Run preflight"} {
+	for _, want := range []string{"Signed in as " + github.Login + " through " + github.AppName, "Repository", "frostyard/nsl", "pull_requests=read", "Batches", "Run preflight", "Sign out"} {
 		if !st.HasText(want) {
 			t.Errorf("settings lack %q", want)
 		}

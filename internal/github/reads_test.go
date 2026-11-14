@@ -239,3 +239,184 @@ func TestSettleQueueClaimsNothingWithoutTheQueueMethod(t *testing.T) {
 		})
 	}
 }
+
+// TestCheckApp: the sign-in's login, and whether the App is ready on each
+// owner.
+func TestCheckApp(t *testing.T) {
+	owners := []string{"bketelsen", "frostyard"}
+	ready := func(t *testing.T) *fake {
+		f := direct(t)
+		f.installs = []map[string]any{
+			install(AppSlug, "bketelsen", readyPerms(), false),
+			install(AppSlug, "frostyard", readyPerms(), false),
+		}
+		return f
+	}
+	t.Run("ready", func(t *testing.T) {
+		f := ready(t)
+		check, err := f.client().CheckApp(context.Background(), owners)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if check.Login != Login {
+			t.Errorf("login %q", check.Login)
+		}
+		for _, owner := range owners {
+			if reason, ok := check.Owners[owner]; !ok || reason != "" {
+				t.Errorf("%s: %q", owner, reason)
+			}
+		}
+		if len(check.Notes) != 0 {
+			t.Errorf("notes %v", check.Notes)
+		}
+	})
+	t.Run("another login", func(t *testing.T) {
+		f := ready(t)
+		f.user = "frostyard-machines"
+		check, err := f.client().CheckApp(context.Background(), owners)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if check.Login != "frostyard-machines" {
+			t.Errorf("login %q", check.Login)
+		}
+	})
+	t.Run("not installed", func(t *testing.T) {
+		f := ready(t)
+		f.installs = f.installs[:1]
+		check, err := f.client().CheckApp(context.Background(), owners)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := check.Owners["frostyard"]; got != "the App is not installed on frostyard" {
+			t.Errorf("reason %q", got)
+		}
+		if got := check.Owners["bketelsen"]; got != "" {
+			t.Errorf("bketelsen: %q", got)
+		}
+	})
+	t.Run("another app", func(t *testing.T) {
+		f := ready(t)
+		f.installs = []map[string]any{install("another-app", "frostyard", readyPerms(), false)}
+		check, err := f.client().CheckApp(context.Background(), owners)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := check.Owners["frostyard"]; got != "the App is not installed on frostyard" {
+			t.Errorf("reason %q", got)
+		}
+	})
+	t.Run("no checks", func(t *testing.T) {
+		f := ready(t)
+		perms := readyPerms()
+		delete(perms, "checks")
+		f.installs[1] = install(AppSlug, "frostyard", perms, false)
+		check, err := f.client().CheckApp(context.Background(), owners)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := check.Owners["frostyard"]; got != "the App lacks checks: read on frostyard" {
+			t.Errorf("reason %q", got)
+		}
+	})
+	t.Run("write meets read", func(t *testing.T) {
+		f := ready(t)
+		perms := readyPerms()
+		perms["checks"] = "write"
+		f.installs[1] = install(AppSlug, "frostyard", perms, false)
+		check, err := f.client().CheckApp(context.Background(), owners)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := check.Owners["frostyard"]; got != "" {
+			t.Errorf("reason %q", got)
+		}
+	})
+	t.Run("contents read", func(t *testing.T) {
+		f := ready(t)
+		perms := readyPerms()
+		perms["contents"] = "read"
+		f.installs[1] = install(AppSlug, "frostyard", perms, false)
+		check, err := f.client().CheckApp(context.Background(), owners)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := check.Owners["frostyard"]; got != "the App lacks contents: write on frostyard" {
+			t.Errorf("reason %q", got)
+		}
+	})
+	t.Run("suspended", func(t *testing.T) {
+		f := ready(t)
+		f.installs[1] = install(AppSlug, "frostyard", readyPerms(), true)
+		check, err := f.client().CheckApp(context.Background(), owners)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := check.Owners["frostyard"]; got != "the App is suspended on frostyard" {
+			t.Errorf("reason %q", got)
+		}
+	})
+	t.Run("no merge queues", func(t *testing.T) {
+		f := ready(t)
+		perms := readyPerms()
+		delete(perms, "merge_queues")
+		f.installs[1] = install(AppSlug, "frostyard", perms, false)
+		check, err := f.client().CheckApp(context.Background(), owners)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := check.Owners["frostyard"]; got != "" {
+			t.Errorf("reason %q", got)
+		}
+		if note := check.Notes["frostyard"]; !strings.Contains(note, "an enqueue may fail") {
+			t.Errorf("note %q", note)
+		}
+	})
+	t.Run("2 pages", func(t *testing.T) {
+		f := ready(t)
+		f.installs = nil
+		for range installationsPerPage {
+			f.installs = append(f.installs, install("another-app", "someone", readyPerms(), false))
+		}
+		f.installs = append(f.installs, install(AppSlug, "frostyard", readyPerms(), false))
+		check, err := f.client().CheckApp(context.Background(), []string{"frostyard"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := check.Owners["frostyard"]; got != "" {
+			t.Errorf("reason %q", got)
+		}
+		if len(f.gets) != 3 { // GET /user and 2 pages
+			t.Errorf("reads %v", f.gets)
+		}
+	})
+	t.Run("a failed page", func(t *testing.T) {
+		f := ready(t)
+		f.restFail = func(path string) (int, string, http.Header) {
+			if path == "/user/installations" {
+				return 502, `{"message":"Server Error"}`, nil
+			}
+			return 0, "", nil
+		}
+		if _, err := f.client().CheckApp(context.Background(), owners); !errors.Is(err, ErrNoAnswer) {
+			t.Errorf("err %v", err)
+		}
+	})
+	t.Run("a refused read", func(t *testing.T) {
+		f := ready(t)
+		f.restFail = func(path string) (int, string, http.Header) {
+			if path == "/user" {
+				return 401, `{"message":"Bad credentials"}`, nil
+			}
+			return 0, "", nil
+		}
+		_, err := f.client().CheckApp(context.Background(), owners)
+		var api *APIError
+		if !errors.As(err, &api) || api.Status != 401 {
+			t.Errorf("err %v", err)
+		}
+		if !strings.HasPrefix(err.Error(), "GET /user: ") {
+			t.Errorf("the error names no call: %v", err)
+		}
+	})
+}

@@ -383,7 +383,7 @@ func TestRefusedMutationKeepsItsKind(t *testing.T) {
 }
 
 // checksRefusedAnswer is a 200 answer for f's PR query: every check node null,
-// and 1 FORBIDDEN entry at statusCheckRollup for each, as a fine-grained
+// and 1 FORBIDDEN entry at statusCheckRollup for each, as a sign-in without
 // token without the Checks permission gets.
 func checksRefusedAnswer(f *fake) string {
 	data := copyJSON(f.data)
@@ -427,6 +427,10 @@ func TestChecksUnreadable(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "statusCheckRollup") {
 			t.Errorf("the error names no check run: %v", err)
+		}
+		// The refusal says what the App needs, and on which owner.
+		if !strings.Contains(err.Error(), "the Pocket App needs Checks: read on "+f.ref.Owner) {
+			t.Errorf("the error names no permission: %v", err)
 		}
 		row := c.Preflight(context.Background(), f.ref)
 		if row.Readable || !strings.Contains(row.Reason, "cannot read the PR's check runs") {

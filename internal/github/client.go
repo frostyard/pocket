@@ -36,13 +36,14 @@ var (
 	// ErrNoAnswer is a request with no HTTP answer, a timeout or a 5xx: the
 	// outcome of a mutation is unknown.
 	ErrNoAnswer = errors.New("GitHub gave no answer")
-	// ErrChecksUnreadable is a token that GitHub refuses the check runs to:
-	// a fine-grained token has no Checks permission, so GitHub refuses every
-	// CheckRun node of the PR query's statusCheckRollup, with partial data and
-	// an `errors` list. It is a refusal, never a retry: Pocket cannot check
-	// the required checks, so it sends no mutation
-	// (docs/adr/0009-read-check-runs-only-with-a-token-that-can.md).
-	ErrChecksUnreadable = errors.New("this token cannot read the PR's check runs (a fine-grained token has no Checks permission)")
+	// ErrChecksUnreadable is a sign-in that GitHub refuses the check runs to:
+	// the Pocket App has no Checks permission on the repository's owner, so
+	// GitHub refuses every CheckRun node of the PR query's statusCheckRollup,
+	// with partial data and an `errors` list. It is a refusal, never a retry:
+	// Pocket cannot check the required checks, so it sends no mutation
+	// (docs/adr/0009-read-check-runs-only-with-a-token-that-can.md). The
+	// error that holds it names the owner.
+	ErrChecksUnreadable = errors.New("this sign-in cannot read the PR's check runs: the Pocket App needs Checks: read")
 
 	errRedirect = errors.New("redirect refused")
 	// errNotSent is an error before any request went out: nothing reached
@@ -99,7 +100,7 @@ type APIError struct {
 	// RetryAfter is when a rate limit ends; zero when the answer names none.
 	RetryAfter time.Time
 	// Accepted is the header X-Accepted-GitHub-Permissions of a 403 or 404
-	// answer: the fine-grained permissions the call needs; "" when absent.
+	// answer: the permissions the call needs; "" when absent.
 	Accepted string
 }
 
@@ -169,16 +170,24 @@ type redacted struct {
 func (r *redacted) Error() string { return r.msg }
 func (r *redacted) Unwrap() error { return r.err }
 
-// Redact replaces each occurrence of token in err's text with "[token]".
-func Redact(err error, token string) error {
-	if err == nil || token == "" {
-		return err
+// Redact replaces each occurrence of each secret in err's text with
+// "[token]".
+func Redact(err error, secrets ...string) error {
+	if err == nil {
+		return nil
 	}
 	msg := err.Error()
-	if !strings.Contains(msg, token) {
+	out := msg
+	for _, secret := range secrets {
+		if secret == "" {
+			continue
+		}
+		out = strings.ReplaceAll(out, secret, "[token]")
+	}
+	if out == msg {
 		return err
 	}
-	return &redacted{msg: strings.ReplaceAll(msg, token, "[token]"), err: err}
+	return &redacted{msg: out, err: err}
 }
 
 func (c *Client) redact(s string) string {

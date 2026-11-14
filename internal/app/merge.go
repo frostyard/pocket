@@ -13,6 +13,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/frostyard/frostui"
 
+	"github.com/frostyard/pocket/internal/config"
 	"github.com/frostyard/pocket/internal/github"
 	"github.com/frostyard/pocket/internal/pocket"
 )
@@ -23,11 +24,24 @@ import (
 // mutation: only the confirm button of the dialog does (mergeConfirm).
 // GitHub calls are built from the Desk row's ref, never from its url.
 
-// TokenStore keeps the owner's GitHub tokens; config.GitHubTokens is one.
-type TokenStore interface {
-	Get(owner string) (string, error)
-	Set(owner, token string) error
-	Forget(owner string) error
+// GitHubAuth is the GitHub App sign-in: the keyring entry, the device flow
+// and the leased token behind 1 seam (cmd/pocket/github.go joins them).
+// Tests give a fake.
+type GitHubAuth interface {
+	Open() error
+	Start(ctx context.Context) (github.DeviceCode, error)
+	Poll(ctx context.Context, dc github.DeviceCode) (github.AppToken, error)
+	BeginSignIn() int
+	CancelSignIn(gen int)
+	Adopt(tok github.AppToken, gen int) error
+	SaveAgain() error
+	DeleteAgain() error
+	Invalidate(tokenGen int)
+	Forget() error
+	Status() github.AppStatus
+	Legacy() (bool, error)
+	ForgetLegacy() error
+	Close()
 }
 
 // ghAPI is what the app uses of a *github.Client; tests give a fake.
@@ -36,14 +50,9 @@ type ghAPI interface {
 	Act(ctx context.Context, in github.Intent, op string, step func(name string) error) github.Result
 	Settle(ctx context.Context, in github.Intent, op string, wait bool) github.Result
 	State(ctx context.Context, ref github.Ref) (github.PRState, error)
-	Whoami(ctx context.Context) (github.Identity, error)
-	CheckRepo(ctx context.Context, owner, name string) error
 	Preflight(ctx context.Context, ref github.Ref) github.PreflightRow
+	CheckApp(ctx context.Context, owners []string) (github.AppCheck, error)
 }
-
-// githubOwners are the resource owners Pocket keeps a token for, in the
-// order Settings shows them.
-var githubOwners = []string{"bketelsen", "frostyard"}
 
 const (
 	// githubLimit is the time limit of 1 GitHub job (an attempt with its
@@ -74,16 +83,45 @@ type ghReadReq struct {
 	dialog *mergeDialog
 }
 
-// tokenForm is Settings > GitHub's state for 1 owner.
-type tokenForm struct {
-	text    string
-	busy    bool
-	login   string
-	expires time.Time
-	checked bool
-	result  string
-	fail    string
-	missing string
+// githubOwners are the owners the Pocket App must be installed on, in the
+// order Settings shows them.
+var githubOwners = []string{github.Login, "frostyard"}
+
+// deviceURL is where a person enters the code. Pocket's own constant: it
+// never opens the answer's verification_uri.
+const deviceURL = "https://github.com/login/device"
+
+// signInPhase is where the sign-in of the App is.
+type signInPhase int
+
+const (
+	// signInOpening is before Open answers: the keyring and the sign-in
+	// lock may take a moment.
+	signInOpening signInPhase = iota
+	// signInOff is the feature off: no keyring, or another Pocket holds the
+	// sign-in lock.
+	signInOff
+	// signInStarting asks GitHub for a code.
+	signInStarting
+	// signInNone is signed out.
+	signInNone
+	// signInCode shows the code, and polls for the pair.
+	signInCode
+	// signInChecking runs CheckApp on the new pair.
+	signInChecking
+	// signInSaving runs Adopt, with Cancel off.
+	signInSaving
+	// signInSignedIn holds a sign-in Pocket may lease.
+	signInSignedIn
+)
+
+// ownerState is what the App's installations say of 1 owner: unknown until
+// CheckApp answers, ready (no reason), or not ready with its reason. Note
+// is what does not refuse, such as a missing Merge queues permission.
+type ownerState struct {
+	known  bool
+	reason string
+	note   string
 }
 
 // preflightResult is the preflight table of 1 owner.
@@ -96,14 +134,30 @@ type preflightResult struct {
 // ghState is Approve + merge's state, on the UI thread. It survives a
 // sign-out: a GitHub result is never dropped.
 type ghState struct {
-	api       func(owner string) (ghAPI, error)
+	// api gives a client on a leased token, the token's generation and the
+	// release a job calls with defer.
+	api       func(ctx context.Context, owner string) (ghAPI, int, func(), error)
 	newClient func(token string) ghAPI
 	j         *journal
 
-	kept   map[string]bool
-	keyErr string
-	bad    map[string]string
-	epoch  map[string]int
+	// The App's sign-in (ADR-0010).
+	phase         signInPhase
+	open          bool   // Open answered
+	keyErr        string // Open failed: the keyring's reason
+	held          bool   // another Pocket holds the sign-in lock
+	status        github.AppStatus
+	legacy        bool // 1 of the 2 old token keys is still kept
+	signInGen     int
+	code          github.DeviceCode
+	codeAt        time.Time
+	cancelPoll    func()
+	checking      bool
+	preflightBusy bool   // the 1 preflight job runs
+	fail          string // why the last sign-in failed
+	deleteWhy     string // why the keyring did not delete the sign-in
+	owners        map[string]ownerState
+
+	epoch map[string]int
 
 	previews map[string]*ghPreview
 	inflight int
@@ -120,7 +174,6 @@ type ghState struct {
 	posting   map[string]*pocket.Client
 	busy      map[string]bool
 
-	forms     map[string]*tokenForm
 	preflight map[string]*preflightResult
 	blocked   map[string]string
 }
@@ -128,10 +181,10 @@ type ghState struct {
 func newGHState() ghState {
 	return ghState{
 		newClient: func(token string) ghAPI { return github.New(token) },
-		kept:      map[string]bool{}, bad: map[string]string{}, epoch: map[string]int{},
+		epoch:     map[string]int{}, owners: map[string]ownerState{},
 		previews: map[string]*ghPreview{}, sel: map[string]bool{}, diff: map[string]string{},
 		running: map[string]bool{}, notMerged: map[string]bool{}, posting: map[string]*pocket.Client{},
-		busy: map[string]bool{}, forms: map[string]*tokenForm{}, preflight: map[string]*preflightResult{},
+		busy: map[string]bool{}, preflight: map[string]*preflightResult{},
 		blocked: map[string]string{},
 	}
 }
@@ -140,24 +193,26 @@ func newGHState() ghState {
 func (a *App) initGitHub() {
 	a.gh = newGHState()
 	if gh := a.opts.GitHub; gh != nil {
-		a.gh.api = func(owner string) (ghAPI, error) {
-			c, err := gh(owner)
+		a.gh.api = func(ctx context.Context, owner string) (ghAPI, int, func(), error) {
+			c, gen, release, err := gh(ctx, owner)
 			if err != nil {
-				return nil, err
+				return nil, 0, nil, err
 			}
 			if c == nil {
-				return nil, errors.New("no GitHub client for " + owner)
+				return nil, 0, nil, errors.New("no GitHub client for " + owner)
 			}
-			return c, nil
+			return c, gen, release, nil
 		}
 	}
 }
 
-// ghOn says the feature is on: a keyring and a GitHub client.
-func (a *App) ghOn() bool { return a.gh.api != nil && a.opts.GitHubTokens != nil }
+// ghOn says the feature is on: a leased token and the App's sign-in.
+func (a *App) ghOn() bool { return a.gh.api != nil && a.opts.GitHubAuth != nil }
 
-// startGitHub opens the journal, learns which tokens the keyring keeps,
-// and reconciles the attempts a crash left. Reads only.
+// startGitHub opens the journal, then the GitHub sign-in (the sign-in lock,
+// the keyring entry and the App's installations), and reconciles the
+// attempts a crash left once the sign-in is there: before that every lease
+// fails. Reads only.
 func (a *App) startGitHub() {
 	if !a.ghOn() || a.gh.j != nil {
 		return
@@ -167,41 +222,113 @@ func (a *App) startGitHub() {
 	if !a.gh.j.ok() {
 		a.console.Add(frostui.LevelWarn, "github", "Approve + merge is off: "+a.gh.j.why)
 	}
-	a.loadKeptTokens()
-	a.reconcileJournal()
+	a.openSignIn()
 }
 
-// closeGitHub removes the journal's lock.
-func (a *App) closeGitHub() {
-	if a.gh.j != nil {
-		a.gh.j.close()
-	}
-}
-
-// loadKeptTokens asks the keyring, off the UI thread, which owners have a
-// token. The token itself stays there.
-func (a *App) loadKeptTokens() {
-	store := a.opts.GitHubTokens
-	type kept struct{ has map[string]bool }
-	ghRead(a, "Reading the GitHub tokens in the keyring", func(context.Context) (kept, error) {
-		out := kept{has: map[string]bool{}}
-		for _, owner := range githubOwners {
-			tok, err := store.Get(owner)
-			if err != nil {
-				return out, github.Redact(err, tok)
-			}
-			out.has[owner] = tok != ""
+// openSignIn takes the sign-in lock and reads the stored sign-in, off the
+// UI thread: the keyring may wait. The owners are checked, and only then
+// are the attempts a crash left reconciled.
+func (a *App) openSignIn() {
+	auth := a.opts.GitHubAuth
+	ghRead(a, "Opening the GitHub sign-in", func(context.Context) (bool, error) {
+		if err := auth.Open(); err != nil {
+			return false, err
 		}
-		return out, nil
-	}, func(k kept, err error) {
+		// A failing keyring on the old keys is no reason to fail the open.
+		legacy, err := auth.Legacy()
+		return legacy && err == nil, nil
+	}, func(legacy bool, err error) {
 		if err != nil {
+			a.gh.phase = signInOff
+			if errors.Is(err, config.ErrSignInHeld) {
+				a.gh.held = true
+				return
+			}
 			a.gh.keyErr = err.Error()
 			return
 		}
-		a.gh.keyErr = ""
-		a.gh.kept = k.has
-		a.ghPreviewReady()
+		a.gh.open, a.gh.legacy, a.gh.keyErr = true, legacy, ""
+		a.gh.status = auth.Status()
+		if !a.gh.status.SignedIn {
+			a.gh.phase = signInNone
+			return
+		}
+		a.gh.phase = signInSignedIn
+		a.checkOwners(func() { a.reconcileJournal() })
 	})
+}
+
+// checkOwners reads GET /user and the App's installations with 1 lease, and
+// sets each owner's state. done runs on the UI thread after it.
+func (a *App) checkOwners(done func()) {
+	if !a.ghOn() || a.gh.checking {
+		return
+	}
+	apiFn := a.gh.api
+	a.gh.checking = true
+	a.ghReview()
+	gen := 0
+	ghRead(a, "Checking the GitHub App's installations", func(ctx context.Context) (github.AppCheck, error) {
+		api, tokenGen, release, err := apiFn(ctx, githubOwners[0])
+		gen = tokenGen
+		if err != nil {
+			return github.AppCheck{}, err
+		}
+		if release != nil {
+			defer release()
+		}
+		return api.CheckApp(ctx, githubOwners)
+	}, func(check github.AppCheck, err error) {
+		a.jobErr(err, gen)
+		a.gh.checking = false
+		if err != nil {
+			a.console.Add(frostui.LevelWarn, "github", "Checking the GitHub App's installations: "+err.Error())
+			if done != nil {
+				done()
+			}
+			return
+		}
+		a.setOwners(check)
+		if done != nil {
+			done()
+		}
+	})
+}
+
+// setOwners takes a CheckApp's answer: 1 owner ready, or the reason it is
+// not, and the notes that do not refuse.
+func (a *App) setOwners(check github.AppCheck) {
+	for _, owner := range githubOwners {
+		st := ownerState{known: true, reason: check.Owners[owner], note: check.Notes[owner]}
+		a.gh.owners[owner] = st
+	}
+	a.ghReview()
+}
+
+// unknownOwners forgets what the installations said: a new sign-in checks
+// again.
+func (a *App) unknownOwners() {
+	a.gh.owners = map[string]ownerState{}
+	a.ghReview()
+}
+
+// ghReview says the GitHub views ask for another frame: the sign-in's state
+// or an owner's changed.
+func (a *App) ghReview() { a.invalidateDerived() }
+
+// closeGitHub stops the poll, ends the sign-in and removes the journal's
+// lock. The sign-in lock goes only with the process.
+func (a *App) closeGitHub() {
+	if a.gh.cancelPoll != nil {
+		a.gh.cancelPoll()
+		a.gh.cancelPoll = nil
+	}
+	if a.opts.GitHubAuth != nil {
+		a.opts.GitHubAuth.Close()
+	}
+	if a.gh.j != nil {
+		a.gh.j.close()
+	}
 }
 
 // githubDo runs fn on a goroutine with its own context and hands its result
@@ -247,19 +374,35 @@ func ghRef(s string) (github.Ref, bool) {
 	return r, true
 }
 
-// ghBlocked says why a PR of owner gets no button now, or "".
+// ghBlocked says why a PR gets no button now, or "": the sign-in first, in
+// the order of ADR-0010, then the owner's state, then the attempt's.
 func (a *App) ghBlocked(r github.Ref) string {
+	a.syncStatus()
 	switch {
-	case a.gh.keyErr != "":
+	case !a.ghOn():
 		return "Approve + merge needs the desktop keyring (Settings > GitHub)"
+	case a.gh.keyErr != "":
+		return "Approve + merge needs the desktop keyring: " + a.gh.keyErr + " (Settings > GitHub)"
+	case a.gh.held:
+		return "another Pocket holds the GitHub sign-in"
+	case a.gh.phase == signInOpening:
+		return "opening the GitHub sign-in"
+	case a.gh.status.Unsaved:
+		return "the keyring did not keep the new GitHub sign-in (Settings > GitHub)"
+	case !a.gh.status.SignedIn && a.gh.status.DeleteFailed:
+		return "the keyring still holds a sign-in you signed out of (Settings > GitHub)"
+	case a.gh.phase != signInSignedIn || !a.gh.status.SignedIn:
+		return "sign in to GitHub (Settings > GitHub)"
+	case a.gh.checking:
+		return "checking the GitHub App's installations"
+	case !a.gh.owners[r.Owner].known:
+		return "the GitHub App's installations are not checked: Run preflight (Settings > GitHub)"
+	case a.gh.owners[r.Owner].reason != "":
+		return a.gh.owners[r.Owner].reason
 	case a.gh.j == nil:
 		return "Approve + merge starts with the journal"
 	case !a.gh.j.ok():
 		return "Approve + merge is off: " + a.gh.j.why + " (Settings > GitHub)"
-	case a.gh.bad[r.Owner] != "":
-		return a.gh.bad[r.Owner] + " (Settings > GitHub)"
-	case !a.gh.kept[r.Owner]:
-		return "Add a GitHub token for " + r.Owner + " in Settings > GitHub to approve + merge here"
 	case a.gh.blocked[r.Owner+"/"+r.Name] != "":
 		return a.gh.blocked[r.Owner+"/"+r.Name]
 	}
@@ -306,13 +449,19 @@ func (a *App) ghPump() {
 			a.gh.previews[req.key] = &ghPreview{reading: 1}
 		}
 		owner, epoch, apiFn := req.ref.Owner, a.gh.epoch[req.ref.Owner], a.gh.api
+		gen := 0
 		ghRead(a, "Reading "+req.key+" on GitHub", func(ctx context.Context) (github.Preview, error) {
-			api, err := apiFn(owner)
+			api, tokenGen, release, err := apiFn(ctx, owner)
+			gen = tokenGen
 			if err != nil {
 				return github.Preview{}, err
 			}
+			if release != nil {
+				defer release()
+			}
 			return api.Preview(ctx, req.ref)
 		}, func(p github.Preview, err error) {
+			a.jobErr(err, gen)
 			a.gh.inflight--
 			defer a.ghPump()
 			pv := a.gh.previews[req.key]
@@ -322,7 +471,6 @@ func (a *App) ghPump() {
 			if epoch != a.gh.epoch[owner] || pv == nil {
 				return // the token changed since: this read is the old one's
 			}
-			a.ghTokenRefused(owner, err)
 			pv.at = a.opts.Now()
 			if err != nil {
 				pv.p, pv.err = nil, err.Error()
@@ -344,14 +492,26 @@ func (a *App) ghPump() {
 	}
 }
 
-// ghTokenRefused marks owner's token bad on a 401.
-func (a *App) ghTokenRefused(owner string, err error) bool {
+// refused marks the pair of that job's generation spent on a 401: an older
+// generation changes nothing, and the next lease refreshes.
+func (a *App) refused(err error, tokenGen int) bool {
 	var api *github.APIError
-	if errors.As(err, &api) && api.Status == 401 {
-		a.gh.bad[owner] = "GitHub refused the token for " + owner + ": paste a new one"
-		return true
+	if !errors.As(err, &api) || api.Status != 401 {
+		return false
 	}
-	return false
+	if auth := a.opts.GitHubAuth; auth != nil {
+		auth.Invalidate(tokenGen)
+	}
+	a.dropPreviewsAll()
+	return true
+}
+
+// dropPreviewsAll forgets every preview and every queued read: a refused
+// sign-in is no basis for a card.
+func (a *App) dropPreviewsAll() {
+	for _, owner := range githubOwners {
+		a.dropPreviews(owner)
+	}
 }
 
 // mergeHidden says a ready PR's card leaves the Inbox: an attempt merged
@@ -721,6 +881,9 @@ type mergeItem struct {
 	op    string
 	res   github.Result
 	note  string
+	// tokenGen is the generation of the lease the attempt held: a 401 on it
+	// invalidates that pair, never a newer one.
+	tokenGen int
 }
 
 // ready says the item can start.
@@ -1074,10 +1237,15 @@ func (a *App) mergeStart(d *mergeDialog, it *mergeItem) {
 	}
 	a.gh.running[op.ID] = true
 	apiFn, owner, opID, post := a.gh.api, it.ref.Owner, op.ID, a.post
+	gen := 0
 	a.githubDo("Approve + merge "+it.pr.Ref, func(ctx context.Context) github.Result {
-		api, err := apiFn(owner)
+		api, tokenGen, release, err := apiFn(ctx, owner)
+		gen = tokenGen
 		if err != nil {
 			return github.Result{Op: opID, Kind: "failed", Step: "read", Reason: "no GitHub client: " + err.Error(), Err: err}
+		}
+		if release != nil {
+			defer release()
 		}
 		// Each step is written on the UI thread before Act goes on: a
 		// failed write before a mutation stops it (fail closed).
@@ -1094,6 +1262,8 @@ func (a *App) mergeStart(d *mergeDialog, it *mergeItem) {
 		return api.Act(ctx, in, opID, step)
 	}, func(res github.Result) {
 		delete(a.gh.running, opID)
+		it.tokenGen = gen
+		a.jobErr(res.Err, gen)
 		a.mergeFinished(it, op, res)
 	})
 }
@@ -1128,10 +1298,9 @@ func (a *App) mergeFinished(it *mergeItem, op *mergeOp, res github.Result) {
 	if d != nil && errors.As(res.Err, &api) {
 		switch {
 		case api.Status == 401:
-			a.ghTokenRefused(it.ref.Owner, res.Err)
 			for _, other := range d.items {
-				if other.state == "" && other.ref.Owner == it.ref.Owner {
-					other.state, other.note = "skipped", "not started: token refused"
+				if other.state == "" {
+					other.state, other.note = "skipped", "not started: GitHub refused the sign-in"
 				}
 			}
 		case (api.Status == 403 || api.Status == 429) && !api.RetryAfter.IsZero():
@@ -1211,13 +1380,19 @@ func (a *App) settleOp(o *mergeOp, wait bool, done func(github.Result)) bool {
 	}
 	a.gh.busy["op:"+o.ID] = true
 	apiFn, owner, id := a.gh.api, in.Preview.Ref.Owner, o.ID
+	gen := 0
 	a.githubDo("Reading what "+o.Intent.Ref+" became", func(ctx context.Context) github.Result {
-		api, err := apiFn(owner)
+		api, tokenGen, release, err := apiFn(ctx, owner)
+		gen = tokenGen
 		if err != nil {
 			return github.Result{Op: id, Kind: "unknown", Step: "settle", Reason: "no GitHub client", Err: err}
 		}
+		if release != nil {
+			defer release()
+		}
 		return api.Settle(ctx, in, id, wait)
 	}, func(res github.Result) {
+		a.jobErr(res.Err, gen)
 		delete(a.gh.busy, "op:"+id)
 		done(res)
 	})
@@ -1363,13 +1538,19 @@ func (a *App) mergedState(ref string) {
 	}
 	a.gh.busy[key] = true
 	apiFn := a.gh.api
+	gen := 0
 	ghRead(a, "Reading the state of "+ref, func(ctx context.Context) (github.PRState, error) {
-		api, err := apiFn(r.Owner)
+		api, tokenGen, release, err := apiFn(ctx, r.Owner)
+		gen = tokenGen
 		if err != nil {
 			return github.PRState{}, err
 		}
+		if release != nil {
+			defer release()
+		}
 		return api.State(ctx, r)
 	}, func(st github.PRState, err error) {
+		a.jobErr(err, gen)
 		delete(a.gh.busy, key)
 		if err == nil && st.State != "MERGED" {
 			a.gh.notMerged[ref] = true
@@ -1501,16 +1682,8 @@ func (a *App) postOne(o *mergeOp, r *opReceipt) {
 	})
 }
 
-// Settings > GitHub: the tokens, the preflight, Batches, and the journal.
-
-func (a *App) tokenForm(owner string) *tokenForm {
-	f := a.gh.forms[owner]
-	if f == nil {
-		f = &tokenForm{}
-		a.gh.forms[owner] = f
-	}
-	return f
-}
+// Settings > GitHub: the App's sign-in, the preflight, Batches, and the
+// journal.
 
 // readyRepos are the repositories of owner in the Ready list, each with
 // its first ready PR, in the Desk's order.
@@ -1531,103 +1704,305 @@ func (a *App) readyRepos(owner string) []github.Ref {
 	return out
 }
 
-type tokenCheck struct {
-	login, fail, note, missing string
-	expires                    time.Time
-	saved                      bool
+// otherLogin is a sign-in that is not for bketelsen.
+type otherLogin struct{ login string }
+
+func (e *otherLogin) Error() string { return "this sign-in is for " + e.login }
+
+// signedUp says this Pocket holds the sign-in lock and the keyring works:
+// before that a sign-in could put a pair in the keyring without the lock.
+func (a *App) signedUp() bool { return a.gh.open && !a.gh.held && a.gh.keyErr == "" }
+
+// busySignIn says a sign-in is in progress, so its button is off.
+func (a *App) busySignIn() bool {
+	switch a.gh.phase {
+	case signInStarting, signInCode, signInChecking, signInSaving:
+		return true
+	}
+	return false
 }
 
-// githubCheck is Check: the typed token (or the kept one) must sign in as
-// bketelsen and read 1 ready repository of owner. Only then is a typed
-// token saved.
-func (a *App) githubCheck(owner string) {
-	f := a.tokenForm(owner)
-	if f.busy || !a.ghOn() {
+// githubSignIn is Sign in with GitHub: the device code, off the UI thread.
+func (a *App) githubSignIn() {
+	auth := a.opts.GitHubAuth
+	if !a.ghOn() || a.busySignIn() || !a.signedUp() {
 		return
 	}
-	typed := strings.TrimSpace(f.text)
-	store, newClient := a.opts.GitHubTokens, a.gh.newClient
-	var repo *github.Ref
-	if repos := a.readyRepos(owner); len(repos) > 0 {
-		repo = &repos[0]
-	}
-	f.busy, f.fail, f.result, f.missing = true, "", "", ""
-	ghRead(a, "Checking the GitHub token for "+owner, func(ctx context.Context) (tokenCheck, error) {
-		tok := typed
-		if tok == "" {
-			kept, err := store.Get(owner)
-			if err != nil {
-				return tokenCheck{}, github.Redact(err, kept)
-			}
-			if kept == "" {
-				return tokenCheck{fail: "paste a token first"}, nil
-			}
-			tok = kept
+	a.stopPoll()
+	a.gh.signInGen = auth.BeginSignIn()
+	gen := a.gh.signInGen
+	a.gh.fail = ""
+	a.gh.phase = signInStarting
+	a.syncStatus()
+	a.ghReview()
+	ghRead(a, "Asking GitHub for a sign-in code", func(ctx context.Context) (github.DeviceCode, error) {
+		return auth.Start(ctx)
+	}, func(dc github.DeviceCode, err error) {
+		if gen != a.gh.signInGen {
+			return // an old sign-in: its result saves nothing
 		}
-		c := newClient(tok)
-		id, err := c.Whoami(ctx)
 		if err != nil {
-			out := tokenCheck{fail: "GitHub refused the token: " + github.Redact(err, tok).Error()}
-			var api *github.APIError
-			if errors.As(err, &api) {
-				out.missing = api.Accepted
-			}
-			return out, nil
+			a.gh.phase, a.gh.fail = signInNone, err.Error()
+			a.ghReview()
+			return
 		}
-		out := tokenCheck{login: id.Login, expires: id.Expires}
-		if id.Login != github.Login {
-			out.fail = "this token is for " + id.Login
-			return out, nil
-		}
-		if repo == nil {
-			// Without a ready repository the read cannot be proved: a typed
-			// token is not kept; a kept one shows its login and expiry.
-			if typed != "" {
-				out.fail = "no ready PR of " + owner + " to check the token with: try again when 1 is ready"
-				return out, nil
+		a.gh.phase, a.gh.code, a.gh.codeAt = signInCode, dc, a.opts.Now()
+		a.ghReview()
+		a.pollSignIn(dc, gen)
+		a.countdown()
+	})
+}
+
+// pollSignIn polls for the pair on its own goroutine and deadline (the
+// code's expiry). Cancel, Sign out, a new sign-in and exit stop it;
+// another page does not.
+func (a *App) pollSignIn(dc github.DeviceCode, gen int) {
+	auth := a.opts.GitHubAuth
+	ctx, cancel := context.WithDeadline(context.Background(), dc.Expires)
+	a.gh.cancelPoll = cancel
+	post := a.post
+	go func() {
+		tok, err := auth.Poll(ctx, dc)
+		post(func() {
+			cancel()
+			a.gh.cancelPoll = nil
+			if gen != a.gh.signInGen || a.gh.phase != signInCode {
+				return // cancelled, signed out, or a newer sign-in
 			}
-			out.note = "no ready PR of " + owner + " to check"
-		} else if err := c.CheckRepo(ctx, repo.Owner, repo.Name); err != nil {
-			out.fail = "this token cannot read " + repo.Owner + "/" + repo.Name + ": " + github.Redact(err, tok).Error()
-			var api *github.APIError
-			if errors.As(err, &api) {
-				out.missing = api.Accepted
+			if err != nil {
+				a.gh.phase, a.gh.fail = signInNone, err.Error()
+				a.ghReview()
+				return
 			}
-			return out, nil
+			a.checkPair(tok, gen)
+		})
+	}()
+}
+
+// countdown asks for a frame every second while the code shows: the view
+// draws the time left from the clock.
+func (a *App) countdown() {
+	if a.gh.phase != signInCode {
+		return
+	}
+	a.after(time.Second, func() {
+		if a.gh.phase != signInCode {
+			return
 		}
-		if typed != "" {
-			if err := store.Set(owner, typed); err != nil {
-				return out, github.Redact(err, typed)
-			}
-			out.saved = true
+		a.frame()
+		a.countdown()
+	})
+}
+
+// frame asks for 1 more view of the window.
+func (a *App) frame() { a.post(func() {}) }
+
+// stopPoll cancels a running poll, if 1 runs.
+func (a *App) stopPoll() {
+	if a.gh.cancelPoll != nil {
+		a.gh.cancelPoll()
+		a.gh.cancelPoll = nil
+	}
+}
+
+// checkPair reads the App's installations with the new pair, and adopts it
+// only when the sign-in is bketelsen's: nothing is kept otherwise.
+func (a *App) checkPair(tok github.AppToken, gen int) {
+	auth, newClient := a.opts.GitHubAuth, a.gh.newClient
+	a.gh.phase = signInChecking
+	a.ghReview()
+	ghRead(a, "Checking the new GitHub sign-in", func(ctx context.Context) (github.AppCheck, error) {
+		check, err := newClient(tok.Access).CheckApp(ctx, githubOwners)
+		if err != nil {
+			return github.AppCheck{}, err
 		}
-		return out, nil
-	}, func(res tokenCheck, err error) {
-		f.busy = false
-		f.login, f.expires, f.missing = res.login, res.expires, res.missing
-		f.checked = err == nil && res.fail == ""
+		if check.Login != github.Login {
+			return check, &otherLogin{login: check.Login}
+		}
+		return check, nil
+	}, func(check github.AppCheck, err error) {
+		if gen != a.gh.signInGen {
+			return
+		}
+		var other *otherLogin
 		switch {
+		case errors.As(err, &other):
+			a.gh.phase, a.gh.fail = signInNone, other.Error()
+			a.ghReview()
+			return
 		case err != nil:
-			f.fail = err.Error()
-		case res.fail != "":
-			f.fail = res.fail
-		default:
-			f.result = "Signs in as " + res.login
-			if res.note != "" {
-				f.result += "; " + res.note
+			a.gh.phase, a.gh.fail = signInNone, err.Error()
+			a.ghReview()
+			return
+		case tok.ClientID != github.AppClientID:
+			a.gh.phase, a.gh.fail = signInNone, "this sign-in is for another build of Pocket"
+			a.ghReview()
+			return
+		}
+		// CheckApp names the person the pair acts as; the source keeps the
+		// login with the pair.
+		tok.Login = check.Login
+		a.gh.phase = signInSaving
+		a.ghReview()
+		ghRead(a, "Saving the GitHub sign-in", func(context.Context) (struct{}, error) {
+			return struct{}{}, auth.Adopt(tok, gen)
+		}, func(_ struct{}, err error) {
+			if gen != a.gh.signInGen || errors.Is(err, github.ErrStale) {
+				return
 			}
-			if res.saved {
-				f.text = ""
-				f.result += "; kept in the keyring"
+			if err != nil {
+				a.gh.phase = signInNone
+				a.gh.fail = "the keyring did not keep the sign-in: " + err.Error()
+				a.syncStatus()
+				a.ghReview()
+				return
 			}
-			a.gh.kept[owner] = true
-			delete(a.gh.bad, owner)
-			a.gh.keyErr = ""
-			a.dropPreviews(owner)
-			a.githubPreflight(owner)
+			a.gh.phase, a.gh.fail = signInSignedIn, ""
+			a.syncStatus()
+			a.setOwners(check)
+			a.forgetLegacy()
+			a.dropPreviewsAll()
+			a.ghReview()
 			a.ghPreviewReady()
+		})
+	})
+}
+
+// cancelSignIn is Cancel on the code: the sign-in saves nothing.
+func (a *App) cancelSignIn() {
+	if !a.ghOn() {
+		return
+	}
+	a.stopPoll()
+	a.opts.GitHubAuth.CancelSignIn(a.gh.signInGen)
+	a.gh.signInGen++
+	a.gh.phase, a.gh.fail = signInNone, ""
+	a.ghReview()
+}
+
+// forgetLegacy deletes the 2 old token keys that ADR-0010 replaces
+// (ADR-0008) after a sign-in. A failure goes to Activity only: the
+// sign-in stands.
+func (a *App) forgetLegacy() {
+	if !a.gh.legacy {
+		return
+	}
+	auth := a.opts.GitHubAuth
+	ghRead(a, "Deleting the 2 old GitHub tokens", func(context.Context) (struct{}, error) {
+		return struct{}{}, auth.ForgetLegacy()
+	}, func(_ struct{}, err error) {
+		if err == nil {
+			a.gh.legacy = false
+			a.ghReview()
 		}
 	})
+}
+
+// syncStatus takes the sign-in's state; it never waits.
+func (a *App) syncStatus() {
+	if auth := a.opts.GitHubAuth; auth != nil {
+		a.gh.status = auth.Status()
+	}
+}
+
+// githubSignOut is Sign out: the pair leaves memory at once, and the entry
+// goes off the UI thread.
+func (a *App) githubSignOut() {
+	auth := a.opts.GitHubAuth
+	if !a.ghOn() {
+		return
+	}
+	a.stopPoll()
+	a.gh.signInGen++
+	a.gh.phase, a.gh.fail = signInNone, ""
+	a.unknownOwners()
+	a.dropPreviewsAll()
+	a.gh.preflight = map[string]*preflightResult{}
+	a.syncStatus()
+	a.ghReview()
+	ghRead(a, "Signing out of GitHub", func(context.Context) (github.AppStatus, error) {
+		err := auth.Forget()
+		return auth.Status(), err
+	}, func(st github.AppStatus, err error) {
+		a.gh.status, a.gh.deleteWhy = st, ""
+		if err != nil {
+			a.gh.deleteWhy = err.Error()
+			a.console.Add(frostui.LevelWarn, "github", "Signing out: "+err.Error())
+		}
+		a.ghReview()
+	})
+}
+
+// githubSaveAgain saves the pair the keyring did not keep.
+func (a *App) githubSaveAgain() {
+	auth := a.opts.GitHubAuth
+	if !a.ghOn() {
+		return
+	}
+	ghRead(a, "Saving the GitHub sign-in again", func(context.Context) (github.AppStatus, error) {
+		err := auth.SaveAgain()
+		return auth.Status(), err
+	}, func(st github.AppStatus, err error) {
+		a.gh.status = st
+		if err != nil {
+			a.console.Add(frostui.LevelWarn, "github", "Saving the GitHub sign-in: "+err.Error())
+		}
+		if st.SignedIn && !st.Unsaved {
+			a.gh.phase = signInSignedIn
+		}
+		a.ghReview()
+	})
+}
+
+// githubDeleteAgain deletes the entry a Sign out could not delete.
+func (a *App) githubDeleteAgain() {
+	auth := a.opts.GitHubAuth
+	if !a.ghOn() {
+		return
+	}
+	ghRead(a, "Deleting the GitHub sign-in again", func(context.Context) (github.AppStatus, error) {
+		err := auth.DeleteAgain()
+		return auth.Status(), err
+	}, func(st github.AppStatus, err error) {
+		a.gh.status = st
+		if err != nil {
+			a.console.Add(frostui.LevelWarn, "github", "Deleting the GitHub sign-in: "+err.Error())
+		}
+		a.ghReview()
+	})
+}
+
+// signInEnded stops the feature when a job finds the sign-in over: every
+// owner is unknown again, and the previews and the preflight rows go.
+func (a *App) signInEnded() {
+	if !a.ghOn() {
+		return
+	}
+	a.syncStatus()
+	if a.gh.status.SignedIn {
+		return // a result of an old pair, not of this sign-in
+	}
+	a.stopPoll()
+	a.gh.phase = signInNone
+	a.gh.signInGen++
+	a.unknownOwners()
+	a.dropPreviewsAll()
+	a.gh.preflight = map[string]*preflightResult{}
+	a.ghReview()
+}
+
+// jobErr takes a job's error: a 401 invalidates that generation, and an
+// ended sign-in stops the feature until the person signs in again.
+func (a *App) jobErr(err error, tokenGen int) {
+	if err == nil {
+		return
+	}
+	if a.refused(err, tokenGen) {
+		return
+	}
+	if errors.Is(err, github.ErrSignIn) || errors.Is(err, github.ErrNotSignedIn) {
+		a.signInEnded()
+	}
 }
 
 // dropPreviews forgets the previews of owner's PRs, and the reads of them
@@ -1644,75 +2019,112 @@ func (a *App) dropPreviews(owner string) {
 	})
 }
 
-// githubForget is Forget: the keyring drops owner's token.
-func (a *App) githubForget(owner string) {
-	f := a.tokenForm(owner)
-	if f.busy || !a.ghOn() {
-		return
-	}
-	store := a.opts.GitHubTokens
-	f.busy = true
-	ghRead(a, "Forgetting the GitHub token for "+owner, func(context.Context) (struct{}, error) {
-		return struct{}{}, store.Forget(owner)
-	}, func(_ struct{}, err error) {
-		f.busy = false
-		if err != nil {
-			f.fail = err.Error()
-			return
-		}
-		*f = tokenForm{result: "Forgotten"}
-		a.gh.kept[owner] = false
-		delete(a.gh.bad, owner)
-		delete(a.gh.preflight, owner)
-		for repo := range a.gh.blocked {
-			if strings.HasPrefix(repo, owner+"/") {
-				delete(a.gh.blocked, repo)
-			}
-		}
-		a.dropPreviews(owner)
-	})
+// preflightRun is what 1 preflight job read: the App's installations, and
+// the rows of each owner's ready repositories.
+type preflightRun struct {
+	check github.AppCheck
+	rows  map[string][]github.PreflightRow
+	// gen is the generation of the token the job leased: its 401 or ended
+	// sign-in is taken on the UI thread, never here.
+	gen int
 }
 
-// githubPreflight reads, with the kept token, 1 ready PR of each of
-// owner's ready repositories: rules, rulesets, branch and the PR query.
-// Reads only. A repository that fails gets no button.
-func (a *App) githubPreflight(owner string) {
+// preflightOf is the preflight table of 1 owner.
+func (a *App) preflightOf(owner string) *preflightResult {
 	pf := a.gh.preflight[owner]
 	if pf == nil {
 		pf = &preflightResult{}
 		a.gh.preflight[owner] = pf
 	}
-	if pf.busy || !a.ghOn() {
+	return pf
+}
+
+// preflightBusy says a preflight job runs.
+func (a *App) preflightBusy() bool {
+	if a.gh.preflightBusy {
+		return true
+	}
+	for _, owner := range githubOwners {
+		if pf := a.gh.preflight[owner]; pf != nil && pf.busy {
+			return true
+		}
+	}
+	return false
+}
+
+// githubPreflight is Run preflight: 1 job on 1 lease reads the App's
+// installations first, then 1 ready PR of each repository of each ready
+// owner: rules, rulesets, branch and the PR query. Reads only. A
+// repository that fails gets no button.
+func (a *App) githubPreflight() {
+	if !a.ghOn() || a.preflightBusy() {
 		return
 	}
-	repos := a.readyRepos(owner)
+	repos := map[string][]github.Ref{}
+	for _, owner := range githubOwners {
+		repos[owner] = a.readyRepos(owner)
+	}
 	apiFn := a.gh.api
-	pf.busy = true
-	ghRead(a, "Preflight of "+owner+"'s repositories", func(ctx context.Context) ([]github.PreflightRow, error) {
-		api, err := apiFn(owner)
+	// The installations are checked again: the cards say so while it runs.
+	a.gh.preflightBusy, a.gh.checking = true, true
+	for _, owner := range githubOwners {
+		pf := a.preflightOf(owner)
+		pf.busy, pf.err = true, ""
+	}
+	// The job fills its own run, so the completion knows which token
+	// generation it leased: the app's state changes only there, on the UI
+	// thread.
+	run := preflightRun{}
+	ghRead(a, "Preflight of the GitHub App", func(ctx context.Context) (preflightRun, error) {
+		api, gen, release, err := apiFn(ctx, githubOwners[0])
+		run.gen = gen
 		if err != nil {
-			return nil, err
+			return run, err
 		}
-		rows := make([]github.PreflightRow, 0, len(repos))
-		for _, r := range repos {
-			rows = append(rows, api.Preflight(ctx, r))
+		if release != nil {
+			defer release()
 		}
-		return rows, nil
-	}, func(rows []github.PreflightRow, err error) {
-		pf.busy = false
-		pf.err = ""
+		check, err := api.CheckApp(ctx, githubOwners)
 		if err != nil {
-			pf.err = err.Error()
-			return
+			return run, err
 		}
-		pf.rows = rows
-		for _, row := range rows {
-			if row.Reason != "" {
-				a.gh.blocked[row.Repo] = "preflight: " + row.Reason
-			} else {
-				delete(a.gh.blocked, row.Repo)
+		run.check, run.rows = check, map[string][]github.PreflightRow{}
+		for _, owner := range githubOwners {
+			if check.Owners[owner] != "" {
+				continue // not ready: its repositories are not read
+			}
+			for _, r := range repos[owner] {
+				run.rows[owner] = append(run.rows[owner], api.Preflight(ctx, r))
 			}
 		}
+		return run, nil
+	}, func(got preflightRun, err error) {
+		a.jobErr(err, got.gen)
+		a.gh.preflightBusy, a.gh.checking = false, false
+		for _, owner := range githubOwners {
+			a.preflightOf(owner).busy = false
+		}
+		if err != nil {
+			for _, owner := range githubOwners {
+				a.preflightOf(owner).err = err.Error()
+			}
+			a.ghReview()
+			return
+		}
+		a.setOwners(got.check)
+		for _, owner := range githubOwners {
+			pf := a.preflightOf(owner)
+			pf.err = ""
+			pf.rows = got.rows[owner]
+			for _, row := range pf.rows {
+				if row.Reason != "" {
+					a.gh.blocked[row.Repo] = "preflight: " + row.Reason
+				} else {
+					delete(a.gh.blocked, row.Repo)
+				}
+			}
+		}
+		a.ghReview()
 	})
 }
 
@@ -1724,23 +2136,15 @@ func (a *App) githubSettingsPage() frostui.SettingsPage {
 }
 
 func (a *App) githubSettingsBody(c *ui.Context) {
+	a.syncStatus()
 	ui.Column(c).Gap(frostui.SpaceM).AlignItems(ui.Stretch).Children(func() {
 		if !a.ghOn() {
 			frostui.Muted(c, "Approve + merge needs the desktop keyring.").Wrap()
 			return
 		}
-		if a.gh.keyErr != "" {
-			frostui.Muted(c, "Approve + merge needs the desktop keyring.").Wrap()
-			frostui.Problem(c, a.gh.keyErr)
-			return
-		}
-		frostui.Muted(c, "Approve + merge acts as "+github.Login+" with a fine-grained token for each owner, kept in the desktop keyring only. "+
-			"Permissions: Pull requests, Contents and Workflows read and write; Commit statuses and Metadata read. "+
-			"A fine-grained token cannot read check runs (GitHub offers no Checks permission for it), so a PR with check runs gets no button.").Wrap()
 		a.journalSettings(c)
-		for _, owner := range githubOwners {
-			a.ownerSettings(c.Key(owner), owner)
-		}
+		a.signInSettings(c)
+		a.preflightSettings(c)
 		frostui.SectionHeader(c, frostui.SectionHead{Title: "Batches"})
 		ui.Row(c).Gap(frostui.SpaceM).AlignItems(ui.Center).Children(func() {
 			ui.Column(c).Grow(1).Gap(2).Children(func() {
@@ -1758,6 +2162,187 @@ func (a *App) githubSettingsBody(c *ui.Context) {
 			}
 		})
 	})
+}
+
+// signInSettings draws where the App's sign-in is, and what it offers.
+func (a *App) signInSettings(c *ui.Context) {
+	frostui.SectionHeader(c, frostui.SectionHead{Title: "Sign-in", Note: "the GitHub App " + github.AppName})
+	st := a.gh.status
+	switch {
+	case a.gh.keyErr != "":
+		frostui.Muted(c, "Approve + merge needs the desktop keyring.").Wrap()
+		frostui.Problem(c, a.gh.keyErr)
+	case a.gh.held:
+		frostui.Muted(c, "another Pocket holds the GitHub sign-in. Approve + merge is off in this window.").Wrap()
+	case st.Unsaved:
+		frostui.Problem(c, "the keyring did not keep the new GitHub sign-in").Wrap()
+		a.signInButtons(c, "Save again", a.githubSaveAgain)
+	case st.DeleteFailed && !st.SignedIn:
+		why := "Signed out for this run, but the keyring still holds the sign-in"
+		if a.gh.deleteWhy != "" {
+			why += ": " + a.gh.deleteWhy
+		}
+		frostui.Problem(c, why).Wrap()
+		a.signInButtons(c, "Delete again", a.githubDeleteAgain)
+	case a.gh.phase == signInOpening:
+		// Open has not answered: no button until it does, because a
+		// sign-in without the lock could write the keyring.
+		ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
+			ui.Spinner(c).Size(14, 14)
+			frostui.Caption(c, "Opening the GitHub sign-in…").Grow(1)
+		})
+	case a.gh.phase == signInCode:
+		a.codeSettings(c)
+	case a.busySignIn():
+		// Cancel is off only while saving.
+		ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
+			ui.Spinner(c).Size(14, 14)
+			label := "checking the sign-in…"
+			if a.gh.phase == signInStarting {
+				label = "asking GitHub for a code…"
+			}
+			if a.gh.phase == signInSaving {
+				label = "Saving…"
+			}
+			frostui.Caption(c, label).Grow(1)
+			if a.gh.phase != signInSaving {
+				if ui.Button(c, "Cancel").Clicked() {
+					a.cancelSignIn()
+				}
+			}
+		})
+	case !st.SignedIn:
+		if st.Reason != "" {
+			frostui.Problem(c, st.Reason+": sign in again").Wrap()
+		}
+		if a.gh.fail != "" {
+			frostui.Problem(c, a.gh.fail).Wrap()
+		}
+		if a.gh.legacy {
+			frostui.Muted(c, "Pocket now signs in through its GitHub App. Sign in, then delete your 2 old fine-grained tokens on GitHub.").Wrap()
+		}
+		ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
+			if ui.PrimaryButton(c, "Sign in with GitHub").Clicked() {
+				a.githubSignIn()
+			}
+		})
+	default:
+		a.signedInSettings(c)
+	}
+}
+
+// codeSettings shows the device code, with the time left and Cancel.
+func (a *App) codeSettings(c *ui.Context) {
+	left := a.gh.code.Expires.Sub(a.opts.Now()).Round(time.Second)
+	if left < 0 {
+		left = 0
+	}
+	frostui.Muted(c, "Enter this code only here, now. Check that GitHub names "+github.AppName+".").Wrap()
+	ui.Row(c).Gap(frostui.SpaceM).AlignItems(ui.Center).Children(func() {
+		frostui.Mono(c, a.gh.code.UserCode).FontSize(26).Bold()
+		if ui.Button(c, "Copy code").Clicked() {
+			c.WriteClipboard(a.gh.code.UserCode)
+			a.toast("The code is on the clipboard")
+		}
+		if ui.Button(c, "Open github.com/login/device").Clicked() {
+			a.openURL(deviceURL)
+		}
+	})
+	frostui.Caption(c, "Time left: "+left.String()).Wrap()
+	ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
+		if ui.Button(c, "Cancel").Clicked() {
+			a.cancelSignIn()
+		}
+	})
+}
+
+// signedInSettings shows the sign-in, each owner's state, the preflight and
+// Sign out.
+func (a *App) signedInSettings(c *ui.Context) {
+	st := a.gh.status
+	parts := []string{"Signed in as " + st.Login + " through " + github.AppName}
+	for _, owner := range githubOwners {
+		parts = append(parts, owner+": "+a.ownerWord(owner))
+	}
+	again := st.RefreshExpires.In(a.opts.Now().Location()).Format("2006-01-02 15:04")
+	parts = append(parts, "sign in again by "+again)
+	frostui.Body(c, strings.Join(parts, " · ")).Wrap()
+	for _, owner := range githubOwners {
+		o := a.gh.owners[owner]
+		if o.known && o.reason != "" {
+			frostui.Problem(c, owner+": "+o.reason).Wrap()
+		}
+		if o.note != "" {
+			frostui.Caption(c, owner+": "+o.note).Wrap()
+		}
+	}
+	if a.gh.fail != "" {
+		frostui.Problem(c, a.gh.fail).Wrap()
+	}
+	ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
+		if a.preflightBusy() {
+			ui.Spinner(c).Size(14, 14)
+		}
+		if ui.Button(c, "Run preflight").Label("Run preflight").Disabled(a.preflightBusy()).Clicked() {
+			a.githubPreflight()
+		}
+		if ui.Button(c, "Sign out").Clicked() {
+			a.githubSignOut()
+		}
+	})
+	frostui.Caption(c, "Sign out forgets the sign-in on this desktop. To end it on GitHub: Settings > Applications > Authorized GitHub Apps > "+
+		github.AppName+" > Revoke.").Wrap()
+}
+
+// signInButtons draws 1 recovery button and Sign out.
+func (a *App) signInButtons(c *ui.Context, label string, act func()) {
+	ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
+		if ui.Button(c, label).Clicked() {
+			act()
+		}
+		if ui.Button(c, "Sign out").Clicked() {
+			a.githubSignOut()
+		}
+	})
+}
+
+// ownerWord says an owner's state in 1 word: the reason itself shows once,
+// in the line below the summary.
+func (a *App) ownerWord(owner string) string {
+	o := a.gh.owners[owner]
+	switch {
+	case !o.known:
+		return "unknown"
+	case o.reason != "":
+		return "not ready"
+	}
+	return "ready"
+}
+
+// preflightSettings draws the preflight's tables, 1 owner at a time.
+func (a *App) preflightSettings(c *ui.Context) {
+	any := false
+	for _, owner := range githubOwners {
+		pf := a.gh.preflight[owner]
+		if pf == nil {
+			continue
+		}
+		any = true
+		frostui.SectionHeader(c, frostui.SectionHead{Title: "Preflight: " + owner, Quiet: true})
+		if pf.err != "" {
+			frostui.Problem(c, pf.err)
+		}
+		if len(pf.rows) == 0 && !pf.busy && pf.err == "" {
+			frostui.Caption(c, "no ready PR of "+owner+" to read")
+			continue
+		}
+		if len(pf.rows) > 0 {
+			preflightTable(c, pf.rows)
+		}
+	}
+	if !any {
+		frostui.Caption(c, "Run preflight reads 1 ready PR of each repository of each ready owner").Wrap()
+	}
 }
 
 // journalSettings shows a journal that keeps the buttons off, with the
@@ -1791,79 +2376,6 @@ func (a *App) journalSettings(c *ui.Context) {
 			}
 		})
 	})
-}
-
-func (a *App) ownerSettings(c *ui.Context, owner string) {
-	f := a.tokenForm(owner)
-	frostui.SectionHeader(c, frostui.SectionHead{Title: owner, Note: "token for " + owner + "'s repositories"})
-	ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
-		hint := "github_pat_…"
-		if a.gh.kept[owner] {
-			hint = "kept in the keyring"
-		}
-		ui.TextInput(c, &f.text).Password().Placeholder(hint).Label("GitHub token for " + owner).Disabled(f.busy).Grow(1)
-		if f.busy {
-			ui.Spinner(c).Size(14, 14)
-		}
-		if ui.Button(c, "Check").Label("Check " + owner).Disabled(f.busy || (strings.TrimSpace(f.text) == "" && !a.gh.kept[owner])).Clicked() {
-			a.githubCheck(owner)
-		}
-		if ui.Button(c, "Forget").Label("Forget " + owner).Disabled(f.busy || !a.gh.kept[owner]).Clicked() {
-			a.githubForget(owner)
-		}
-	})
-	var facts []frostui.KeyValue
-	if !a.gh.kept[owner] {
-		facts = append(facts, frostui.KeyValue{Key: "Token", Value: "none: paste one and Check"})
-	}
-	if f.login != "" {
-		facts = append(facts, frostui.KeyValue{Key: "Login", Value: f.login})
-	}
-	if f.checked || f.login != "" {
-		exp := "unknown (GitHub named none)"
-		if !f.expires.IsZero() {
-			exp = f.expires.In(a.opts.Now().Location()).Format("2006-01-02 15:04")
-		}
-		facts = append(facts, frostui.KeyValue{Key: "Expires", Value: exp})
-	}
-	if f.result != "" {
-		facts = append(facts, frostui.KeyValue{Key: "Check", Value: f.result})
-	}
-	if f.missing != "" {
-		facts = append(facts, frostui.KeyValue{Key: "Missing permission", Value: f.missing, Mono: true})
-	}
-	if len(facts) > 0 {
-		frostui.KeyValues(c, facts)
-	}
-	if bad := a.gh.bad[owner]; bad != "" {
-		frostui.Problem(c, bad)
-	}
-	if f.fail != "" {
-		frostui.Problem(c, f.fail)
-	}
-	pf := a.gh.preflight[owner]
-	ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
-		frostui.Caption(c, "Preflight: reads 1 ready PR of each repository, with this token").Grow(1)
-		if pf != nil && pf.busy {
-			ui.Spinner(c).Size(14, 14)
-		}
-		if ui.Button(c, "Run preflight").Label("Run preflight " + owner).Disabled(!a.gh.kept[owner] || (pf != nil && pf.busy)).Clicked() {
-			a.githubPreflight(owner)
-		}
-	})
-	if pf == nil {
-		return
-	}
-	if pf.err != "" {
-		frostui.Problem(c, pf.err)
-	}
-	if len(pf.rows) == 0 && !pf.busy && pf.err == "" {
-		frostui.Caption(c, "no ready PR of "+owner+" to read")
-		return
-	}
-	if len(pf.rows) > 0 {
-		preflightTable(c, pf.rows)
-	}
 }
 
 // preflightTable is the preflight's rows: repository, readable, bypass,
