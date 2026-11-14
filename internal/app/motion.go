@@ -550,6 +550,9 @@ func (a *App) numbersPane(c *ui.Context) {
 					frostui.Loading(c, "Counting…")
 					return
 				}
+				if d.Meter != nil {
+					a.meterCard(c, d.Meter)
+				}
 				a.numberFilters(c, d)
 				m := d.Totals
 				ui.Grid(c).Columns(4).Gap(frostui.SpaceM).Children(func() {

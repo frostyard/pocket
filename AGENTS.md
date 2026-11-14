@@ -54,7 +54,7 @@ them rather than improvising, whichever agent you are. Start a new one from
   `mergeView`). `internal/app` is the window: `app.go` (state, events),
   `derived.go` (cached Inbox, session states and thread matches),
   `conn.go` (the link), `frame.go` (frame, commands, palette), `sidebar.go`,
-  `inbox.go`, `board_actions.go` (board details and actions), `core_memory.go` (Pi Pocket lessons), `motion.go` (In motion, Shift board, Numbers), `numbers.go` (filters and records), `desk.go`,
+  `inbox.go`, `board_actions.go` (board details and actions), `core_memory.go` (Pi Pocket lessons), `motion.go` (In motion, Shift board, Numbers), `meter.go` (the Numbers Subscriptions card), `numbers.go` (filters and records), `desk.go`,
   `desk_actions.go` (owner thread actions), `plans.go` (plan decisions and scope controls), `new_plan.go` (plan creation), `desk_extras.go` (supplementary lists),
   `transcript.go`, `session_tools.go` (find, fork, export and new context), `session_files.go` (native diffs, previews and confirmed reverts), `new_session.go` (server directory prompt), `composer.go`, `attachments.go` (file chips and queue controls), `upload_file_*.go` (platform file opens), `pages.go`, `session_details.go` (session
   identity and shift goal), `notify.go`, `settings.go`,
