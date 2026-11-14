@@ -90,6 +90,9 @@ type TokenSource struct {
 	// queued, when set, is told which credential write is about to wait for
 	// the write mutex. Tests use it to order 2 writes.
 	queued func(what string)
+	// beforeRefresh, when set, runs at the top of a refresh worker, before
+	// it does anything. Tests use it to replace the pair in that window.
+	beforeRefresh func()
 	// now is the clock; nil is the OAuth's clock, else time.Now. Tests
 	// inject it.
 	now func() time.Time
@@ -210,7 +213,11 @@ func (t *TokenSource) Lease(ctx context.Context) (token string, tokenGen int, re
 			}
 			t.refreshing = true
 			t.startWork()
-			go t.refresh()
+			// The pair this refresh is for, taken here: a Sign out and a
+			// new sign-in may replace it before the worker runs, and the
+			// worker must never spend the newer pair's refresh token while a
+			// job holds a lease of that pair.
+			go t.refresh(t.tok, t.gen)
 		}
 		seq = t.refreshSeq
 		ch := t.changed
@@ -233,16 +240,17 @@ func (t *TokenSource) release() {
 	t.mu.Unlock()
 }
 
-// refresh trades the refresh token for a new pair, saves it, and lets the
-// leases go on: 1 at a time, on its own context and goroutine. Every outcome
-// applies only to the pair the refresh started with: a Sign out or a new
+// refresh trades tok's refresh token for a new pair, saves it, and lets the
+// leases go on: 1 at a time, on its own context and goroutine. tok and gen
+// are the pair the Lease that started it decided for, taken under the small
+// mutex there. Every outcome applies only to that pair: a Sign out or a new
 // pair that ran meanwhile wins, and its keyring entry stays.
-func (t *TokenSource) refresh() {
+func (t *TokenSource) refresh(tok AppToken, gen int) {
 	defer t.endWork()
 	defer t.endRefresh()
-	t.mu.Lock()
-	tok, gen := t.tok, t.gen
-	t.mu.Unlock()
+	if t.beforeRefresh != nil {
+		t.beforeRefresh()
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), refreshTimeout)
 	defer cancel()
 	next, err := t.oauth.Refresh(ctx, tok.Refresh)

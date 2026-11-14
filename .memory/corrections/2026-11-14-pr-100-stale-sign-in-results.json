@@ -1,7 +1,7 @@
 {
   "date": "2026-11-14",
   "scope": "approve-merge",
-  "correction": "A GitHub read in Settings (CheckApp, the preflight, the device poll) applies its result only to the sign-in generation it started in, clears only its own busy flag and poll handle, and a 401 in a preflight row invalidates the lease of that job.",
-  "evidence": "frostyard/pocket#100, cross-review (openai/gpt-6.1-sol) of head 38c4fc5",
-  "promoted_to": "internal/app/merge_signin_test.go TestAStaleCheckKeepsNothing, TestAStalePreflightKeepsNothing, TestAPollClearsOnlyItsOwnHandle, TestAPreflights401Invalidates"
+  "correction": "A GitHub read in Settings (CheckApp, the preflight, the device poll) applies its result only to the sign-in generation it started in, clears only its own busy flag (the startup check and the preflight each have their own) and poll handle, and a 401 in a preflight row invalidates the lease of that job.",
+  "evidence": "frostyard/pocket#100, cross-review (openai/gpt-6.1-sol) of head 38c4fc5 and re-review of 3133d22",
+  "promoted_to": "internal/app/merge_signin_test.go TestAStaleCheckKeepsNothing, TestAStalePreflightKeepsNothing, TestAPollClearsOnlyItsOwnHandle, TestAPreflights401Invalidates, TestAnOldCheckKeepsTheInstallationsBusy"
 }

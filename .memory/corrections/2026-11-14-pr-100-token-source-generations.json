@@ -1,7 +1,7 @@
 {
   "date": "2026-11-14",
   "scope": "approve-merge",
-  "correction": "Every outcome of a token refresh and every credential write (save after refresh, Save again, Sign out, Delete again, the delete of an ended sign-in) re-checks under the write mutex that its pair or its clear is still the current one, so an old result never deletes or brings back another sign-in; Close lets a running refresh save its pair; a cancelled Lease caller gets no lease and starts no refresh.",
-  "evidence": "frostyard/pocket#100, cross-review (openai/gpt-6.1-sol) of head 38c4fc5",
-  "promoted_to": "internal/github/tokensource_test.go TestStaleRefusedRefreshKeepsTheNewPair, TestSaveAgainAfterANewPairSavesNothing, TestForgetKeepsANewerPair, TestCloseKeepsARunningRefresh, TestLeaseWithACancelledContext"
+  "correction": "Every outcome of a token refresh and every credential write (save after refresh, Save again, Sign out, Delete again, the delete of an ended sign-in) re-checks under the write mutex that its pair or its clear is still the current one, so an old result never deletes or brings back another sign-in; Close lets a running refresh save its pair; a refresh worker gets its pair and generation from the Lease that started it; a cancelled Lease caller gets no lease and starts no refresh.",
+  "evidence": "frostyard/pocket#100, cross-review (openai/gpt-6.1-sol) of head 38c4fc5 and re-review of 3133d22",
+  "promoted_to": "internal/github/tokensource_test.go TestStaleRefusedRefreshKeepsTheNewPair, TestSaveAgainAfterANewPairSavesNothing, TestForgetKeepsANewerPair, TestCloseKeepsARunningRefresh, TestLeaseWithACancelledContext, TestAStaleRefreshWorkerUsesItsOwnPair"
 }

@@ -152,7 +152,7 @@ type ghState struct {
 	codeAt        time.Time
 	pollID        int
 	cancelPoll    func()
-	checking      bool
+	checkBusy     bool   // checkOwners runs
 	checkJob      int    // the newest CheckApp job of the start
 	preflightJob  int    // the newest preflight job
 	preflightBusy bool   // the 1 preflight job runs
@@ -264,11 +264,11 @@ func (a *App) openSignIn() {
 // checkOwners reads GET /user and the App's installations with 1 lease, and
 // sets each owner's state. done runs on the UI thread after it.
 func (a *App) checkOwners(done func()) {
-	if !a.ghOn() || a.gh.checking {
+	if !a.ghOn() || a.gh.checkBusy {
 		return
 	}
 	apiFn := a.gh.api
-	a.gh.checking = true
+	a.gh.checkBusy = true
 	a.gh.checkJob++
 	job, signInGen := a.gh.checkJob, a.gh.signInGen
 	a.ghReview()
@@ -288,7 +288,7 @@ func (a *App) checkOwners(done func()) {
 		// nothing of the sign-in there is now: only its own busy flag goes.
 		if signInGen != a.gh.signInGen {
 			if a.gh.checkJob == job {
-				a.gh.checking = false
+				a.gh.checkBusy = false
 			}
 			a.ghReview()
 			// done still runs: the attempts a crash left are settled by
@@ -300,7 +300,7 @@ func (a *App) checkOwners(done func()) {
 		}
 		a.jobErr(err, gen)
 		if a.gh.checkJob == job {
-			a.gh.checking = false
+			a.gh.checkBusy = false
 		}
 		if err != nil {
 			a.console.Add(frostui.LevelWarn, "github", "Checking the GitHub App's installations: "+err.Error())
@@ -414,7 +414,7 @@ func (a *App) ghBlocked(r github.Ref) string {
 		return "the keyring still holds a sign-in you signed out of (Settings > GitHub)"
 	case a.gh.phase != signInSignedIn || !a.gh.status.SignedIn:
 		return "sign in to GitHub (Settings > GitHub)"
-	case a.gh.checking:
+	case a.checkingOwners():
 		return "checking the GitHub App's installations"
 	case !a.gh.owners[r.Owner].known:
 		return "the GitHub App's installations are not checked: Run preflight (Settings > GitHub)"
@@ -2065,6 +2065,10 @@ func (a *App) preflightOf(owner string) *preflightResult {
 	return pf
 }
 
+// checkingOwners says a read of the App's installations runs: the check of
+// the start, or a preflight. The cards say so, and no owner is ready yet.
+func (a *App) checkingOwners() bool { return a.gh.checkBusy || a.gh.preflightBusy }
+
 // preflightBusy says a preflight job runs.
 func (a *App) preflightBusy() bool {
 	if a.gh.preflightBusy {
@@ -2092,7 +2096,7 @@ func (a *App) githubPreflight() {
 	}
 	apiFn := a.gh.api
 	// The installations are checked again: the cards say so while it runs.
-	a.gh.preflightBusy, a.gh.checking = true, true
+	a.gh.preflightBusy = true
 	a.gh.preflightJob++
 	job, signInGen := a.gh.preflightJob, a.gh.signInGen
 	for _, owner := range githubOwners {
@@ -2132,7 +2136,7 @@ func (a *App) githubPreflight() {
 		// go.
 		if signInGen != a.gh.signInGen {
 			if a.gh.preflightJob == job {
-				a.gh.preflightBusy, a.gh.checking = false, false
+				a.gh.preflightBusy = false
 				for _, owner := range githubOwners {
 					a.preflightOf(owner).busy = false
 				}
@@ -2143,7 +2147,7 @@ func (a *App) githubPreflight() {
 		a.jobErr(err, got.gen)
 		a.refusedRows(got)
 		if a.gh.preflightJob == job {
-			a.gh.preflightBusy, a.gh.checking = false, false
+			a.gh.preflightBusy = false
 		}
 		for _, owner := range githubOwners {
 			a.preflightOf(owner).busy = false

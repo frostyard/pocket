@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -1170,4 +1171,67 @@ func TestLeaseWithACancelledContext(t *testing.T) {
 			t.Errorf("a cancelled waiter started a refresh: %d requests", got)
 		}
 	})
+}
+
+// TestAStaleRefreshWorkerUsesItsOwnPair: the worker refreshes the pair the
+// Lease decided for, never the pair that replaced it: the newer pair's
+// refresh token is not spent while its lease runs.
+func TestAStaleRefreshWorkerUsesItsOwnPair(t *testing.T) {
+	const (
+		refreshA = "REFRESH_A_0000"
+		refreshB = "REFRESH_B_0000"
+		accessB  = "ghu_NEWPAIR0000"
+	)
+	s := newSource(t)
+	now := s.clock.now()
+	a := AppToken{ClientID: AppClientID, Login: Login, Access: oldAccess, Refresh: refreshA,
+		AccessExpires: now.Add(time.Minute), RefreshExpires: now.Add(180 * 24 * time.Hour)}
+	b := AppToken{ClientID: AppClientID, Login: Login, Access: accessB, Refresh: refreshB,
+		AccessExpires: now.Add(8 * time.Hour), RefreshExpires: now.Add(180 * 24 * time.Hour)}
+	s.load(a)
+	// The window: the worker has started, and the pair is replaced before it
+	// does anything.
+	s.ts.beforeRefresh = func() {
+		gen := s.ts.BeginSignIn()
+		if err := s.ts.Adopt(b, gen); err != nil {
+			t.Errorf("adopt: %v", err)
+		}
+	}
+	leased := make(chan error, 1)
+	go func() {
+		_, _, rel, err := s.ts.Lease(context.Background())
+		if err == nil {
+			rel()
+		}
+		leased <- err
+	}()
+	waitFor(t, s.ts, "the refresh to start", func() bool { return s.ts.refreshing })
+	waitFor(t, s.ts, "the refresh to end", func() bool { return !s.ts.refreshing })
+	select {
+	case <-leased:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the lease did not return")
+	}
+	_, forms, _ := s.sign.seen()
+	var sent []string
+	for _, form := range forms {
+		if f := form.Get("refresh_token"); f != "" {
+			sent = append(sent, f)
+		}
+	}
+	if !slices.Equal(sent, []string{refreshA}) {
+		t.Errorf("the refresh sent %v, want only A's refresh token", sent)
+	}
+	if saved, ok := s.st.get(); !ok || saved.Access != accessB || saved.Refresh != refreshB {
+		t.Errorf("the keyring holds %+v, want the new pair", saved)
+	}
+	if st := s.ts.Status(); !st.SignedIn || st.Login != Login {
+		t.Errorf("status %+v", st)
+	}
+	// The new pair still leases, and its tokens are untouched.
+	tok, _, release := s.lease(context.Background())
+	release()
+	if tok != accessB {
+		t.Errorf("the lease gave %q", tok)
+	}
 }

@@ -312,7 +312,7 @@ func TestSignOutDuringThePollSavesNothing(t *testing.T) {
 	a.githubSignIn()
 	loop.RunUntil(t, func() bool { return a.gh.phase == signInCode })
 	a.githubSignOut()
-	loop.RunUntil(t, func() bool { return auth.forgetCount() == 0 })
+	loop.RunUntil(t, func() bool { return auth.forgetCount() == 1 })
 	poll <- github.AppToken{ClientID: github.AppClientID, Access: testGitHubToken, Refresh: "r",
 		AccessExpires: a.opts.Now().Add(time.Hour), RefreshExpires: a.opts.Now().Add(time.Hour)}
 	loop.RunUntil(t, func() bool { return polled(a) })
@@ -390,7 +390,7 @@ func TestOwnersUnknownAtStart(t *testing.T) {
 	a, loop, gh, _ := mergeApp(t, "frostyard/core#1")
 	release, _ := gh.holdCheck(t)
 	a.startGitHub()
-	loop.RunUntil(t, func() bool { return a.gh.checking })
+	loop.RunUntil(t, func() bool { return a.gh.checkBusy })
 	r, _ := github.ParseRef("frostyard/core#1")
 	if got := a.ghBlocked(r); got != "checking the GitHub App's installations" {
 		t.Errorf("blocked %q", got)
@@ -706,10 +706,10 @@ func TestCheckOwnersTakesItsErrorOnTheUIThread(t *testing.T) {
 	gh.setAppErr(&github.APIError{Status: 401, Message: "Bad credentials"})
 	release, _ := gh.holdCheck(t)
 	a.startGitHub()
-	loop.RunUntil(t, func() bool { return a.gh.checking })
+	loop.RunUntil(t, func() bool { return a.gh.checkBusy })
 	frames(settingsTester(t, a), loop)
 	release()
-	loop.RunUntil(t, func() bool { return !a.gh.checking })
+	loop.RunUntil(t, func() bool { return !a.gh.checkBusy })
 	if got := auth.invalidated(); len(got) != 1 {
 		t.Errorf("the refused CheckApp did not invalidate its generation: %v", got)
 	}
@@ -768,7 +768,7 @@ func TestUncheckedOwnersSaySo(t *testing.T) {
 	a, loop, gh, _ := mergeApp(t, "frostyard/core#1")
 	gh.setAppErr(errors.New("GitHub gave no answer"))
 	a.startGitHub()
-	loop.RunUntil(t, func() bool { return a.gh.open && !a.gh.checking })
+	loop.RunUntil(t, func() bool { return a.gh.open && !a.gh.checkBusy })
 	loop.Flush()
 	r, _ := github.ParseRef("frostyard/core#1")
 	want := "the GitHub App's installations are not checked: Run preflight (Settings > GitHub)"
@@ -786,6 +786,16 @@ func TestUncheckedOwnersSaySo(t *testing.T) {
 	loop.RunUntil(t, func() bool { return !a.preflightBusy() })
 }
 
+// isClosed says ch is closed, without waiting.
+func isClosed(ch chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
 // TestAStaleCheckKeepsNothing: a CheckApp that started before Sign out, or
 // before a new sign-in, applies nothing: no owners from the old sign-in.
 func TestAStaleCheckKeepsNothing(t *testing.T) {
@@ -796,9 +806,10 @@ func TestAStaleCheckKeepsNothing(t *testing.T) {
 			// sign-in after the Sign out reads the owners as ready.
 			gh.setApp(&github.AppCheck{Login: github.Login, Owners: map[string]string{
 				github.Login: "", "frostyard": "the App is not installed on frostyard"}})
-			release := gh.holdCheckAt(t, 1)
+			release, entered := gh.holdCheck(t)
 			a.checkOwners(nil)
-			loop.RunUntil(t, func() bool { return a.gh.checking })
+			// The stale check is in GitHub, with its answer.
+			loop.RunUntil(t, func() bool { return isClosed(entered) })
 			a.githubSignOut()
 			loop.RunUntil(t, func() bool { return auth.forgetCount() == 1 })
 			if signIn {
@@ -807,8 +818,7 @@ func TestAStaleCheckKeepsNothing(t *testing.T) {
 				loop.RunUntil(t, func() bool { return a.gh.phase == signInSignedIn })
 			}
 			release()
-			loop.Flush()
-			loop.RunUntil(t, func() bool { return !a.gh.checking })
+			loop.RunUntil(t, func() bool { return !a.gh.checkBusy })
 			if signIn {
 				// The stale answer must not undo the new sign-in's owners.
 				if got := a.gh.owners["frostyard"].reason; got != "" {
@@ -832,9 +842,10 @@ func TestAStalePreflightKeepsNothing(t *testing.T) {
 			gh.rows = map[string]github.PreflightRow{
 				"frostyard/core": {Repo: "frostyard/core", Readable: true, Bypass: "never"},
 			}
-			release := gh.holdCheckAt(t, 1)
+			release, entered := gh.holdCheck(t)
 			a.githubPreflight()
-			loop.RunUntil(t, func() bool { return a.preflightBusy() })
+			// The stale preflight is in GitHub, with its answer.
+			loop.RunUntil(t, func() bool { return isClosed(entered) })
 			a.githubSignOut()
 			loop.RunUntil(t, func() bool { return auth.forgetCount() == 1 })
 			if signIn {
@@ -908,16 +919,36 @@ func TestAPollClearsOnlyItsOwnHandle(t *testing.T) {
 	if n := <-started; n != 2 {
 		t.Fatalf("the second poll is call %d", n)
 	}
-	// Poll A answers last, after poll B started: its completion runs here,
-	// and B's handle must stay.
+	// Poll A answers last, after poll B started. Count the UI work that runs,
+	// so the test knows A's completion executed: it changes nothing else.
+	var mu sync.Mutex
+	ran := 0
+	inner := a.post
+	a.post = func(fn func()) {
+		inner(func() {
+			mu.Lock()
+			ran++
+			mu.Unlock()
+			fn()
+		})
+	}
+	ranSoFar := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return ran
+	}
+	before := ranSoFar()
 	firstAnswer <- pair
-	loop.Settle(2 * time.Millisecond)
+	loop.RunUntil(t, func() bool { return ranSoFar() > before })
+	if a.gh.cancelPoll == nil {
+		t.Fatal("poll A's answer dropped poll B's cancel handle")
+	}
 	// Cancel stops poll B.
 	a.cancelSignIn()
 	select {
 	case <-secondDone:
 	case <-time.After(5 * time.Second):
-		t.Fatal("poll A's answer dropped poll B's cancel handle")
+		t.Fatal("Cancel did not stop poll B")
 	}
 	if auth.adoptCount() != 0 {
 		t.Errorf("a cancelled poll saved %d pairs: %v", auth.adoptCount(), auth.adoptGenerations())
@@ -954,9 +985,10 @@ func TestAStaleCheckStillReconcilesTheJournal(t *testing.T) {
 		return github.Result{Kind: "approved", Reason: "approved, not merged"}
 	}
 	gh.mu.Unlock()
-	release := gh.holdCheckAt(t, 1)
+	release, entered := gh.holdCheck(t)
 	a.startGitHub()
-	loop.RunUntil(t, func() bool { return a.gh.checking })
+	// The startup check is in GitHub, with its answer.
+	loop.RunUntil(t, func() bool { return isClosed(entered) })
 	a.githubSignOut()
 	loop.RunUntil(t, func() bool { return auth.forgetCount() == 1 })
 	release()
@@ -981,5 +1013,39 @@ func TestAStaleCheckStillReconcilesTheJournal(t *testing.T) {
 	}
 	if len(a.gh.owners) != 0 {
 		t.Errorf("the stale check set the owners: %+v", a.gh.owners)
+	}
+}
+
+// TestAnOldCheckKeepsTheInstallationsBusy: a check that started before Sign
+// out clears only its own busy flag, so a preflight that runs keeps the cards
+// saying the installations are being checked.
+func TestAnOldCheckKeepsTheInstallationsBusy(t *testing.T) {
+	a, loop, gh, auth := signedInApp(t, "frostyard/core#1", "bketelsen/pi-pocket-team#2")
+	// The check that a new sign-in will make stale.
+	releaseCheck, checkEntered := gh.holdCheck(t)
+	a.checkOwners(nil)
+	loop.RunUntil(t, func() bool { return isClosed(checkEntered) })
+	a.githubSignOut()
+	loop.RunUntil(t, func() bool { return auth.forgetCount() == 1 })
+	a.githubSignIn()
+	loop.RunUntil(t, func() bool { return a.gh.phase == signInSignedIn })
+	// A preflight, still in GitHub.
+	releasePreflight, preflightEntered := gh.holdCheck(t)
+	a.githubPreflight()
+	loop.RunUntil(t, func() bool { return isClosed(preflightEntered) })
+	// The old check answers: only its own flag goes.
+	releaseCheck()
+	loop.RunUntil(t, func() bool { return !a.gh.checkBusy })
+	if !a.checkingOwners() {
+		t.Fatalf("the old check cleared the preflight's flag: preflight %v", a.gh.preflightBusy)
+	}
+	r, _ := github.ParseRef("frostyard/core#1")
+	if got := a.ghBlocked(r); got != "checking the GitHub App's installations" {
+		t.Errorf("blocked %q", got)
+	}
+	releasePreflight()
+	loop.RunUntil(t, func() bool { return !a.checkingOwners() })
+	if got := a.ghBlocked(r); got != "" {
+		t.Errorf("after the preflight: %q", got)
 	}
 }
