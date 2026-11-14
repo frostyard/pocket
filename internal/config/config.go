@@ -56,6 +56,9 @@ type Settings struct {
 	// and clears it with them: a sign-in to another server replaces
 	// Server, and these are never that server's.
 	LegacyServer string `json:"legacyServer,omitempty"`
+	// GitHubBatches turns on the batch controls of Approve + merge on the
+	// Inbox's ready cards (ADR-0008); off by default.
+	GitHubBatches bool `json:"githubBatches,omitempty"`
 }
 
 // AccountPrefs is what Pocket remembers about 1 account: a server, named

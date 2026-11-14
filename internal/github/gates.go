@@ -24,27 +24,27 @@ const (
 // queued says the base merges through a merge queue.
 func queued(f PRFacts, r RepoRules) bool { return r.Queue || f.IsMergeQueueEnabled }
 
+// repoGate is gates 1 and 2: the owner's token, then no bypass and no
+// classic protection. The preflight of a repository runs it too.
+func repoGate(f PRFacts, r RepoRules) string {
+	if f.Viewer != Login {
+		return fmt.Sprintf("this token is for %s, not %s", f.Viewer, Login)
+	}
+	if r.Bypass != "never" {
+		return fmt.Sprintf("you can bypass a rule here (%s): Pocket refuses to merge", r.Bypass)
+	}
+	if r.Classic {
+		return "classic branch protection: not supported"
+	}
+	return ""
+}
+
 // Check runs the gates of ADR-0008 on 1 read, and gives the first that
 // fails with a short reason.
 func Check(f PRFacts, r RepoRules, stage Stage) (ok bool, reason string) {
 	for _, gate := range []func() string{
-		// 1. The owner's token.
-		func() string {
-			if f.Viewer != Login {
-				return fmt.Sprintf("this token is for %s, not %s", f.Viewer, Login)
-			}
-			return ""
-		},
-		// 2. No bypass and no classic protection.
-		func() string {
-			if r.Bypass != "never" {
-				return fmt.Sprintf("you can bypass a rule here (%s): Pocket refuses to merge", r.Bypass)
-			}
-			if r.Classic {
-				return "classic branch protection: not supported"
-			}
-			return ""
-		},
+		// 1. The owner's token, and 2. no bypass and no classic protection.
+		func() string { return repoGate(f, r) },
 		// 3. Open, not a draft, not the viewer's, its head is its last commit.
 		func() string {
 			switch {

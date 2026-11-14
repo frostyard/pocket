@@ -99,6 +99,9 @@ func (a *App) computeInbox() []inboxItem {
 		}
 		for i := range v.Ready {
 			p := &v.Ready[i]
+			if a.mergeHidden(p.Ref) {
+				continue // merged from Pocket: it leaves at once
+			}
 			items = append(items, inboxItem{key: "p:" + p.Ref, kind: inboxReady, pr: p, thread: a.desk.thread(p.Thread), at: p.At.Time()})
 		}
 	}
@@ -179,6 +182,9 @@ func (a *App) inboxPane(c *ui.Context) {
 						last = it.kind
 						frostui.SectionHeader(c.Key(fmt.Sprint("h", it.kind)), frostui.SectionHead{Title: inboxHeading(it.kind), Quiet: true,
 							Aside: fmt.Sprint(countKind(items, it.kind))})
+						if it.kind == inboxReady {
+							a.mergeHeading(c.Key("merge-heading"))
+						}
 					}
 					a.inboxCard(c.Key(it.key), it)
 				}
@@ -522,6 +528,7 @@ func (a *App) readyItem(c *ui.Context, it *inboxItem) {
 				a.openURL(p.URL)
 			}
 		})
+		a.mergeControls(c, p)
 	})
 }
 
