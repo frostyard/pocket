@@ -885,8 +885,41 @@ func TestAPollClearsOnlyItsOwnHandle(t *testing.T) {
 	auth.set(github.AppToken{}, false)
 	// A code that has not expired, on the real clock the deadline uses.
 	auth.setCodeExpiry(time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC))
+	// No timer posts UI work in this test: the countdown's frames would
+	// look like the completion the test waits for.
+	a.opts.After = func(time.Duration, func()) {}
 	a.startGitHub()
 	loop.RunUntil(t, func() bool { return a.gh.phase == signInNone })
+
+	// The poster, before any poll starts: each poll captures it. A posted
+	// function sent right after poll A returned is A's completion, and the
+	// test waits until that 1 has run.
+	var mu sync.Mutex
+	aReturned, aTagged, aRan := false, false, false
+	inner := a.post
+	a.post = func(fn func()) {
+		mu.Lock()
+		isA := aReturned && !aTagged
+		if isA {
+			aTagged = true
+		}
+		mu.Unlock()
+		if !isA {
+			inner(fn)
+			return
+		}
+		inner(func() {
+			fn()
+			mu.Lock()
+			aRan = true
+			mu.Unlock()
+		})
+	}
+	aDone := func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return aRan
+	}
 
 	firstAnswer := make(chan github.AppToken, 1)
 	started := make(chan int, 4)
@@ -899,7 +932,11 @@ func TestAPollClearsOnlyItsOwnHandle(t *testing.T) {
 		auth.mu.Unlock()
 		started <- n
 		if n == 1 {
-			return <-firstAnswer, nil
+			tok := <-firstAnswer
+			mu.Lock()
+			aReturned = true
+			mu.Unlock()
+			return tok, nil
 		}
 		<-ctx.Done()
 		secondDone <- true
@@ -919,27 +956,10 @@ func TestAPollClearsOnlyItsOwnHandle(t *testing.T) {
 	if n := <-started; n != 2 {
 		t.Fatalf("the second poll is call %d", n)
 	}
-	// Poll A answers last, after poll B started. Count the UI work that runs,
-	// so the test knows A's completion executed: it changes nothing else.
-	var mu sync.Mutex
-	ran := 0
-	inner := a.post
-	a.post = func(fn func()) {
-		inner(func() {
-			mu.Lock()
-			ran++
-			mu.Unlock()
-			fn()
-		})
-	}
-	ranSoFar := func() int {
-		mu.Lock()
-		defer mu.Unlock()
-		return ran
-	}
-	before := ranSoFar()
+	// Poll A answers last, after poll B started, and its completion runs
+	// before Cancel.
 	firstAnswer <- pair
-	loop.RunUntil(t, func() bool { return ranSoFar() > before })
+	loop.RunUntil(t, aDone)
 	if a.gh.cancelPoll == nil {
 		t.Fatal("poll A's answer dropped poll B's cancel handle")
 	}

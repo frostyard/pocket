@@ -1189,29 +1189,43 @@ func TestAStaleRefreshWorkerUsesItsOwnPair(t *testing.T) {
 	b := AppToken{ClientID: AppClientID, Login: Login, Access: accessB, Refresh: refreshB,
 		AccessExpires: now.Add(8 * time.Hour), RefreshExpires: now.Add(180 * 24 * time.Hour)}
 	s.load(a)
-	// The window: the worker has started, and the pair is replaced before it
-	// does anything.
+	// The window: the worker has started and waits at its top; the test
+	// replaces the pair, then lets it go on.
+	entered, release := make(chan struct{}), make(chan struct{})
 	s.ts.beforeRefresh = func() {
-		gen := s.ts.BeginSignIn()
-		if err := s.ts.Adopt(b, gen); err != nil {
-			t.Errorf("adopt: %v", err)
-		}
+		close(entered)
+		<-release
 	}
-	leased := make(chan error, 1)
+	leased := make(chan string, 1)
 	go func() {
-		_, _, rel, err := s.ts.Lease(context.Background())
-		if err == nil {
-			rel()
+		tok, _, rel, err := s.ts.Lease(context.Background())
+		if err != nil {
+			leased <- "error: " + err.Error()
+			return
 		}
-		leased <- err
+		rel()
+		leased <- tok
 	}()
-	waitFor(t, s.ts, "the refresh to start", func() bool { return s.ts.refreshing })
-	waitFor(t, s.ts, "the refresh to end", func() bool { return !s.ts.refreshing })
 	select {
-	case <-leased:
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the refresh worker did not start")
+	}
+	gen := s.ts.BeginSignIn()
+	if err := s.ts.Adopt(b, gen); err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+	// The waiting job now leases the new pair, while the old worker holds.
+	select {
+	case got := <-leased:
+		if got != accessB {
+			t.Fatalf("the lease gave %q, want the new pair", got)
+		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the lease did not return")
 	}
+	close(release)
+	waitFor(t, s.ts, "the refresh to end", func() bool { return !s.ts.refreshing })
 	_, forms, _ := s.sign.seen()
 	var sent []string
 	for _, form := range forms {
@@ -1229,8 +1243,8 @@ func TestAStaleRefreshWorkerUsesItsOwnPair(t *testing.T) {
 		t.Errorf("status %+v", st)
 	}
 	// The new pair still leases, and its tokens are untouched.
-	tok, _, release := s.lease(context.Background())
-	release()
+	tok, _, done := s.lease(context.Background())
+	done()
 	if tok != accessB {
 		t.Errorf("the lease gave %q", tok)
 	}
