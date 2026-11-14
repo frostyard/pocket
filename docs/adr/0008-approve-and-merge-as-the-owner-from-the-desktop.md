@@ -1,7 +1,9 @@
 # 0008 — Approve and merge as the owner from the desktop
 
 - **Status:** Accepted; the PR query's permissions are corrected by
-  [ADR-0009](0009-read-check-runs-only-with-a-token-that-can.md)
+  [ADR-0009](0009-read-check-runs-only-with-a-token-that-can.md); identity
+  and tokens superseded by
+  [ADR-0010](0010-act-as-the-owner-through-a-github-app-user-token.md)
 - **Date:** 2026-11-14
 
 ## Context

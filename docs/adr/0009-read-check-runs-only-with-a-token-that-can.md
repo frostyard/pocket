@@ -1,6 +1,7 @@
 # 0009 — Read check runs only with a token that can
 
-- **Status:** Accepted
+- **Status:** Accepted; the token decision is
+  [ADR-0010](0010-act-as-the-owner-through-a-github-app-user-token.md)
 - **Date:** 2026-11-14
 
 ## Context

@@ -22,6 +22,7 @@ Docs are split by the question they answer:
 - [0007 — Render terminal history before attaching](adr/0007-render-terminal-history-before-attaching.md)
 - [0008 — Approve and merge as the owner from the desktop](adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md)
 - [0009 — Read check runs only with a token that can](adr/0009-read-check-runs-only-with-a-token-that-can.md)
+- [0010 — Act as the owner through a GitHub App user token](adr/0010-act-as-the-owner-through-a-github-app-user-token.md)
 
 ### Org-wide decisions
 
