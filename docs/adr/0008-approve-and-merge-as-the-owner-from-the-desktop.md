@@ -183,23 +183,31 @@ Metadata: read.
 
 ### Facts that only GitHub's docs give, for the preflight and the first use
 
-- The permission of each call (the table), and that `current_user_can_bypass`
-  comes with a Metadata-only token. A missing `current_user_can_bypass`
-  counts as a failure, never as `never`.
+- The permission of each documented call (the table).
 - That a ruleset binds the owner too (no bypass for an admin who is not on
   the bypass list), so `never` holds for `bketelsen`: the preflight reads it
   with his token.
+- That a fine-grained PAT for `frostyard` may need the organization's
+  approval
+  ([docs](https://docs.github.com/en/organizations/managing-programmatic-access-to-your-organization/setting-a-personal-access-token-policy-for-your-organization)).
+
+### Facts that neither the live reads nor the docs give
+
+The owner's token or first use must show these:
+
+- That `current_user_can_bypass` comes with a token that has only Metadata:
+  read. A missing `current_user_can_bypass` counts as a failure, never as
+  `never`.
 - The answers seen with the owner's token: `viewerDidAuthor` false,
   `viewerLatestReview`, his `viewerDefaultMergeMethod` (the machine account's
   is MERGE everywhere), and `mergeable` and `mergeStateStatus` before and
   after an approval.
-- That `enqueuePullRequest` needs Contents: write, that a merge of a PR that
-  changes `.github/workflows/` needs Workflows: write, and that each token's
-  expiry comes in the header `github-authentication-token-expiration` (no
-  doc page found; Pocket shows "unknown" without it).
-- That a fine-grained PAT for `frostyard` may need the organization's
-  approval
-  ([docs](https://docs.github.com/en/organizations/managing-programmatic-access-to-your-organization/setting-a-personal-access-token-policy-for-your-organization)).
+- That `enqueuePullRequest` needs Contents: write (no doc names its
+  permission), and that a merge of a PR that changes `.github/workflows/`
+  needs Workflows: write.
+- That each token's expiry comes in the header
+  `github-authentication-token-expiration` (no doc page found; Pocket shows
+  "unknown" without it).
 
 The read-only preflight in Settings > GitHub reads the rules, rulesets,
 branch and PR query with the owner's token for each ready repository, and

@@ -2,8 +2,8 @@
 
 Real GitHub answers for the approve + merge protocol of
 [ADR-0008](../../../docs/adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md).
-The tests of `internal/github` serve them from a fake server and change
-them field by field.
+The client of `internal/github` comes in a later change; its tests will
+serve these answers from a fake server and change them field by field.
 
 Recorded on 2026-11-14 with the machine account `frostyard-machines` (read
 only). So `viewer.login` is `frostyard-machines`, `viewerDidAuthor` is true
@@ -12,8 +12,8 @@ test that needs the owner's view sets those fields itself.
 
 ## Files
 
-- `pr-query.graphql`: the PR query (`PocketPR`). `internal/github/query.go`
-  sends the same text.
+- `pr-query.graphql`: the PR query (`PocketPR`). The client's
+  `internal/github/query.go` will send the same text.
 - `record.sh`: the recorder. Every call is a REST GET or a GraphQL query.
 - `schema.json`: by introspection, the inputs of `addPullRequestReview`,
   `mergePullRequest` and `enqueuePullRequest`, and the enums the gates read
