@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-14",
+  "scope": "approve-merge",
+  "correction": "Validate every journal receipt before use, and keep a verified copy of a corrupt journal before any reset: write the marker, copy the file aside, and check the copy before Start a new journal.",
+  "evidence": "frostyard/pocket#96, cross-review (openai/gpt-6.1-sol) of head d9ddfc866ae172d46efc743999251d02c63cfbbb",
+  "promoted_to": "internal/app/merge_review_test.go TestJournalRefusesABadReceipt, internal/app/merge_review_test.go TestCorruptJournalCrashBeforeTheCopy, internal/app/merge_review_test.go TestCorruptJournalCopyFailureRefusesTheReset"
+}

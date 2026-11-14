@@ -1,12 +1,14 @@
 package app
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -219,11 +221,22 @@ func (j *journal) open() {
 		j.held = true
 	}
 	// A journal found corrupt before stays corrupt until the owner starts a
-	// new one, also when operations.json is gone.
+	// new one, also when operations.json is gone. Its copy is checked again
+	// on each open: a crash may have come before the copy was whole.
 	switch kept, err := os.ReadFile(j.marker()); {
 	case err == nil:
-		j.state, j.corrupt = journalCorrupt, string(kept)
-		j.why = "the journal did not parse; Pocket kept it as " + j.corrupt
+		name := string(kept)
+		if !validArchiveName(name) {
+			j.state, j.why = journalBroken, "the journal's corrupt marker names no kept copy: "+name
+			return
+		}
+		j.corrupt = name
+		if err := j.keepCopy(); err != nil {
+			j.state, j.why = journalBroken, "the journal did not parse, and keeping a copy as "+name+" failed: "+err.Error()
+			return
+		}
+		j.state = journalCorrupt
+		j.why = "the journal did not parse; Pocket kept it as " + name
 		return
 	case !errors.Is(err, fs.ErrNotExist):
 		j.state, j.why = journalBroken, "reading the journal's corrupt marker: "+err.Error()
@@ -239,23 +252,33 @@ func (j *journal) open() {
 		return
 	}
 	var file journalFile
-	if err := json.Unmarshal(data, &file); err != nil || (file.Version != 1 && file.Version != journalVersion) || !validOps(file.Ops) {
+	err = json.Unmarshal(data, &file)
+	if err == nil && (file.Version == 1 || file.Version == journalVersion) {
+		for _, o := range file.Ops {
+			if o != nil {
+				o.migrate()
+			}
+		}
+	}
+	// The ops are checked after the migration: what Pocket reads is what
+	// it checks.
+	if err != nil || (file.Version != 1 && file.Version != journalVersion) || !validOps(file.Ops) {
 		name := journalName + ".corrupt-" + j.now().UTC().Format("20060102T150405Z")
-		// The marker first: without it a restart would open as new.
+		// 1. The marker first: without it a restart would open as new.
 		if werr := j.writeAtomic(j.marker(), []byte(name)); werr != nil {
 			j.state, j.why = journalBroken, "the journal does not parse, and marking it failed: "+werr.Error()
 			return
 		}
-		if rerr := os.Rename(j.path(), filepath.Join(j.dir, name)); rerr != nil {
-			j.state, j.why = journalBroken, "the journal does not parse, and keeping it aside failed: "+rerr.Error()
+		// 2. A copy, synced; the original stays until a new journal
+		// replaces it.
+		j.corrupt = name
+		if cerr := j.keepCopy(); cerr != nil {
+			j.state, j.why = journalBroken, "the journal does not parse, and keeping a copy as "+name+" failed: "+cerr.Error()
 			return
 		}
-		j.state, j.corrupt = journalCorrupt, name
+		j.state = journalCorrupt
 		j.why = "the journal did not parse; Pocket kept it as " + name
 		return
-	}
-	for _, o := range file.Ops {
-		o.migrate()
 	}
 	j.ops = file.Ops
 	j.state = journalOK
@@ -264,14 +287,63 @@ func (j *journal) open() {
 	}
 }
 
-// validOps refuses an op without the fields every reader relies on.
+// receiptResults and receiptStates are the values a receipt may hold.
+var (
+	receiptResults = map[string]bool{"merged": true, "queued": true, "approved": true, "refused": true, "failed": true, "unknown": true}
+	receiptStates  = map[string]bool{receiptPending: true, receiptRecorded: true, receiptRejected: true, receiptGaveUp: true}
+)
+
+// validOps refuses an op without the fields every reader relies on, and a
+// receipt that is null, has an empty or unknown result or state, or
+// repeats a result of its op.
 func validOps(ops []*mergeOp) bool {
 	for _, o := range ops {
 		if o == nil || o.ID == "" || o.Intent.Ref == "" {
 			return false
 		}
+		seen := map[string]bool{}
+		for _, r := range o.Receipts {
+			if r == nil || !receiptResults[r.Result] || !receiptStates[r.State] || seen[r.Result] {
+				return false
+			}
+			seen[r.Result] = true
+		}
 	}
 	return true
+}
+
+// validArchiveName says name is a kept copy's name in the folder.
+func validArchiveName(name string) bool {
+	return strings.HasPrefix(name, journalName+".corrupt-") && filepath.Base(name) == name && !strings.ContainsAny(name, "/\\")
+}
+
+func (j *journal) archive() string { return filepath.Join(j.dir, j.corrupt) }
+
+// keepCopy makes the kept copy of a corrupt journal whole: while
+// operations.json is there, the copy must hold its bytes (else Pocket
+// writes it again: a copy, synced, renamed); without operations.json the
+// copy must exist.
+func (j *journal) keepCopy() error {
+	original, err := os.ReadFile(j.path())
+	if errors.Is(err, fs.ErrNotExist) {
+		if _, err := os.Stat(j.archive()); err != nil {
+			return fmt.Errorf("the kept copy is missing: %w", err)
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if kept, err := os.ReadFile(j.archive()); err == nil && bytes.Equal(kept, original) {
+		return nil
+	}
+	if err := j.writeAtomic(j.archive(), original); err != nil {
+		return err
+	}
+	if kept, err := os.ReadFile(j.archive()); err != nil || !bytes.Equal(kept, original) {
+		return errors.New("the kept copy does not match the journal")
+	}
+	return nil
 }
 
 // close removes the lock this Pocket holds.
@@ -297,7 +369,12 @@ func (j *journal) releaseLock() {
 // startNew is the owner's click after a corrupt file: an empty journal.
 func (j *journal) startNew() error {
 	if j.state != journalCorrupt {
-		return nil
+		return errors.New("only a corrupt journal starts again: " + firstNonEmpty(j.why, "the journal is not corrupt"))
+	}
+	// The kept copy first: a reset never loses the corrupt file.
+	if err := j.keepCopy(); err != nil {
+		j.why = "keeping a copy as " + j.corrupt + " failed, so Pocket keeps the journal: " + err.Error()
+		return errors.New(j.why)
 	}
 	j.ops = nil
 	j.state = journalOK

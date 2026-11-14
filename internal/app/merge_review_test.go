@@ -1,6 +1,8 @@
 package app
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -367,5 +369,144 @@ func TestQueueMergeWithoutAMethodStaysQueued(t *testing.T) {
 	}
 	if !slices.Equal(gh.actsSoFar(), []string{ref}) {
 		t.Errorf("acts %v", gh.actsSoFar())
+	}
+}
+
+// The guards of re-review 1 of frostyard/pocket#96 (record
+// .memory/corrections/2026-11-14-pr-96-journal-recovery.json).
+
+// TestJournalRefusesABadReceipt: a null receipt, an empty or unknown
+// result, or 2 receipts of 1 result take the corrupt-journal path, with no
+// panic; a version 1 file is checked after its migration.
+func TestJournalRefusesABadReceipt(t *testing.T) {
+	op := func(receipts string) string {
+		return `{"version":2,"ops":[{"id":"op-1","origin":{"server":"https://example.org","user":"u1","thread":"T1"},` +
+			`"intent":{"ref":"frostyard/core#1","nodeId":"PR_x","baseRef":"main","head":"` + oid('a') + `","method":"merge","queue":false,"mode":"single","risk":false},` +
+			`"step":"merge","result":"merged","method":"merge","receipts":` + receipts + `,` +
+			`"at":"2026-10-01T10:00:00Z","endedAt":"2026-10-01T11:00:00Z"}]}`
+	}
+	for name, file := range map[string]string{
+		"null receipt":     op(`[null]`),
+		"duplicate result": op(`[{"result":"merged","method":"merge","state":"recorded"},{"result":"merged","method":"squash","state":"pending"}]`),
+		"empty result":     op(`[{"state":"recorded"}]`),
+		"unknown result":   op(`[{"result":"done","state":"recorded"}]`),
+		"unknown state":    op(`[{"result":"merged","method":"merge","state":"maybe"}]`),
+		"version 1 unknown result": `{"version":1,"ops":[{"id":"op-1","origin":{"server":"https://example.org","user":"u1","thread":"T1"},` +
+			`"intent":{"ref":"frostyard/core#1","nodeId":"PR_x","baseRef":"main","head":"` + oid('a') + `","method":"merge","queue":false,"mode":"single","risk":false},` +
+			`"step":"merge","result":"done","receipt":{"state":"recorded"},"at":"2026-10-01T10:00:00Z","endedAt":"2026-10-01T11:00:00Z"}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, journalName), []byte(file), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			j := newJournal(dir, func() time.Time { return time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC) })
+			j.open()
+			defer j.close()
+			if j.state != journalCorrupt || j.ok() {
+				t.Fatalf("state %d why %q", j.state, j.why)
+			}
+			if kept, err := os.ReadFile(filepath.Join(dir, j.corrupt)); err != nil || string(kept) != file {
+				t.Errorf("kept copy %q %v", kept, err)
+			}
+		})
+	}
+}
+
+// TestCorruptJournalCrashBeforeTheCopy: a crash after the marker and
+// before the copy leaves the original; the next open copies it, and Start
+// a new journal keeps the copy.
+func TestCorruptJournalCrashBeforeTheCopy(t *testing.T) {
+	dir := t.TempDir()
+	now := func() time.Time { return time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC) }
+	original := []byte(`{"version":2,"ops":[null], "notes": "the owner's only record"}`)
+	kept := "operations.json.corrupt-20261114T110000Z"
+	if err := os.WriteFile(filepath.Join(dir, journalName), original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, corruptName), []byte(kept), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	j := newJournal(dir, now)
+	j.open()
+	defer j.close()
+	if j.state != journalCorrupt || j.corrupt != kept {
+		t.Fatalf("state %d corrupt %q why %q", j.state, j.corrupt, j.why)
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, kept)); err != nil || !bytes.Equal(b, original) {
+		t.Fatalf("the copy after the open: %q %v", b, err)
+	}
+	// A copy that differs (cut short) is written again before a reset.
+	if err := os.WriteFile(filepath.Join(dir, kept), original[:10], 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.startNew(); err != nil || !j.ok() {
+		t.Fatalf("start new: %v state %d", err, j.state)
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, kept)); err != nil || !bytes.Equal(b, original) {
+		t.Errorf("the copy after the reset: %q %v", b, err)
+	}
+	var file journalFile
+	if b, err := os.ReadFile(filepath.Join(dir, journalName)); err != nil || json.Unmarshal(b, &file) != nil || len(file.Ops) != 0 || file.Version != journalVersion {
+		t.Errorf("the new journal: %q %v", b, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, corruptName)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the marker stays: %v", err)
+	}
+}
+
+// TestCorruptJournalCopyFailureRefusesTheReset: when the copy of a corrupt
+// journal fails, the journal is broken, and Start a new journal refuses and
+// leaves the original whole.
+func TestCorruptJournalCopyFailureRefusesTheReset(t *testing.T) {
+	dir := t.TempDir()
+	now := func() time.Time { return time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC) }
+	original := []byte("{not json")
+	if err := os.WriteFile(filepath.Join(dir, journalName), original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	failCopy := func(oldpath, newpath string) error {
+		if strings.Contains(filepath.Base(newpath), ".corrupt-") {
+			return errors.New("disk full")
+		}
+		return os.Rename(oldpath, newpath)
+	}
+	j := newJournal(dir, now)
+	j.rename = failCopy
+	j.open()
+	defer j.close()
+	if j.state != journalBroken || j.ok() || !strings.Contains(j.why, "keeping a copy") {
+		t.Fatalf("state %d why %q", j.state, j.why)
+	}
+	if err := j.startNew(); err == nil || j.ok() {
+		t.Fatalf("the reset went: %v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, journalName)); !bytes.Equal(b, original) {
+		t.Errorf("the original changed: %q", b)
+	}
+	j.close()
+
+	// A restart with the marker: the copy fails again, still broken.
+	again := newJournal(dir, now)
+	again.rename = failCopy
+	again.open()
+	defer again.close()
+	if again.state != journalBroken {
+		t.Fatalf("after a restart: state %d why %q", again.state, again.why)
+	}
+	// A later copy that works makes it corrupt, and the reset keeps it.
+	again.close()
+	third := newJournal(dir, now)
+	third.open()
+	defer third.close()
+	if third.state != journalCorrupt {
+		t.Fatalf("state %d why %q", third.state, third.why)
+	}
+	name := third.corrupt
+	if err := third.startNew(); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, name)); err != nil || !bytes.Equal(b, original) {
+		t.Errorf("the copy %q %v", b, err)
 	}
 }
