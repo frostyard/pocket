@@ -62,7 +62,8 @@ server that surpasses its web app at a desk. Phases 1 to 4 shipped on
   [design](../design/pocket.md#the-protocol)).
 - Arrakis: the team as one drawn desert scene, in place of the web app's
   Arrakis extension ([design](../design/pocket.md#places); implemented
-  2026-11-13).
+  2026-11-13). Harvesters, carryalls, ornithopters, the storm and a Vision
+  of a made-up order followed the same day.
 - **Done when:** the owner uses Pocket for a full working day without opening
   the web app.
 

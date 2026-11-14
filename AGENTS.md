@@ -61,7 +61,9 @@ them rather than improvising, whichever agent you are. Start a new one from
   `terminals.go` (the Terminal place, over `pocket.TermConn`),
   `terminal_replay.go` (isolated history rendering), `arrakis.go` (the
   Arrakis place: its scene from the window's state), `arrakis_scene.go` (its
-  layout and painter), `arrakis_cast.go` (who is who), `artifacts.go`,
+  layout and painter), `arrakis_action.go` (events between two views, and
+  the machines that play them), `arrakis_vision.go` (a made-up order, to
+  see it move), `arrakis_cast.go` (who is who), `artifacts.go`,
   `running.go` (cross-session work), `background.go` (task output), `schedules.go` (scheduled messages), `timezone.go` (device IANA zone),
   `refs.go`, `desk_files.go` (read-only Desk Markdown), `browser_watch.go` (read-only browser frames), `wiki.go`, `teampage.go`,
   `signin.go`, `webnav.go` (where the artifact web view may go, and its cookie)
@@ -90,7 +92,9 @@ them rather than improvising, whichever agent you are. Start a new one from
 - **Drawn scenes.** A view that paints (Arrakis) builds an immutable scene
   in the view and paints it in `Draw` from `p.Now()`; `Draw` changes no
   state. Shapes that stay are paths, whose masks MyGo keeps; what moves is
-  discs, rectangles and transforms, so a frame makes no new mask. Read
+  discs, rectangles and transforms, so a frame makes no new mask. What
+  changed is an event the view finds between two scenes, never state the
+  painter keeps. Read
   `ReduceMotion`, and ask for fewer frames where `p.Accelerated()` is false.
 - **Protocol.** Speak the web app's protocol: a bearer token (never a cookie
   too), `X-Pocket: 1` on every request, `p=5` on the stream

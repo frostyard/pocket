@@ -24,9 +24,6 @@ const sandEdge = 14
 // sandSlowFrame is the scene's frame where no GPU draws the window.
 const sandSlowFrame = 125 * time.Millisecond
 
-// sandBlow is how long spice blows where a run ended.
-const sandBlow = 2600 * time.Millisecond
-
 // The ridges, from the horizon to the foreground.
 const (
 	ridgeFar = iota
@@ -316,12 +313,16 @@ func paintSand(p *ui.Painter, r ui.Rect, sc *sandScene) {
 		}
 	}
 	s.sky()
+	s.storm()
 	s.eclipse()
+	s.voice()
 	onRidge := func(ridge int) {
 		s.ridge(ridge)
+		s.glitter(ridge)
 		s.wind(ridge)
 		sc.each(func(i int, f *sandFigure) {
 			if lay.spots[i].ridge == ridge {
+				s.machines(i, f, lay.spots[i])
 				s.figure(i, f, lay.spots[i])
 			}
 		})
@@ -330,6 +331,8 @@ func paintSand(p *ui.Painter, r ui.Rect, sc *sandScene) {
 	s.worm()
 	onRidge(ridgeMid)
 	onRidge(ridgeNear)
+	s.mouse()
+	s.flights()
 	// The label of the figure under the pointer or the choice goes over the
 	// others.
 	marked := func(f *sandFigure) bool { return sc.sel == f.key || sc.hover == f.key }
@@ -385,6 +388,8 @@ func (s *sandPainter) sky() {
 	if pal.night > 0.02 {
 		s.nightSky()
 	}
+	s.star()
+	s.heighliners()
 	// The Shield Wall stands on the horizon, clear of the eclipse.
 	rock := pal.skyLow.Mix(pal.ridge[ridgeFar][1], 0.6)
 	for _, wall := range [][][2]float32{
@@ -402,6 +407,7 @@ func (s *sandPainter) sky() {
 		}
 		s.p.FillPath(path.Close(), rock)
 	}
+	s.lights()
 }
 
 // nightSky paints the stars and the two moons, as much as the night shows.
@@ -552,6 +558,32 @@ func (s *sandPainter) ridge(ridge int) {
 	}
 	body.LineTo(r.X+r.W, r.Y+r.H*foot+1).LineTo(r.X, r.Y+r.H*foot+1).Close()
 	s.p.FillPathGradient(body, ui.LinearGradient{From: s.pal.ridge[ridge][0], To: s.pal.ridge[ridge][1], Angle: 180})
+	// The slip faces under the crest lie in shadow, deeper where it falls
+	// away from the eclipse.
+	face := &ui.Path{}
+	var under [][2]float32
+	for x := r.X; ; x += step * 2 {
+		x = min(x, r.X+r.W)
+		y := lay.crestY(ridge, x)
+		lee := lay.crestY(ridge, x+8) - lay.crestY(ridge, x-8) // how the crest falls here
+		if x > lay.cx {
+			lee = -lee
+		}
+		deep := r.H * 0.012 * (1.2 + clampf(lee*0.9, -1, 2.6))
+		if x == r.X {
+			face.MoveTo(x, y)
+		} else {
+			face.LineTo(x, y)
+		}
+		under = append(under, [2]float32{x, y + deep})
+		if x >= r.X+r.W {
+			break
+		}
+	}
+	for i := len(under) - 1; i >= 0; i-- {
+		face.LineTo(under[i][0], under[i][1])
+	}
+	s.p.FillPath(face.Close(), s.pal.ridge[ridge][1].Alpha(0.5))
 	s.p.StrokePath(crest, 1.2, s.pal.crest.Alpha(0.6))
 	if ridge == ridgeFar {
 		return
@@ -631,6 +663,14 @@ func (s *sandPainter) worm() {
 		s.disc(x, y, size, body)
 		s.circle(x, y, size, 1.2, lit.Alpha(0.42))
 	}
+	if s.sc.rider {
+		// The rider of worms stands on its back, hooks set.
+		rx, ry, size := segment(7)
+		tall := size * 1.5
+		s.p.Fill(ui.Rect{X: rx - tall*0.13, Y: ry - size - tall*0.72, W: tall * 0.26, H: tall * 0.8}, s.pal.figure, tall*0.1)
+		s.disc(rx, ry-size-tall*0.78, tall*0.13, s.pal.figure)
+		s.p.StrokePolyline([][2]float32{{rx, ry - size - tall*0.45}, {rx + dir*tall*0.5, ry - size*0.7}}, 1, s.pal.crest.Alpha(0.7))
+	}
 	x, y, size := segment(0)
 	s.disc(x+dir*size*0.3, y+size*0.12, size*0.62, ui.RGB(0x09, 0x05, 0x08))
 	s.circle(x+dir*size*0.3, y+size*0.12, size*0.62, 1, lit.Alpha(0.7))
@@ -678,8 +718,19 @@ func figurePath(x, y, h float32, hooded bool) *ui.Path {
 	return path.Close()
 }
 
+// cloakPath is the skirt of a cloak blown out down the wind from a figure
+// standing at (x, y).
+func cloakPath(x, y, h float32) *ui.Path {
+	path := &ui.Path{}
+	path.MoveTo(x+h*0.1, y-h*0.56)
+	path.CubeTo(x+h*0.22, y-h*0.5, x+h*0.33, y-h*0.36, x+h*0.45, y-h*0.25)
+	path.CubeTo(x+h*0.4, y-h*0.17, x+h*0.33, y-h*0.08, x+h*0.25, y-h*0.01)
+	path.LineTo(x+h*0.1, y-h*0.01)
+	return path.Close()
+}
+
 // figure paints someone standing at a spot, with what its state shows: a
-// thumper that calls, a glowglobe at work, embers, water, a spice blow.
+// thumper that calls, a glowglobe at work, embers, water.
 func (s *sandPainter) figure(i int, f *sandFigure, spot sandSpot) {
 	p, sc, pal := s.p, s.sc, &s.pal
 	x, y, h := spot.x, spot.y, spot.h
@@ -725,6 +776,16 @@ func (s *sandPainter) figure(i int, f *sandFigure, spot sandSpot) {
 	rim := pal.crest.Alpha(0.5)
 	if hovered || chosen {
 		rim = ui.RGB(0xff, 0xe9, 0xc0).Alpha(0.9)
+	}
+	if h >= 36 {
+		// The cloak blows out down the wind.
+		blown := float32(0)
+		if !sc.still {
+			blown = float32(5*math.Sin(s.t*2.1+seed) + 2.5*math.Sin(s.t*5.3+seed*2))
+		}
+		p.Transform(ui.Rotation(blown), x+h*0.12, y-h*0.3, func() {
+			p.FillPath(cloakPath(x, y, h), pal.figure)
+		})
 	}
 	p.FillPath(figurePath(x+toward, y-1, h, look.hooded), rim)
 	p.FillPath(figurePath(x, y, h, look.hooded), pal.figure)
@@ -791,20 +852,6 @@ func (s *sandPainter) figure(i int, f *sandFigure, spot sandSpot) {
 		wx, wy := x+h*0.4, y-h*0.05
 		s.glow(wx, wy, h*0.24, toneColor(toneFresh).Alpha(float32(0.4+0.2*math.Sin(s.t*2+seed))))
 		s.disc(wx, wy, max(h*0.04, 2), toneColor(toneFresh))
-	}
-	if at, ok := sc.blows[f.key]; ok && !sc.still {
-		age := s.now.Sub(at).Seconds()
-		if age >= 0 && age < sandBlow.Seconds() {
-			fade := float32(1 - age/sandBlow.Seconds())
-			s.glow(x, y-h*0.2, h*(0.5+0.5*float32(age)), toneColor(toneWork).Alpha(0.5*fade*fade))
-			for grain := range 26 {
-				lean := (float64(sandHash(grain*5+i)) - 0.5) * 1.3
-				speed := float64(h) * (1.3 + 1.5*float64(sandHash(grain*7+i)))
-				gx := x + float32(math.Sin(lean)*speed*age*0.7)
-				gy := y - float32(math.Cos(lean)*speed*age) + float32(0.5*float64(h)*1.1*age*age)
-				s.disc(gx, gy, 1.4+1.4*sandHash(grain*11), toneColor(toneWork).Alpha(fade))
-			}
-		}
 	}
 }
 

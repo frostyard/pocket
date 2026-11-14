@@ -14,6 +14,7 @@ import (
 
 // View draws the window.
 func (a *App) View(c *ui.Context) {
+	a.views++
 	for _, msg := range a.pendingToasts {
 		c.Toast(msg)
 	}

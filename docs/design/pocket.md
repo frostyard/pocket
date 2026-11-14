@@ -147,17 +147,32 @@ internal/icons ── the icons Pocket draws itself
   it next (the owner, the supervisor, agents, review, watching), or without a
   Desk the sessions that move; a click on it opens the Inbox. Each named
   agent is a figure on the dunes, the supervisor under the eclipse: a
-  glowglobe while a run is at work (small lights for its subagents), a
-  thumper while it calls for the owner (a call to allow, a question, a Desk
-  ask), embers for a failed run, water for a finished run not yet read. Under
+  glowglobe and a spice harvester beside it while a run is at work (small
+  lights for its subagents), a thumper while it calls for the owner (a call
+  to allow, a question, a Desk ask), embers for a failed run, water for a
+  finished run not yet read. Under
   the name a line says the most pressing thing, from the same peek feed as In
   motion. A click chooses a figure, whose asks and sessions the right pane
   lists; a double click goes where it presses most (the Inbox at its ask, or
   its session); J/K walk the figures. Sessions of no named agent stand small
   on the far ridge while something about them moves, seven at most, and
-  stand in for the team on a server without one. A worm passes while runs
-  are at work, a run that ends blows spice, and the wind rises while runs
-  fail. The sky follows the device's clock, or stays day, dusk or night. An
+  stand in for the team on a server without one. What changes between two
+  views of the scene plays as an event (`internal/app/arrakis_action.go`): a
+  carryall sets a harvester down when a run begins, after an ornithopter
+  brings the task from the supervisor (for a session another session
+  started) or from the eclipse; the harvester strikes spice at each step of
+  the peek feed; the carryall lifts it in a blow of spice when the run
+  ends, and the worm takes it when the run fails; a new call flies to the
+  eclipse, which rings when the Inbox's count rises. Events are found only
+  between views that both showed the place, so the desert never replays
+  what it missed. A worm passes while runs are at work (an agent named
+  Sheeana rides it while she works), a storm with lightning stands on the
+  horizon while failed runs are unread, and a heighliner hangs in the sky
+  for each PR ready to merge, three at most. **Vision** in the place's bar
+  shows a made-up order going around those states instead of the team
+  (`internal/app/arrakis_vision.go`), to see the desert move; it leads
+  nowhere and reads nothing. The sky follows the device's clock, or stays
+  day, dusk or night. An
   agent named after a person of the books wears that person's title and
   faction (`internal/app/arrakis_cast.go`). It is a view of what the window
   already knows ([ADR-0005](../adr/0005-organize-the-window-around-what-needs-the-owner.md)):
