@@ -156,12 +156,13 @@ func Check(f PRFacts, r RepoRules, stage Stage) (ok bool, reason string) {
 			if f.ReviewDecision != "" && f.ReviewDecision != "APPROVED" {
 				return "the review decision is " + strings.ToLower(strings.ReplaceAll(f.ReviewDecision, "_", " "))
 			}
+			// An explicit allow list: a state Pocket does not know refuses.
 			if queued(f, r) {
 				switch f.MergeStateStatus {
-				case "DIRTY", "DRAFT", "UNKNOWN":
-					return mergeStateReason(f.MergeStateStatus)
+				case "CLEAN", "HAS_HOOKS", "BLOCKED", "BEHIND":
+					return ""
 				}
-				return ""
+				return mergeStateReason(f.MergeStateStatus)
 			}
 			switch f.MergeStateStatus {
 			case "CLEAN", "HAS_HOOKS":

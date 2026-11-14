@@ -38,7 +38,41 @@ var (
 	ErrNoAnswer = errors.New("GitHub gave no answer")
 
 	errRedirect = errors.New("redirect refused")
+	// errRefused marks a GraphQL answer that is a clean refusal: `errors`,
+	// and no result (no `data`, or every field of it null).
+	errRefused = errors.New("GitHub refused with no result")
 )
+
+// gqlErrors is a 200 answer with an `errors` list. It is ErrIncomplete, and
+// errRefused too when it is a clean refusal.
+type gqlErrors struct {
+	msg     string
+	refused bool
+}
+
+func (e *gqlErrors) Error() string { return ErrIncomplete.Error() + ": " + e.msg }
+
+func (e *gqlErrors) Is(target error) bool {
+	return target == ErrIncomplete || (e.refused && target == errRefused)
+}
+
+// cleanRefusal says data holds no result: absent, null, or an object whose
+// every field (1 or more) is null.
+func cleanRefusal(data json.RawMessage) bool {
+	if len(data) == 0 || string(data) == "null" {
+		return true
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil || len(fields) == 0 {
+		return false
+	}
+	for _, v := range fields {
+		if string(v) != "null" {
+			return false
+		}
+	}
+	return true
+}
 
 // APIError is a 4xx answer (or a refused redirect) from GitHub.
 type APIError struct {
@@ -169,7 +203,7 @@ func (c *Client) GraphQL(ctx context.Context, query string, vars map[string]any,
 		for _, e := range answer.Errors {
 			msgs = append(msgs, c.redact(e.Message))
 		}
-		return fmt.Errorf("%w: %s", ErrIncomplete, strings.Join(msgs, "; "))
+		return &gqlErrors{msg: strings.Join(msgs, "; "), refused: cleanRefusal(answer.Data)}
 	}
 	if out == nil {
 		return nil

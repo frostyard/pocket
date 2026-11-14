@@ -355,15 +355,38 @@ func (a *rawPRAnswer) facts() (PRFacts, string, error) {
 	}
 	f.IsMergeQueueEnabled = n.flag(pr.IsMergeQueueEnabled, "isMergeQueueEnabled")
 	f.IsInMergeQueue = n.flag(pr.IsInMergeQueue, "isInMergeQueue")
+	// A nullable object that is there needs its fields.
 	if v := pr.ViewerLatestReview; v != nil {
-		r := &Review{Author: f.Viewer}
-		if v.State != nil {
-			r.State = *v.State
-		}
-		if v.Commit != nil && v.Commit.Oid != nil {
-			r.Commit = *v.Commit.Oid
+		r := &Review{Author: f.Viewer, State: n.str(v.State, "viewerLatestReview.state")}
+		if v.Commit == nil {
+			n.miss("viewerLatestReview.commit")
+		} else {
+			r.Commit = n.str(v.Commit.Oid, "viewerLatestReview.commit.oid")
 		}
 		f.ViewerLatestReview = r
+	}
+	if pr.MergedBy != nil {
+		f.MergedBy = n.str(pr.MergedBy.Login, "mergedBy.login")
+	}
+	if pr.MergeCommit != nil {
+		f.MergeCommit = n.str(pr.MergeCommit.Oid, "mergeCommit.oid")
+	}
+	if pr.MergedAt != nil {
+		f.MergedAt = *pr.MergedAt
+	}
+	if e := pr.MergeQueueEntry; e != nil {
+		q := &QueueEntry{}
+		if e.Enqueuer == nil {
+			n.miss("mergeQueueEntry.enqueuer")
+		} else {
+			q.Enqueuer = n.str(e.Enqueuer.Login, "mergeQueueEntry.enqueuer.login")
+		}
+		if e.HeadCommit == nil {
+			n.miss("mergeQueueEntry.headCommit")
+		} else {
+			q.Head = n.str(e.HeadCommit.Oid, "mergeQueueEntry.headCommit.oid")
+		}
+		f.QueueEntry = q
 	}
 	if err := n.err(); err != nil {
 		return f, "", err
@@ -373,7 +396,10 @@ func (a *rawPRAnswer) facts() (PRFacts, string, error) {
 	if pr.Labels == nil || pr.Labels.PageInfo == nil || pr.Labels.Nodes == nil {
 		return f, "", incomplete("labels is null")
 	}
-	if n.flag(pr.Labels.PageInfo.HasNextPage, "labels.pageInfo.hasNextPage") {
+	if pr.Labels.PageInfo.HasNextPage == nil {
+		return f, "", incomplete("labels.pageInfo.hasNextPage is null")
+	}
+	if *pr.Labels.PageInfo.HasNextPage {
 		return f, "", incomplete("too many labels")
 	}
 	for _, l := range *pr.Labels.Nodes {
@@ -388,7 +414,10 @@ func (a *rawPRAnswer) facts() (PRFacts, string, error) {
 	if rv == nil || rv.PageInfo == nil || rv.Nodes == nil {
 		return f, "", incomplete("latestOpinionatedReviews is null")
 	}
-	if n.flag(rv.PageInfo.HasNextPage, "latestOpinionatedReviews.pageInfo.hasNextPage") {
+	if rv.PageInfo.HasNextPage == nil {
+		return f, "", incomplete("latestOpinionatedReviews.pageInfo.hasNextPage is null")
+	}
+	if *rv.PageInfo.HasNextPage {
 		return f, "", incomplete("too many reviews")
 	}
 	for _, r := range *rv.Nodes {
@@ -413,7 +442,10 @@ func (a *rawPRAnswer) facts() (PRFacts, string, error) {
 		if roll.Contexts == nil || roll.Contexts.PageInfo == nil || roll.Contexts.Nodes == nil {
 			return f, "", incomplete("the check contexts are null")
 		}
-		if n.flag(roll.Contexts.PageInfo.HasNextPage, "contexts.pageInfo.hasNextPage") {
+		if roll.Contexts.PageInfo.HasNextPage == nil {
+			return f, "", incomplete("contexts.pageInfo.hasNextPage is null")
+		}
+		if *roll.Contexts.PageInfo.HasNextPage {
 			if roll.Contexts.PageInfo.EndCursor == nil || *roll.Contexts.PageInfo.EndCursor == "" {
 				return f, "", incomplete("contexts.pageInfo.endCursor is null")
 			}
@@ -428,26 +460,8 @@ func (a *rawPRAnswer) facts() (PRFacts, string, error) {
 		}
 	}
 
-	if pr.MergedBy != nil && pr.MergedBy.Login != nil {
-		f.MergedBy = *pr.MergedBy.Login
-	}
-	if pr.MergeCommit != nil && pr.MergeCommit.Oid != nil {
-		f.MergeCommit = *pr.MergeCommit.Oid
-	}
-	if pr.MergedAt != nil {
-		f.MergedAt = *pr.MergedAt
-	}
-	if e := pr.MergeQueueEntry; e != nil {
-		q := &QueueEntry{}
-		if e.Enqueuer != nil && e.Enqueuer.Login != nil {
-			q.Enqueuer = *e.Enqueuer.Login
-		}
-		if e.HeadCommit != nil && e.HeadCommit.Oid != nil {
-			q.Head = *e.HeadCommit.Oid
-		}
-		f.QueueEntry = q
-	}
-	return f, cursor, nil
+	// Every miss is an error, whatever field recorded it.
+	return f, cursor, n.err()
 }
 
 func (c *rawCheckNode) check() (CheckContext, error) {
@@ -466,7 +480,11 @@ func (c *rawCheckNode) check() (CheckContext, error) {
 		} else if cc.Status == "COMPLETED" {
 			return CheckContext{}, incomplete("the conclusion of check " + cc.Name + " is null")
 		}
-		if app := c.CheckSuite.App; app != nil && app.DatabaseID != nil {
+		if app := c.CheckSuite.App; app != nil {
+			// An app that is there needs its ID.
+			if app.DatabaseID == nil {
+				return CheckContext{}, incomplete("the app of check " + cc.Name + " has no databaseId")
+			}
 			cc.App, cc.AppID = true, *app.DatabaseID
 		}
 		return cc, nil

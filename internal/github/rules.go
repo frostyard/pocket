@@ -57,13 +57,17 @@ func (c *Client) Rules(ctx context.Context, ref Ref, base string) (RepoRules, er
 		if page > maxRulePages {
 			return RepoRules{}, incomplete("too many rules")
 		}
-		var got []rawRule
+		// Only an explicit [] says no rules: a null page proves nothing.
+		var got *[]rawRule
 		path := fmt.Sprintf("%s/rules/branches/%s?per_page=%d&page=%d", repo, url.PathEscape(base), rulesPerPage, page)
 		if err := c.REST(ctx, path, &got); err != nil {
 			return RepoRules{}, err
 		}
-		rules = append(rules, got...)
-		if len(got) < rulesPerPage {
+		if got == nil {
+			return RepoRules{}, incomplete("a page of rules is null")
+		}
+		rules = append(rules, *got...)
+		if len(*got) < rulesPerPage {
 			break
 		}
 	}
@@ -74,6 +78,9 @@ func (c *Client) Rules(ctx context.Context, ref Ref, base string) (RepoRules, er
 	for _, r := range rules {
 		if r.RulesetID == nil {
 			return RepoRules{}, incomplete("a rule names no ruleset")
+		}
+		if r.Type == "" {
+			return RepoRules{}, incomplete("a rule has no type")
 		}
 		if !seenID[*r.RulesetID] {
 			seenID[*r.RulesetID] = true
@@ -93,16 +100,23 @@ func (c *Client) Rules(ctx context.Context, ref Ref, base string) (RepoRules, er
 			}
 			out.Queue, out.queueMethod = true, m
 		case "required_status_checks":
-			var p struct {
-				Checks []struct {
+			// A null or missing list is no proof of "no required checks".
+			var p *struct {
+				Checks *[]struct {
 					Context       *string `json:"context"`
 					IntegrationID *int64  `json:"integration_id"`
 				} `json:"required_status_checks"`
 			}
+			if len(r.Parameters) == 0 {
+				return RepoRules{}, incomplete("the required checks rule has no parameters")
+			}
 			if err := json.Unmarshal(r.Parameters, &p); err != nil {
 				return RepoRules{}, incomplete("the required checks do not parse")
 			}
-			for _, rc := range p.Checks {
+			if p == nil || p.Checks == nil {
+				return RepoRules{}, incomplete("the required checks rule lists no checks")
+			}
+			for _, rc := range *p.Checks {
 				if rc.Context == nil || *rc.Context == "" {
 					return RepoRules{}, incomplete("a required check has no name")
 				}

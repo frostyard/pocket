@@ -448,7 +448,11 @@ panes less room.
   rules, rulesets and branch protection of its base, and runs the gates;
   `Act` re-reads before each of its 3 allowed mutations (approve at the
   shown head, then merge or enqueue), checks the frozen intent, and
-  reconciles a mutation that got no answer by reads only. It follows no
+  reconciles by reads only a mutation whose answer does not prove a refusal
+  (no answer, or `errors` with a result); a refusal gets 1 read that only
+  upgrades it when the effect is there. Every read fails closed: a null
+  that the Nulls rule does not allow, a null rules page or an unknown merge
+  state refuses. It follows no
   redirect and redacts the token from every error. `config.GitHubTokens`
   keeps the tokens in the keyring with no file fallback, and
   `pocket.Client.RecordMerge` posts each result to the Desk's

@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-14",
+  "scope": "github-client",
+  "correction": "Fail closed on every GitHub answer that does not prove a fact: a null rules page, a null pagination flag or nested field, an unrecognized merge state, and a mutation answer that does not prove a refusal (reconcile it).",
+  "evidence": "frostyard/pocket#94, cross-review (openai/gpt-6.1-sol) of head 2092bf63b4b7b56c78400638b9656b10503328ea",
+  "promoted_to": "internal/github/failclosed_test.go TestActFailsClosed, internal/github/failclosed_test.go TestGraphQLCleanRefusal, internal/github/failclosed_test.go TestRulesRefusesUnprovenAnswers, internal/github/failclosed_test.go TestPreviewRefusesNestedNulls, internal/github/gates_test.go TestCheckAfterApproval"
+}

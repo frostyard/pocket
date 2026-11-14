@@ -67,6 +67,11 @@ func TestCheckAfterApproval(t *testing.T) {
 		{name: "queue DIRTY", base: queue, change: func(f *fake) { f.pr()["mergeStateStatus"] = "DIRTY" }, reason: "conflicts"},
 		{name: "queue DRAFT", base: queue, change: func(f *fake) { f.pr()["mergeStateStatus"] = "DRAFT" }, reason: "draft"},
 		{name: "queue UNKNOWN", base: queue, change: func(f *fake) { f.pr()["mergeStateStatus"] = "UNKNOWN" }, reason: "not computed"},
+		{name: "queue CLEAN", base: queue, change: func(f *fake) { f.pr()["mergeStateStatus"] = "CLEAN" }},
+		{name: "queue HAS_HOOKS", base: queue, change: func(f *fake) { f.pr()["mergeStateStatus"] = "HAS_HOOKS" }},
+		{name: "queue UNSTABLE", base: queue, change: func(f *fake) { f.pr()["mergeStateStatus"] = "UNSTABLE" }, reason: "a check is failing"},
+		{name: "queue unknown state", base: queue, change: func(f *fake) { f.pr()["mergeStateStatus"] = "FUTURE_STATE" }, reason: "the merge state is FUTURE_STATE"},
+		{name: "direct unknown state", base: direct, change: func(f *fake) { f.pr()["mergeStateStatus"] = "FUTURE_STATE" }, reason: "the merge state is FUTURE_STATE"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := tc.base(t)

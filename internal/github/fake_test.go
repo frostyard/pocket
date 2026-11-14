@@ -42,6 +42,12 @@ const (
 	answer502   = "502"
 	answerDrop  = "drop"
 	answerEmpty = "empty"
+	// answerGQLData is `errors` with a non-null result: no proof of a refusal.
+	answerGQLData = "graphql error with data"
+	// answerNoData is neither `data` nor `errors`.
+	answerNoData = "no data"
+	// answerBadData is a result that does not decode.
+	answerBadData = "bad data"
 )
 
 // fake is GitHub: it serves the recorded answers, changed field by field,
@@ -55,6 +61,7 @@ type fake struct {
 	data     map[string]any // the PR query's data
 	raw      string         // a whole PR answer to serve instead
 	rules    []any
+	rulesRaw string // a whole rules page to serve instead
 	rulesets map[string]any
 	branch   map[string]any
 	pages    [][]any        // check contexts by page; nil: as in data
@@ -274,6 +281,10 @@ func (f *fake) serve(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("per_page") != "100" {
 			t.Errorf("rules without per_page=100: %s", r.URL)
 		}
+		if f.rulesRaw != "" {
+			f.write(w, 200, f.rulesRaw, nil)
+			return
+		}
 		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 		lo, hi := (page-1)*100, page*100
 		lo, hi = min(lo, len(f.rules)), min(hi, len(f.rules))
@@ -344,7 +355,7 @@ func (f *fake) graphql(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mode := f.mode[field]
-	land := mode == answerOK || mode == answerEmpty || ((mode == answer502 || mode == answerDrop) && f.land[field])
+	land := mode == answerOK || mode == answerEmpty || f.land[field]
 	if land {
 		pr := f.pr()
 		switch field {
@@ -391,6 +402,12 @@ func (f *fake) graphql(w http.ResponseWriter, r *http.Request) {
 		f.write(w, 403, `{"message":"`+msg+`"}`, nil)
 	case answerGQL:
 		f.write(w, 200, `{"data":{"`+field+`":null},"errors":[{"message":"Head branch was modified. Review and try the merge again."}]}`, nil)
+	case answerGQLData:
+		f.write(w, 200, `{"data":{"`+field+`":{"clientMutationId":null}},"errors":[{"message":"Something went wrong while executing your query."}]}`, nil)
+	case answerNoData:
+		f.write(w, 200, `{}`, nil)
+	case answerBadData:
+		f.write(w, 200, `{"data":{"`+field+`":"done"}}`, nil)
 	case answer502:
 		f.write(w, 502, `{"message":"Server Error"}`, nil)
 	case answerDrop:

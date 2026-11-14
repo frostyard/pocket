@@ -81,11 +81,13 @@ func (c *Client) act(ctx context.Context, in Intent, step func(string) error) Re
 			return Result{Kind: "refused", Step: "approve", Reason: journalFailed, Err: err}
 		}
 		if err := c.approve(ctx, in); err != nil {
-			if !noAnswer(ctx, err) {
+			seen := func(f PRFacts) bool { return approvedAt(f, head) }
+			if unproven(ctx, err) {
+				if !c.reconcile(ctx, ref, seen) {
+					return Result{Kind: "unknown", Step: "reconcile approve", Reason: "approval may be pending", Err: err}
+				}
+			} else if !c.verify(ctx, ref, seen) {
 				return Result{Kind: "failed", Step: "approve", Reason: Redact(err, c.Token).Error(), Err: err}
-			}
-			if !c.reconcile(ctx, ref, func(f PRFacts) bool { return approvedAt(f, head) }) {
-				return Result{Kind: "unknown", Step: "reconcile approve", Reason: "approval may be pending", Err: err}
 			}
 		}
 	}
@@ -110,10 +112,58 @@ func (c *Client) act(ctx context.Context, in Intent, step func(string) error) Re
 	if err == nil {
 		return res
 	}
-	if !noAnswer(ctx, err) {
-		return Result{Kind: "approved", Step: "merge", Reason: Redact(err, c.Token).Error(), Err: err}
+	if unproven(ctx, err) {
+		return c.reconcileMerge(ctx, in, r, err)
 	}
-	return c.reconcileMerge(ctx, in, r, err)
+	var end *Result
+	if c.verify(ctx, ref, func(f PRFacts) bool { end = claimMerge(f, in, r); return end != nil }) {
+		end.Step = "merge"
+		return *end
+	}
+	return Result{Kind: "approved", Step: "merge", Reason: Redact(err, c.Token).Error(), Err: err}
+}
+
+// unproven says a mutation's error does not prove GitHub refused it: no
+// answer, or an incomplete answer that is not a clean refusal (`errors` with
+// a non-null result, no `data` and no `errors`, data that does not decode).
+// Its outcome is unknown: reconcile it with 3 reads.
+func unproven(ctx context.Context, err error) bool {
+	return noAnswer(ctx, err) || (errors.Is(err, ErrIncomplete) && !errors.Is(err, errRefused))
+}
+
+// verify is 1 read at once after a mutation that GitHub refused (a 4xx, or a
+// clean refusal: `errors` and no result). GitHub answered with an explicit
+// error and no result, so the plan's row "GitHub answered an error" applies;
+// this read only upgrades the result when the effect is seen. A failed read
+// keeps the refusal.
+func (c *Client) verify(ctx context.Context, ref Ref, seen func(PRFacts) bool) bool {
+	f, err := c.pr(ctx, ref)
+	return err == nil && seen(f)
+}
+
+// claimMerge is what 1 read shows of a merge or an enqueue: a merge or a
+// queue entry by the owner at the shown head, a merge by another actor or at
+// another head (refused, never claimed), or nil for no effect. On a queue
+// base, a merge it sees is the queue's, with the queue's method.
+func claimMerge(f PRFacts, in Intent, r RepoRules) *Result {
+	head := in.Preview.Head
+	method := in.Preview.Method
+	if in.Preview.Queue {
+		method = r.queueMethod
+	}
+	switch {
+	case f.State == "MERGED" && f.MergedBy == Login && f.HeadRefOid == head:
+		return &Result{Kind: "merged", Method: method, MergeCommit: f.MergeCommit}
+	case f.State == "MERGED":
+		by := f.MergedBy
+		if by == "" {
+			by = "someone"
+		}
+		return &Result{Kind: "refused", Reason: "merged by " + by + " at " + shortSHA(f.HeadRefOid)}
+	case f.IsInMergeQueue && f.QueueEntry != nil && f.QueueEntry.Enqueuer == Login && f.QueueEntry.Head == head:
+		return &Result{Kind: "queued", Method: "queue"}
+	}
+	return nil
 }
 
 // approvedAt says the viewer's latest review approves head.
@@ -218,29 +268,11 @@ func (c *Client) reconcile(ctx context.Context, ref Ref, seen func(PRFacts) bool
 	return false
 }
 
-// reconcileMerge reads what a merge or an enqueue with no answer did. It
-// claims a merge or a queue entry only by the owner at the shown head.
-// On a queue base, a merge it sees is the queue's, with the queue's method.
+// reconcileMerge reads what a merge or an enqueue with no answer did.
 func (c *Client) reconcileMerge(ctx context.Context, in Intent, r RepoRules, cause error) Result {
-	head := in.Preview.Head
-	method := in.Preview.Method
-	if in.Preview.Queue {
-		method = r.queueMethod
-	}
 	var end *Result
 	c.reconcile(ctx, in.Preview.Ref, func(f PRFacts) bool {
-		switch {
-		case f.State == "MERGED" && f.MergedBy == Login && f.HeadRefOid == head:
-			end = &Result{Kind: "merged", Method: method, MergeCommit: f.MergeCommit}
-		case f.State == "MERGED":
-			by := f.MergedBy
-			if by == "" {
-				by = "someone"
-			}
-			end = &Result{Kind: "refused", Reason: "merged by " + by + " at " + shortSHA(f.HeadRefOid)}
-		case f.IsInMergeQueue && f.QueueEntry != nil && f.QueueEntry.Enqueuer == Login && f.QueueEntry.Head == head:
-			end = &Result{Kind: "queued", Method: "queue"}
-		}
+		end = claimMerge(f, in, r)
 		return end != nil
 	})
 	if end == nil {

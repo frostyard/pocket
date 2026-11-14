@@ -38,6 +38,7 @@ type actCase struct {
 	waits    []time.Duration
 	steps    []string // the step callbacks, when the case names them
 	check    func(*testing.T, *fake, Result)
+	reads    int // the PR queries Act sends, when the case names them
 }
 
 // approvedBefore: the owner approved the head before, so GitHub is CLEAN.
@@ -288,60 +289,67 @@ func TestAct(t *testing.T) {
 		{name: "the token GitHub echoes is redacted", base: direct, before: func(f *fake) { f.mode[approve], f.echoToken = answer4xx, true },
 			kind: "failed", step: "approve", reason: "[token]", muts: []string{approve}},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			f := tc.base(t)
-			if tc.before != nil {
-				tc.before(f)
-			}
-			c := f.client()
-			p, err := c.Preview(context.Background(), f.ref)
-			if err != nil || !p.Eligible {
-				t.Fatalf("preview %+v, %v", p, err)
-			}
-			in := Intent{Preview: p, Mode: "single"}
-			if tc.intent != nil {
-				tc.intent(&in)
-			}
-			f.reset()
-			if tc.change != nil {
-				tc.change(f)
-			}
-			var steps []string
-			res := c.Act(context.Background(), in, "op-1", func(name string) error {
-				steps = append(steps, name)
-				if name == tc.stepFail {
-					return errors.New("disk full")
-				}
-				return nil
-			})
-			if res.Op != "op-1" || res.Kind != tc.kind || res.Step != tc.step || !strings.Contains(res.Reason, tc.reason) {
-				t.Fatalf("result %+v; want %s at %s with %q", res, tc.kind, tc.step, tc.reason)
-			}
-			if tc.method != "" && res.Method != tc.method {
-				t.Errorf("method %q, want %q", res.Method, tc.method)
-			}
-			if tc.commit != "" && res.MergeCommit != tc.commit {
-				t.Errorf("merge commit %q", res.MergeCommit)
-			}
-			if !reflect.DeepEqual(f.mutations, tc.muts) && (len(f.mutations) != 0 || len(tc.muts) != 0) {
-				t.Errorf("mutations %v, want %v", f.mutations, tc.muts)
-			}
-			if !reflect.DeepEqual(f.waits, tc.waits) && (len(f.waits) != 0 || len(tc.waits) != 0) {
-				t.Errorf("waits %v, want %v", f.waits, tc.waits)
-			}
-			if tc.steps != nil && !reflect.DeepEqual(steps, tc.steps) {
-				t.Errorf("steps %v, want %v", steps, tc.steps)
-			}
-			if last := steps[len(steps)-1]; last != res.Kind {
-				t.Errorf("the last step is %q, not the result", last)
-			}
-			if strings.Contains(res.Reason, testToken) || (res.Err != nil && strings.Contains(res.Err.Error(), testToken)) {
-				t.Errorf("the token is in %+v", res)
-			}
-			if tc.check != nil {
-				tc.check(t, f, res)
-			}
-		})
+		t.Run(tc.name, func(t *testing.T) { runAct(t, tc) })
+	}
+}
+
+// runAct previews, freezes the intent, changes the fake, and acts.
+func runAct(t *testing.T, tc actCase) {
+	t.Helper()
+	f := tc.base(t)
+	if tc.before != nil {
+		tc.before(f)
+	}
+	c := f.client()
+	p, err := c.Preview(context.Background(), f.ref)
+	if err != nil || !p.Eligible {
+		t.Fatalf("preview %+v, %v", p, err)
+	}
+	in := Intent{Preview: p, Mode: "single"}
+	if tc.intent != nil {
+		tc.intent(&in)
+	}
+	f.reset()
+	if tc.change != nil {
+		tc.change(f)
+	}
+	var steps []string
+	res := c.Act(context.Background(), in, "op-1", func(name string) error {
+		steps = append(steps, name)
+		if name == tc.stepFail {
+			return errors.New("disk full")
+		}
+		return nil
+	})
+	if res.Op != "op-1" || res.Kind != tc.kind || res.Step != tc.step || !strings.Contains(res.Reason, tc.reason) {
+		t.Fatalf("result %+v; want %s at %s with %q", res, tc.kind, tc.step, tc.reason)
+	}
+	if tc.method != "" && res.Method != tc.method {
+		t.Errorf("method %q, want %q", res.Method, tc.method)
+	}
+	if tc.commit != "" && res.MergeCommit != tc.commit {
+		t.Errorf("merge commit %q", res.MergeCommit)
+	}
+	if !reflect.DeepEqual(f.mutations, tc.muts) && (len(f.mutations) != 0 || len(tc.muts) != 0) {
+		t.Errorf("mutations %v, want %v", f.mutations, tc.muts)
+	}
+	if !reflect.DeepEqual(f.waits, tc.waits) && (len(f.waits) != 0 || len(tc.waits) != 0) {
+		t.Errorf("waits %v, want %v", f.waits, tc.waits)
+	}
+	if tc.steps != nil && !reflect.DeepEqual(steps, tc.steps) {
+		t.Errorf("steps %v, want %v", steps, tc.steps)
+	}
+	if last := steps[len(steps)-1]; last != res.Kind {
+		t.Errorf("the last step is %q, not the result", last)
+	}
+	if strings.Contains(res.Reason, testToken) || (res.Err != nil && strings.Contains(res.Err.Error(), testToken)) {
+		t.Errorf("the token is in %+v", res)
+	}
+	if tc.reads != 0 && f.reads != tc.reads {
+		t.Errorf("%d PR reads, want %d", f.reads, tc.reads)
+	}
+	if tc.check != nil {
+		tc.check(t, f, res)
 	}
 }
 
