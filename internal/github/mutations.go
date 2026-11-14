@@ -1,7 +1,7 @@
 package github
 
 import (
-	"errors"
+	"fmt"
 	"sort"
 	"strings"
 )
@@ -42,7 +42,8 @@ var mutationInputs = map[string][]string{
 	enqueueMutation: {"expectedHeadOid", "pullRequestId"},
 }
 
-var errNotAllowed = errors.New("refused: not 1 of Pocket's mutations")
+// errNotAllowed is errNotSent too: it stops a mutation before any request.
+var errNotAllowed = fmt.Errorf("%w: refused: not 1 of Pocket's mutations", errNotSent)
 
 // allowed refuses a mutation that is not 1 of the 3, or that has other
 // inputs. Any text that names a mutation must be 1 of them exactly.

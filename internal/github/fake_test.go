@@ -48,6 +48,8 @@ const (
 	answerNoData = "no data"
 	// answerBadData is a result that does not decode.
 	answerBadData = "bad data"
+	// answerRedirect is a 307 to another path, which the client never follows.
+	answerRedirect = "redirect"
 )
 
 // fake is GitHub: it serves the recorded answers, changed field by field,
@@ -77,6 +79,7 @@ type fake struct {
 	mode         map[string]string
 	land         map[string]bool
 	echoToken    bool
+	message      string // GitHub's message in a 4xx; "" for the default
 	afterApprove func(pr map[string]any)
 	afterMerge   func(pr map[string]any)
 	afterEnqueue func(pr map[string]any)
@@ -396,6 +399,9 @@ func (f *fake) graphql(w http.ResponseWriter, r *http.Request) {
 		f.write(w, 200, `{"data":{"`+field+`":null}}`, nil)
 	case answer4xx:
 		msg := "Resource not accessible by personal access token"
+		if f.message != "" {
+			msg = f.message
+		}
 		if f.echoToken {
 			msg += " (" + testToken + ")"
 		}
@@ -408,6 +414,9 @@ func (f *fake) graphql(w http.ResponseWriter, r *http.Request) {
 		f.write(w, 200, `{}`, nil)
 	case answerBadData:
 		f.write(w, 200, `{"data":{"`+field+`":"done"}}`, nil)
+	case answerRedirect:
+		w.Header().Set("Location", "/elsewhere")
+		w.WriteHeader(http.StatusTemporaryRedirect)
 	case answer502:
 		f.write(w, 502, `{"message":"Server Error"}`, nil)
 	case answerDrop:

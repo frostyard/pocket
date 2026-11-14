@@ -25,16 +25,17 @@ var (
 type actCase struct {
 	name     string
 	base     func(*testing.T) *fake
-	before   func(*fake)   // before the preview
-	change   func(*fake)   // after the preview, before Act
-	intent   func(*Intent) // what the click froze
-	stepFail string        // the step whose callback fails
-	kind     string        // the result
-	step     string        // where it ended
-	reason   string        // in the reason
-	method   string        // the result's method
-	commit   string        // the result's merge commit
-	muts     []string      // the mutations sent, in order
+	before   func(*fake)                  // before the preview
+	change   func(*fake)                  // after the preview, before Act
+	intent   func(*Intent)                // what the click froze
+	stepFail string                       // the step whose callback fails
+	onStep   func(c *Client, name string) // runs in the step callback
+	kind     string                       // the result
+	step     string                       // where it ended
+	reason   string                       // in the reason
+	method   string                       // the result's method
+	commit   string                       // the result's merge commit
+	muts     []string                     // the mutations sent, in order
 	waits    []time.Duration
 	steps    []string // the step callbacks, when the case names them
 	check    func(*testing.T, *fake, Result)
@@ -113,8 +114,8 @@ func TestAct(t *testing.T) {
 			}},
 		{name: "approve answered 4xx: failed", base: direct, before: func(f *fake) { f.mode[approve] = answer4xx },
 			kind: "failed", step: "approve", reason: "Resource not accessible", muts: []string{approve}},
-		{name: "approve answered a GraphQL error: failed", base: direct, before: func(f *fake) { f.mode[approve] = answerGQL },
-			kind: "failed", step: "approve", reason: "Head branch was modified", muts: []string{approve}},
+		{name: "approve answered a GraphQL error, no effect: unknown", base: direct, before: func(f *fake) { f.mode[approve] = answerGQL },
+			kind: "unknown", step: "reconcile approve", reason: "approval may be pending; GitHub said: Head branch was modified", muts: []string{approve}, waits: waits3},
 		{name: "approve: no answer (5xx), reconciled: seen", base: direct, before: func(f *fake) { f.mode[approve], f.land[approve] = answer502, true },
 			kind: "merged", step: "merge", method: "merge", muts: []string{approve, merge}, waits: waitFirst},
 		{name: "approve: connection dropped, reconciled: seen", base: direct, before: func(f *fake) { f.mode[approve], f.land[approve] = answerDrop, true },
@@ -167,8 +168,8 @@ func TestAct(t *testing.T) {
 			kind: "approved", step: "read 2", reason: "could not read the PR", muts: []string{approve}},
 		{name: "merge answered 4xx: approved", base: direct, before: func(f *fake) { f.mode[merge] = answer4xx },
 			kind: "approved", step: "merge", reason: "Resource not accessible", muts: []string{approve, merge}},
-		{name: "merge answered 409 GraphQL error: approved", base: direct, before: func(f *fake) { f.mode[merge] = answerGQL },
-			kind: "approved", step: "merge", reason: "Head branch was modified", muts: []string{approve, merge}},
+		{name: "merge answered a GraphQL error, no effect: unknown", base: direct, before: func(f *fake) { f.mode[merge] = answerGQL },
+			kind: "unknown", step: "reconcile merge", reason: "merge may be pending; GitHub said: Head branch was modified", muts: []string{approve, merge}, waits: waits3},
 		{name: "merge: no answer, merged by the owner at the head: merged", base: direct, before: func(f *fake) { f.mode[merge], f.land[merge] = answer502, true },
 			kind: "merged", step: "reconcile merge", method: "merge", commit: mergeOid, muts: []string{approve, merge}, waits: waitFirst},
 		{name: "merge: dropped, merged: merged", base: direct, before: func(f *fake) { f.mode[merge], f.land[merge] = answerDrop, true },
@@ -316,6 +317,9 @@ func runAct(t *testing.T, tc actCase) {
 	var steps []string
 	res := c.Act(context.Background(), in, "op-1", func(name string) error {
 		steps = append(steps, name)
+		if tc.onStep != nil {
+			tc.onStep(c, name)
+		}
 		if name == tc.stepFail {
 			return errors.New("disk full")
 		}

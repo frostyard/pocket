@@ -38,41 +38,29 @@ var (
 	ErrNoAnswer = errors.New("GitHub gave no answer")
 
 	errRedirect = errors.New("redirect refused")
-	// errRefused marks a GraphQL answer that is a clean refusal: `errors`,
-	// and no result (no `data`, or every field of it null).
-	errRefused = errors.New("GitHub refused with no result")
+	// errNotSent is an error before any request went out: nothing reached
+	// GitHub, so a mutation surely had no effect.
+	errNotSent = errors.New("not sent to GitHub")
 )
 
-// gqlErrors is a 200 answer with an `errors` list. It is ErrIncomplete, and
-// errRefused too when it is a clean refusal.
-type gqlErrors struct {
-	msg     string
-	refused bool
+// notSent is an error before the request went out: errors.Is(err,
+// errNotSent) holds, and its text says why.
+func notSent(format string, a ...any) error {
+	return &localError{msg: fmt.Sprintf(format, a...)}
 }
 
-func (e *gqlErrors) Error() string { return ErrIncomplete.Error() + ": " + e.msg }
+type localError struct{ msg string }
 
-func (e *gqlErrors) Is(target error) bool {
-	return target == ErrIncomplete || (e.refused && target == errRefused)
-}
+func (e *localError) Error() string        { return e.msg }
+func (e *localError) Is(target error) bool { return target == errNotSent }
 
-// cleanRefusal says data holds no result: absent, null, or an object whose
-// every field (1 or more) is null.
-func cleanRefusal(data json.RawMessage) bool {
-	if len(data) == 0 || string(data) == "null" {
-		return true
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(data, &fields); err != nil || len(fields) == 0 {
-		return false
-	}
-	for _, v := range fields {
-		if string(v) != "null" {
-			return false
-		}
-	}
-	return true
-}
+// gqlErrors is a 200 answer with an `errors` list: ErrIncomplete, with
+// GitHub's messages. To a mutation it proves nothing: GitHub can make the
+// change, then null the result on a later error.
+type gqlErrors struct{ msg string }
+
+func (e *gqlErrors) Error() string        { return ErrIncomplete.Error() + ": " + e.msg }
+func (e *gqlErrors) Is(target error) bool { return target == ErrIncomplete }
 
 // APIError is a 4xx answer (or a refused redirect) from GitHub.
 type APIError struct {
@@ -203,7 +191,7 @@ func (c *Client) GraphQL(ctx context.Context, query string, vars map[string]any,
 		for _, e := range answer.Errors {
 			msgs = append(msgs, c.redact(e.Message))
 		}
-		return &gqlErrors{msg: strings.Join(msgs, "; "), refused: cleanRefusal(answer.Data)}
+		return &gqlErrors{msg: strings.Join(msgs, "; ")}
 	}
 	if out == nil {
 		return nil
@@ -220,30 +208,30 @@ func (c *Client) GraphQL(ctx context.Context, query string, vars map[string]any,
 // do sends 1 request and gives the body of a 2xx answer.
 func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte, error) {
 	if c.Token == "" {
-		return nil, errors.New("no GitHub token")
+		return nil, notSent("no GitHub token")
 	}
 	if !strings.HasPrefix(path, "/") || strings.Contains(path, "://") {
-		return nil, fmt.Errorf("refused path %q", path)
+		return nil, notSent("refused path %q", path)
 	}
 	base, err := url.Parse(c.BaseURL)
 	if err != nil || base.Host == "" {
-		return nil, fmt.Errorf("bad GitHub base URL")
+		return nil, notSent("bad GitHub base URL")
 	}
 	target := strings.TrimRight(c.BaseURL, "/") + path
 	var r io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
-			return nil, err
+			return nil, notSent("%s", err)
 		}
 		r = bytes.NewReader(b)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, target, r)
 	if err != nil {
-		return nil, err
+		return nil, notSent("%s", c.redact(err.Error()))
 	}
 	if req.URL.Host != base.Host || req.URL.Scheme != base.Scheme {
-		return nil, fmt.Errorf("refused path %q", path)
+		return nil, notSent("refused path %q", path)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Accept", "application/vnd.github+json")
@@ -311,10 +299,4 @@ func (c *Client) retryAfter(h http.Header) time.Time {
 		}
 	}
 	return time.Time{}
-}
-
-// noAnswer says a mutation's outcome is unknown.
-func noAnswer(ctx context.Context, err error) bool {
-	return errors.Is(err, ErrNoAnswer) || ctx.Err() != nil ||
-		errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
 }

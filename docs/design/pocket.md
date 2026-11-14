@@ -448,8 +448,9 @@ panes less room.
   rules, rulesets and branch protection of its base, and runs the gates;
   `Act` re-reads before each of its 3 allowed mutations (approve at the
   shown head, then merge or enqueue), checks the frozen intent, and
-  reconciles by reads only a mutation whose answer does not prove a refusal
-  (no answer, or `errors` with a result); a refusal gets 1 read that only
+  reconciles by 3 reads a mutation whose answer does not prove a refusal
+  (no answer, a 5xx, or any 200 with `errors`: GitHub can make the change,
+  then null the result); only a 4xx is a refusal, and its 1 read only
   upgrades it when the effect is there. Every read fails closed: a null
   that the Nulls rule does not allow, a null rules page or an unknown merge
   state refuses. It follows no

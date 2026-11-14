@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"time"
+	"unicode/utf8"
 )
 
 // Intent is what the owner's confirm click froze for 1 PR.
@@ -52,6 +53,7 @@ func (c *Client) Act(ctx context.Context, in Intent, op string, step func(name s
 	}
 	res := c.act(ctx, in, step)
 	res.Op = op
+	res.Reason = capReason(res.Reason)
 	res.Err = Redact(res.Err, c.Token)
 	_ = step(res.Kind)
 	return res
@@ -82,12 +84,17 @@ func (c *Client) act(ctx context.Context, in Intent, step func(string) error) Re
 		}
 		if err := c.approve(ctx, in); err != nil {
 			seen := func(f PRFacts) bool { return approvedAt(f, head) }
-			if unproven(ctx, err) {
-				if !c.reconcile(ctx, ref, seen) {
-					return Result{Kind: "unknown", Step: "reconcile approve", Reason: "approval may be pending", Err: err}
-				}
-			} else if !c.verify(ctx, ref, seen) {
+			switch answerOf(ctx, err) {
+			case answerNotSent:
 				return Result{Kind: "failed", Step: "approve", Reason: Redact(err, c.Token).Error(), Err: err}
+			case answerRefused:
+				if !c.verify(ctx, ref, seen) {
+					return Result{Kind: "failed", Step: "approve", Reason: Redact(err, c.Token).Error(), Err: err}
+				}
+			default:
+				if !c.reconcile(ctx, ref, seen) {
+					return Result{Kind: "unknown", Step: "reconcile approve", Reason: c.pending("approval may be pending", err), Err: err}
+				}
 			}
 		}
 	}
@@ -112,33 +119,74 @@ func (c *Client) act(ctx context.Context, in Intent, step func(string) error) Re
 	if err == nil {
 		return res
 	}
-	if unproven(ctx, err) {
-		return c.reconcileMerge(ctx, in, r, err)
+	switch answerOf(ctx, err) {
+	case answerNotSent:
+		return Result{Kind: "approved", Step: "merge", Reason: Redact(err, c.Token).Error(), Err: err}
+	case answerRefused:
+		var end *Result
+		if c.verify(ctx, ref, func(f PRFacts) bool { end = claimMerge(f, in, r); return end != nil }) {
+			end.Step = "merge"
+			return *end
+		}
+		return Result{Kind: "approved", Step: "merge", Reason: Redact(err, c.Token).Error(), Err: err}
 	}
-	var end *Result
-	if c.verify(ctx, ref, func(f PRFacts) bool { end = claimMerge(f, in, r); return end != nil }) {
-		end.Step = "merge"
-		return *end
-	}
-	return Result{Kind: "approved", Step: "merge", Reason: Redact(err, c.Token).Error(), Err: err}
+	return c.reconcileMerge(ctx, in, r, err)
 }
 
-// unproven says a mutation's error does not prove GitHub refused it: no
-// answer, or an incomplete answer that is not a clean refusal (`errors` with
-// a non-null result, no `data` and no `errors`, data that does not decode).
-// Its outcome is unknown: reconcile it with 3 reads.
-func unproven(ctx context.Context, err error) bool {
-	return noAnswer(ctx, err) || (errors.Is(err, ErrIncomplete) && !errors.Is(err, errRefused))
+// What a mutation's error proves.
+const (
+	// answerUnproven: GitHub's outcome is unknown. This is no answer, a 5xx,
+	// a redirect, and every 200: a GraphQL mutation can make its change and
+	// then null its result on a later error, so even `errors` with a null
+	// result does not prove a refusal. Reconcile it with 3 reads.
+	answerUnproven = iota
+	// answerRefused: an HTTP 4xx, the plan's row "GitHub answered an error
+	// (4xx, 409)". 1 read at once (verify) only upgrades it.
+	answerRefused
+	// answerNotSent: no request went out (a mutation off the allowlist, no
+	// token), so nothing changed on GitHub. No read.
+	answerNotSent
+)
+
+func answerOf(ctx context.Context, err error) int {
+	if errors.Is(err, errNotSent) {
+		return answerNotSent
+	}
+	var api *APIError
+	if errors.As(err, &api) && api.Status >= 400 && api.Status < 500 && ctx.Err() == nil {
+		return answerRefused
+	}
+	return answerUnproven
 }
 
-// verify is 1 read at once after a mutation that GitHub refused (a 4xx, or a
-// clean refusal: `errors` and no result). GitHub answered with an explicit
-// error and no result, so the plan's row "GitHub answered an error" applies;
-// this read only upgrades the result when the effect is seen. A failed read
-// keeps the refusal.
+// verify is 1 read at once after a 4xx to a mutation. GitHub answered with
+// an explicit HTTP error, so the plan's row "GitHub answered an error"
+// applies; this read only upgrades the result when the effect is seen. A
+// failed read keeps the refusal.
 func (c *Client) verify(ctx context.Context, ref Ref, seen func(PRFacts) bool) bool {
 	f, err := c.pr(ctx, ref)
 	return err == nil && seen(f)
+}
+
+// pending is the reason of an unknown outcome, with GitHub's own words when
+// its answer had `errors`.
+func (c *Client) pending(what string, err error) string {
+	var g *gqlErrors
+	if errors.As(err, &g) {
+		return what + "; GitHub said: " + c.redact(g.msg)
+	}
+	return what
+}
+
+// maxReason is the longest reason the Desk's receipt route takes, in runes.
+const maxReason = 300
+
+// capReason cuts s to maxReason runes.
+func capReason(s string) string {
+	if utf8.RuneCountInString(s) <= maxReason {
+		return s
+	}
+	return string([]rune(s)[:maxReason])
 }
 
 // claimMerge is what 1 read shows of a merge or an enqueue: a merge or a
@@ -276,7 +324,7 @@ func (c *Client) reconcileMerge(ctx context.Context, in Intent, r RepoRules, cau
 		return end != nil
 	})
 	if end == nil {
-		return Result{Kind: "unknown", Step: "reconcile merge", Reason: "merge may be pending", Err: cause}
+		return Result{Kind: "unknown", Step: "reconcile merge", Reason: c.pending("merge may be pending", cause), Err: cause}
 	}
 	end.Step = "reconcile merge"
 	return *end
