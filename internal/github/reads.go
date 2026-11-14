@@ -122,7 +122,9 @@ func (c *Client) CheckApp(ctx context.Context, owners []string) (AppCheck, error
 	check.Login = id.Login
 	installs, err := c.installations(ctx)
 	if err != nil {
-		return check, err
+		// A read that fails keeps nothing: the login alone proves no
+		// owner's state.
+		return AppCheck{}, err
 	}
 	for _, owner := range owners {
 		reason, note := appOwner(installs, owner)
@@ -134,15 +136,18 @@ func (c *Client) CheckApp(ctx context.Context, owners []string) (AppCheck, error
 	return check, nil
 }
 
-// installations reads every page of GET /user/installations.
+// installations reads every page of GET /user/installations, and holds the
+// answer to the total_count GitHub gives: a short page before that count, or
+// more installations than it, proves nothing.
 func (c *Client) installations(ctx context.Context) ([]installation, error) {
 	var out []installation
+	total := -1
 	for page := 1; ; page++ {
 		if page > maxInstallationPages {
 			return nil, incomplete("too many installations")
 		}
 		// Only an explicit list says there is none: a null page proves
-		// nothing.
+		// nothing, and neither does a missing count.
 		var got *struct {
 			TotalCount    *int            `json:"total_count"`
 			Installations *[]installation `json:"installations"`
@@ -154,9 +159,22 @@ func (c *Client) installations(ctx context.Context) ([]installation, error) {
 		if got == nil || got.Installations == nil {
 			return nil, incomplete("a page of installations is null")
 		}
+		if got.TotalCount == nil || *got.TotalCount < 0 {
+			return nil, incomplete("the installations name no total_count")
+		}
+		if total < 0 {
+			total = *got.TotalCount
+		} else if *got.TotalCount != total {
+			return nil, incomplete("the total_count changed while reading the installations")
+		}
 		out = append(out, *got.Installations...)
-		if len(*got.Installations) < installationsPerPage {
+		switch {
+		case len(out) > total:
+			return nil, incomplete(fmt.Sprintf("%d installations, but the total_count is %d", len(out), total))
+		case len(out) == total:
 			return out, nil
+		case len(*got.Installations) < installationsPerPage:
+			return nil, incomplete(fmt.Sprintf("a short page of installations: %d of %d", len(out), total))
 		}
 	}
 }
@@ -196,6 +214,10 @@ type PreflightRow struct {
 	Classic bool
 	// Missing is the permission GitHub names in a refused read.
 	Missing, Reason string
+	// Err is the redacted error of a read that failed, and nil when the
+	// repository passed: a caller tells a refused sign-in from a repository
+	// that has no button.
+	Err error
 }
 
 // Preflight runs the full read of ref (the PR query, rules, rulesets and
@@ -205,7 +227,7 @@ func (c *Client) Preflight(ctx context.Context, ref Ref) PreflightRow {
 	f, r, err := c.read(ctx, ref)
 	if err != nil {
 		err = Redact(err, c.Token)
-		row.Reason = err.Error()
+		row.Reason, row.Err = err.Error(), err
 		var api *APIError
 		if errors.As(err, &api) {
 			row.Missing = api.Accepted

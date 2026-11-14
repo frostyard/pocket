@@ -39,11 +39,12 @@ type fakeGH struct {
 	app      *github.AppCheck
 	appErr   error
 	appReads int
-	// appGate holds CheckApp until it is closed.
-	appGate  chan struct{}
-	leaseErr error
-	taken    int
-	released int
+	// appGate holds CheckApp call appGateAt until it is closed.
+	appGate   chan struct{}
+	appGateAt int
+	leaseErr  error
+	taken     int
+	released  int
 
 	acts, settles, stateReads, previewReads []string
 }
@@ -111,8 +112,9 @@ func (f *fakeGH) CheckApp(_ context.Context, owners []string) (github.AppCheck, 
 	defer f.mu.Unlock()
 	f.appReads++
 	gate := f.appGate
+	wait := gate != nil && f.appGateAt == f.appReads
 	f.mu.Unlock()
-	if gate != nil {
+	if wait {
 		<-gate
 	}
 	f.mu.Lock()
@@ -129,16 +131,24 @@ func (f *fakeGH) CheckApp(_ context.Context, owners []string) (github.AppCheck, 
 	return check, nil
 }
 
-// holdCheck makes CheckApp wait until the release is called, and gives the
-// channel that closes when it is called.
+// holdCheck makes the first CheckApp wait until the release is called.
 func (f *fakeGH) holdCheck(t *testing.T) (release func(), entered bool) {
 	t.Helper()
-	f.mu.Lock()
+	return f.holdCheckAt(t, 1), true
+}
+
+// holdCheckAt makes CheckApp call n wait until the release is called: the
+// calls after it pass, as the app reads again after a new sign-in.
+func (f *fakeGH) holdCheckAt(t *testing.T, n int) (release func()) {
+	t.Helper()
 	gate := make(chan struct{})
-	f.appGate = gate
+	f.mu.Lock()
+	f.appGate, f.appGateAt = gate, n
 	f.mu.Unlock()
 	var once sync.Once
-	return func() { once.Do(func() { close(gate) }) }, true
+	release = func() { once.Do(func() { close(gate) }) }
+	t.Cleanup(release)
+	return release
 }
 
 // setApp is what CheckApp answers next.

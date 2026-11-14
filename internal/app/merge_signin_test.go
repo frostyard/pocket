@@ -785,3 +785,201 @@ func TestUncheckedOwnersSaySo(t *testing.T) {
 	release()
 	loop.RunUntil(t, func() bool { return !a.preflightBusy() })
 }
+
+// TestAStaleCheckKeepsNothing: a CheckApp that started before Sign out, or
+// before a new sign-in, applies nothing: no owners from the old sign-in.
+func TestAStaleCheckKeepsNothing(t *testing.T) {
+	for name, signIn := range map[string]bool{"sign out": false, "sign out and a new sign-in": true} {
+		t.Run(name, func(t *testing.T) {
+			a, loop, gh, auth := signedInApp(t, "frostyard/core#1")
+			// The stale check will answer "frostyard is not installed"; the
+			// sign-in after the Sign out reads the owners as ready.
+			gh.setApp(&github.AppCheck{Login: github.Login, Owners: map[string]string{
+				github.Login: "", "frostyard": "the App is not installed on frostyard"}})
+			release := gh.holdCheckAt(t, 1)
+			a.checkOwners(nil)
+			loop.RunUntil(t, func() bool { return a.gh.checking })
+			a.githubSignOut()
+			loop.RunUntil(t, func() bool { return auth.forgetCount() == 1 })
+			if signIn {
+				gh.setApp(nil)
+				a.githubSignIn()
+				loop.RunUntil(t, func() bool { return a.gh.phase == signInSignedIn })
+			}
+			release()
+			loop.Flush()
+			loop.RunUntil(t, func() bool { return !a.gh.checking })
+			if signIn {
+				// The stale answer must not undo the new sign-in's owners.
+				if got := a.gh.owners["frostyard"].reason; got != "" {
+					t.Errorf("the old check set frostyard's state: %q", got)
+				}
+				return
+			}
+			if len(a.gh.owners) != 0 {
+				t.Errorf("the old check set the owners: %+v", a.gh.owners)
+			}
+		})
+	}
+}
+
+// TestAStalePreflightKeepsNothing: a preflight that started before Sign out
+// applies nothing: no rows, no owners, no blocked repositories.
+func TestAStalePreflightKeepsNothing(t *testing.T) {
+	for name, signIn := range map[string]bool{"sign out": false, "sign out and a new sign-in": true} {
+		t.Run(name, func(t *testing.T) {
+			a, loop, gh, auth := signedInApp(t, "frostyard/core#1", "bketelsen/pi-pocket-team#2")
+			gh.rows = map[string]github.PreflightRow{
+				"frostyard/core": {Repo: "frostyard/core", Readable: true, Bypass: "never"},
+			}
+			release := gh.holdCheckAt(t, 1)
+			a.githubPreflight()
+			loop.RunUntil(t, func() bool { return a.preflightBusy() })
+			a.githubSignOut()
+			loop.RunUntil(t, func() bool { return auth.forgetCount() == 1 })
+			if signIn {
+				a.githubSignIn()
+				loop.RunUntil(t, func() bool { return a.gh.phase == signInSignedIn })
+			}
+			release()
+			loop.RunUntil(t, func() bool { return !a.preflightBusy() })
+			if signIn {
+				// The stale preflight's rows must not come back.
+				for _, owner := range githubOwners {
+					if pf := a.gh.preflight[owner]; pf != nil && len(pf.rows) != 0 {
+						t.Errorf("the old preflight left %s's rows: %+v", owner, pf.rows)
+					}
+				}
+				return
+			}
+			if len(a.gh.owners) != 0 {
+				t.Errorf("the old preflight set the owners: %+v", a.gh.owners)
+			}
+			for _, owner := range githubOwners {
+				if pf := a.gh.preflight[owner]; pf != nil && len(pf.rows) != 0 {
+					t.Errorf("the old preflight left %s's rows: %+v", owner, pf.rows)
+				}
+			}
+			if len(a.gh.blocked) != 0 {
+				t.Errorf("the old preflight left blocked: %v", a.gh.blocked)
+			}
+		})
+	}
+}
+
+// TestAPollClearsOnlyItsOwnHandle: poll A's late answer keeps poll B's
+// cancel handle, so Cancel stops B's poll.
+func TestAPollClearsOnlyItsOwnHandle(t *testing.T) {
+	a, loop, _, auth := mergeApp(t, "frostyard/core#1")
+	auth.set(github.AppToken{}, false)
+	// A code that has not expired, on the real clock the deadline uses.
+	auth.setCodeExpiry(time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC))
+	a.startGitHub()
+	loop.RunUntil(t, func() bool { return a.gh.phase == signInNone })
+
+	firstAnswer := make(chan github.AppToken, 1)
+	started := make(chan int, 4)
+	secondDone := make(chan bool, 1)
+	calls := 0
+	auth.setPollFn(func(ctx context.Context) (github.AppToken, error) {
+		auth.mu.Lock()
+		calls++
+		n := calls
+		auth.mu.Unlock()
+		started <- n
+		if n == 1 {
+			return <-firstAnswer, nil
+		}
+		<-ctx.Done()
+		secondDone <- true
+		return github.AppToken{}, ctx.Err()
+	})
+	pair := github.AppToken{ClientID: github.AppClientID, Access: testGitHubToken, Refresh: "r",
+		AccessExpires: a.opts.Now().Add(time.Hour), RefreshExpires: a.opts.Now().Add(time.Hour)}
+	a.githubSignIn()
+	loop.RunUntil(t, func() bool { return a.gh.phase == signInCode })
+	if n := <-started; n != 1 {
+		t.Fatalf("the first poll is call %d", n)
+	}
+	// Poll A is in flight; Cancel it and start a new sign-in.
+	a.cancelSignIn()
+	a.githubSignIn()
+	loop.RunUntil(t, func() bool { return a.gh.phase == signInCode })
+	if n := <-started; n != 2 {
+		t.Fatalf("the second poll is call %d", n)
+	}
+	// Poll A answers last, after poll B started: its completion runs here,
+	// and B's handle must stay.
+	firstAnswer <- pair
+	loop.Settle(2 * time.Millisecond)
+	// Cancel stops poll B.
+	a.cancelSignIn()
+	select {
+	case <-secondDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("poll A's answer dropped poll B's cancel handle")
+	}
+	if auth.adoptCount() != 0 {
+		t.Errorf("a cancelled poll saved %d pairs: %v", auth.adoptCount(), auth.adoptGenerations())
+	}
+}
+
+// TestAPreflights401Invalidates: a 401 of 1 repository's own read is taken
+// on the UI thread, and invalidates the lease's generation.
+func TestAPreflights401Invalidates(t *testing.T) {
+	a, loop, gh, auth := signedInApp(t, "frostyard/core#1", "frostyard/pocket#2")
+	gh.rows = map[string]github.PreflightRow{
+		"frostyard/core": {Repo: "frostyard/core", Reason: "GitHub answered 401: Bad credentials",
+			Err: &github.APIError{Status: 401, Message: "Bad credentials"}},
+	}
+	a.githubPreflight()
+	loop.RunUntil(t, func() bool { return !a.preflightBusy() })
+	if got := auth.invalidated(); len(got) != 1 {
+		t.Errorf("the preflight's 401 did not invalidate its generation: %v", got)
+	}
+	if pf := a.gh.preflight["frostyard"]; pf == nil || len(pf.rows) != 2 {
+		t.Errorf("rows %+v", pf)
+	}
+}
+
+// TestAStaleCheckStillReconcilesTheJournal: a Sign out while the first
+// CheckApp runs still settles the attempts a crash left, by reads; the
+// owners stay unknown.
+func TestAStaleCheckStillReconcilesTheJournal(t *testing.T) {
+	ref := "frostyard/core#1"
+	a, loop, gh, auth := mergeApp(t, ref)
+	writeJournal(t, a.opts.Store.Dir(), journalOp("op-1", ref, "about to merge", ""))
+	gh.mu.Lock()
+	gh.settle = func(github.Intent, bool) github.Result {
+		return github.Result{Kind: "approved", Reason: "approved, not merged"}
+	}
+	gh.mu.Unlock()
+	release := gh.holdCheckAt(t, 1)
+	a.startGitHub()
+	loop.RunUntil(t, func() bool { return a.gh.checking })
+	a.githubSignOut()
+	loop.RunUntil(t, func() bool { return auth.forgetCount() == 1 })
+	release()
+	loop.RunUntil(t, func() bool {
+		o := a.gh.j.find("op-1")
+		return o != nil && o.Result != ""
+	})
+	// The merge may have been sent, so the read settles it as unknown, not
+	// as approved.
+	if o := a.gh.j.find("op-1"); o.Result != "unknown" || o.Reason != "Pocket stopped during the merge: merge may be pending" {
+		t.Errorf("the attempt was not settled by reads: %+v", o)
+	}
+	gh.mu.Lock()
+	settles := slices.Clone(gh.settles)
+	acts := slices.Clone(gh.acts)
+	gh.mu.Unlock()
+	if !slices.Equal(settles, []string{ref}) {
+		t.Errorf("settles %v", settles)
+	}
+	if len(acts) != 0 {
+		t.Errorf("a mutation ran at start: %v", acts)
+	}
+	if len(a.gh.owners) != 0 {
+		t.Errorf("the stale check set the owners: %+v", a.gh.owners)
+	}
+}

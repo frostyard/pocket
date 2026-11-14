@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-14",
+  "scope": "approve-merge",
+  "correction": "CheckApp reads the installations to their total_count: a missing count, a short page before it, or more installations than it, is an incomplete answer and keeps nothing.",
+  "evidence": "frostyard/pocket#100, cross-review (openai/gpt-6.1-sol) of head 38c4fc5",
+  "promoted_to": "internal/github/reads_test.go TestInstallationsHoldTheTotalCount"
+}

@@ -87,6 +87,9 @@ type TokenSource struct {
 	busy int
 	idle chan struct{}
 
+	// queued, when set, is told which credential write is about to wait for
+	// the write mutex. Tests use it to order 2 writes.
+	queued func(what string)
 	// now is the clock; nil is the OAuth's clock, else time.Now. Tests
 	// inject it.
 	now func() time.Time
@@ -160,6 +163,11 @@ func (t *TokenSource) Lease(ctx context.Context) (token string, tokenGen int, re
 	// a lease that comes later tries again.
 	seq := -1
 	for {
+		// A waiter that has already left holds no lease and starts no
+		// refresh.
+		if err := ctx.Err(); err != nil {
+			return "", 0, nil, err
+		}
 		t.mu.Lock()
 		if t.closed {
 			t.mu.Unlock()
@@ -194,10 +202,10 @@ func (t *TokenSource) Lease(ctx context.Context) (token string, tokenGen int, re
 		if !t.refreshing && t.leases == 0 {
 			if !t.tok.RefreshExpires.After(t.clock()) {
 				// The refresh token expired: the sign-in ended.
-				t.clearLocked()
+				cleared := t.clearLocked()
 				t.changeLocked()
 				t.mu.Unlock()
-				t.deleteEntry()
+				t.deleteEntry(cleared)
 				return "", 0, nil, ErrSignIn
 			}
 			t.refreshing = true
@@ -226,7 +234,9 @@ func (t *TokenSource) release() {
 }
 
 // refresh trades the refresh token for a new pair, saves it, and lets the
-// leases go on: 1 at a time, on its own context and goroutine.
+// leases go on: 1 at a time, on its own context and goroutine. Every outcome
+// applies only to the pair the refresh started with: a Sign out or a new
+// pair that ran meanwhile wins, and its keyring entry stays.
 func (t *TokenSource) refresh() {
 	defer t.endWork()
 	defer t.endRefresh()
@@ -240,40 +250,32 @@ func (t *TokenSource) refresh() {
 	case err == nil:
 	case errors.Is(err, ErrSignIn):
 		// The refresh token is spent, refused or expired: the sign-in ended.
-		t.mu.Lock()
-		t.clearLocked()
-		t.lastErr = err
-		t.changeLocked()
-		t.mu.Unlock()
-		t.deleteEntry()
+		t.endSignIn(gen, err)
 		return
 	default:
 		// No answer: the entry stays, because the refresh may have landed;
 		// the waiters fail and the next lease tries again.
 		t.mu.Lock()
-		t.due = true
-		t.lastErr = fmt.Errorf("%w: could not refresh the GitHub sign-in", ErrNoAnswer)
+		if t.have && t.gen == gen {
+			t.due = true
+			t.lastErr = fmt.Errorf("%w: could not refresh the GitHub sign-in", ErrNoAnswer)
+		}
 		t.mu.Unlock()
 		return
 	}
 	if next.ClientID != tok.ClientID {
-		t.mu.Lock()
-		t.clearLocked()
-		t.lastErr = fmt.Errorf("%w: the new pair is for another build of Pocket", ErrSignIn)
-		t.changeLocked()
-		t.mu.Unlock()
-		t.deleteEntry()
+		t.endSignIn(gen, fmt.Errorf("%w: the new pair is for another build of Pocket", ErrSignIn))
 		return
 	}
 	// A refresh names no login: the pair keeps the current one.
 	next.Login = tok.Login
 	// The store holds the new pair before a lease may use it, and only
-	// while the pair it refreshes is still the current one: a Sign out or a
-	// new sign-in that ran while the refresh was in flight wins, and the
-	// keyring keeps what that left.
+	// while the pair it refreshes is still the current one. A refresh that
+	// was already running still saves when Pocket closes: GitHub has spent
+	// the old refresh token, so the new pair must not be lost.
 	saved, serr := t.saveRefresh(next, gen)
 	t.mu.Lock()
-	if saved && t.have && t.gen == gen && !t.closed {
+	if saved && t.have && t.gen == gen {
 		t.tok, t.gen = next, t.gen+1
 		t.due, t.spent, t.unsaved = false, false, serr != nil
 		if serr == nil {
@@ -281,6 +283,34 @@ func (t *TokenSource) refresh() {
 			t.lastErr = nil
 		}
 	}
+	t.mu.Unlock()
+}
+
+// endSignIn ends the sign-in that a refresh of generation gen found over: the
+// pair in memory and the entry go, but only while gen is still the current
+// pair, and the delete runs under the write mutex where it checks again. A
+// Sign out or a new pair that ran meanwhile wins.
+func (t *TokenSource) endSignIn(gen int, reason error) {
+	t.startWork()
+	defer t.endWork()
+	t.queue("end sign-in")
+	t.wmu.Lock()
+	defer t.wmu.Unlock()
+	t.mu.Lock()
+	if !t.have || t.gen != gen {
+		t.mu.Unlock()
+		return
+	}
+	cleared := t.clearLocked()
+	t.lastErr = reason
+	t.changeLocked()
+	t.mu.Unlock()
+	err := t.deleteLocked(cleared)
+	t.mu.Lock()
+	if t.clearSeq == cleared {
+		t.deleteFail = err != nil
+	}
+	t.changeLocked()
 	t.mu.Unlock()
 }
 
@@ -295,39 +325,61 @@ func (t *TokenSource) endRefresh() {
 }
 
 // clearLocked forgets the pair and ends the sign-in generation: no lease
-// starts after it, and the jobs that hold 1 finish. The caller wakes the
-// waiters.
-func (t *TokenSource) clearLocked() {
+// starts after it, and the jobs that hold 1 finish. It gives the clearSeq it
+// left, which a delete checks. The caller wakes the waiters.
+func (t *TokenSource) clearLocked() int {
 	t.tok, t.have = AppToken{}, false
 	t.signInGen++
 	t.clearSeq++
 	t.due, t.spent, t.unsaved, t.lastErr = false, false, false, nil
+	return t.clearSeq
 }
 
-// deleteEntry deletes the entry, under the write mutex.
-func (t *TokenSource) deleteEntry() {
+// deleteEntry deletes the entry of a cleared sign-in, under the write mutex,
+// and only while that clear is still the last 1: a pair adopted while this
+// waited keeps its entry.
+func (t *TokenSource) deleteEntry(cleared int) {
 	t.startWork()
 	defer t.endWork()
+	t.queue("delete")
 	t.wmu.Lock()
-	err := t.store.Forget()
+	err := t.deleteLocked(cleared)
 	t.wmu.Unlock()
 	t.mu.Lock()
-	t.deleteFail = err != nil
+	if t.clearSeq == cleared {
+		t.deleteFail = err != nil
+	}
 	t.changeLocked()
 	t.mu.Unlock()
+}
+
+// deleteLocked deletes the entry while the clear of cleared is still the last
+// 1 and no pair is in memory: a pair adopted after that clear keeps its
+// entry. The caller holds wmu, so no other credential write runs between the
+// check and the delete.
+func (t *TokenSource) deleteLocked(cleared int) error {
+	t.mu.Lock()
+	stale := t.clearSeq != cleared || t.have
+	t.mu.Unlock()
+	if stale {
+		return nil
+	}
+	return t.store.Forget()
 }
 
 // saveRefresh writes the refreshed pair under the write mutex, as a
 // credential write Close waits for, but only while gen is still the current
 // pair: it gives false, and writes nothing, when a Sign out or another
-// sign-in ran during the refresh.
+// sign-in ran during the refresh. Close does not refuse it: GitHub has
+// already spent the old refresh token.
 func (t *TokenSource) saveRefresh(next AppToken, gen int) (bool, error) {
 	t.startWork()
 	defer t.endWork()
+	t.queue("refresh save")
 	t.wmu.Lock()
 	defer t.wmu.Unlock()
 	t.mu.Lock()
-	stale := !t.have || t.gen != gen || t.closed
+	stale := !t.have || t.gen != gen
 	t.mu.Unlock()
 	if stale {
 		return false, nil
@@ -339,6 +391,13 @@ func (t *TokenSource) saveRefresh(next AppToken, gen int) (bool, error) {
 }
 
 // startWork counts a refresh or a credential write in progress.
+// queue says the write is about to wait for the write mutex.
+func (t *TokenSource) queue(what string) {
+	if t.queued != nil {
+		t.queued(what)
+	}
+}
+
 func (t *TokenSource) startWork() {
 	t.bmu.Lock()
 	t.busy++
@@ -387,6 +446,7 @@ func (t *TokenSource) Adopt(tok AppToken, gen int) error {
 	}
 	t.startWork()
 	defer t.endWork()
+	t.queue("adopt")
 	t.wmu.Lock()
 	defer t.wmu.Unlock()
 	t.mu.Lock()
@@ -413,29 +473,47 @@ func (t *TokenSource) Adopt(tok AppToken, gen int) error {
 	return nil
 }
 
-// SaveAgain saves the pair the keyring did not keep.
+// SaveAgain saves the pair the keyring did not keep, and only that pair: a
+// Sign out, or a newer pair, that ran while this waited for the write mutex
+// wins, and this saves nothing.
 func (t *TokenSource) SaveAgain() error {
 	t.mu.Lock()
-	tok, unsaved := t.tok, t.unsaved
+	tok, gen, unsaved := t.tok, t.gen, t.unsaved
 	t.mu.Unlock()
 	if !unsaved {
 		return nil
 	}
 	t.startWork()
 	defer t.endWork()
+	t.queue("save again")
 	t.wmu.Lock()
 	defer t.wmu.Unlock()
+	if !t.current(gen, true) {
+		return nil
+	}
 	if err := t.store.Save(tok); err != nil {
 		return fmt.Errorf("%w: %s", ErrUnsaved, Redact(err, tok.secrets()...))
 	}
 	t.mu.Lock()
-	t.unsaved = false
+	if t.have && t.gen == gen {
+		t.unsaved = false
+	}
 	t.changeLocked()
 	t.mu.Unlock()
 	return nil
 }
 
-// DeleteAgain deletes the entry a Sign out could not delete.
+// current says the pair of generation gen is still the 1 in memory, and,
+// with unsaved, that it is still the 1 the keyring did not keep. The caller
+// holds wmu, so no other credential write runs between this and the write.
+func (t *TokenSource) current(gen int, unsaved bool) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.have && t.gen == gen && t.unsaved == unsaved
+}
+
+// DeleteAgain deletes the entry a Sign out could not delete, and only while
+// no newer pair was adopted: that pair's entry stays.
 func (t *TokenSource) DeleteAgain() error {
 	t.mu.Lock()
 	failed := t.deleteFail
@@ -445,11 +523,22 @@ func (t *TokenSource) DeleteAgain() error {
 	}
 	t.startWork()
 	defer t.endWork()
+	t.queue("delete again")
 	t.wmu.Lock()
+	t.mu.Lock()
+	// A pair adopted since the failed Sign out keeps its entry.
+	if t.have {
+		t.mu.Unlock()
+		t.wmu.Unlock()
+		return nil
+	}
+	t.mu.Unlock()
 	err := t.store.Forget()
 	t.wmu.Unlock()
 	t.mu.Lock()
-	t.deleteFail = err != nil
+	if !t.have {
+		t.deleteFail = err != nil
+	}
 	t.changeLocked()
 	t.mu.Unlock()
 	if err != nil {
@@ -459,19 +548,24 @@ func (t *TokenSource) DeleteAgain() error {
 }
 
 // Forget is Sign out: no new lease starts, the jobs that hold 1 finish, and
-// the entry goes. A delete that fails keeps DeleteFailed for Delete again.
+// the entry goes. The delete runs under the write mutex, and only while no
+// newer pair was adopted: a sign-in that committed while this waited keeps
+// its entry. A delete that fails keeps DeleteFailed for Delete again.
 func (t *TokenSource) Forget() error {
 	t.mu.Lock()
-	t.clearLocked()
+	cleared := t.clearLocked()
 	t.changeLocked()
 	t.mu.Unlock()
 	t.startWork()
 	defer t.endWork()
+	t.queue("sign out")
 	t.wmu.Lock()
-	err := t.store.Forget()
+	err := t.deleteLocked(cleared)
 	t.wmu.Unlock()
 	t.mu.Lock()
-	t.deleteFail = err != nil
+	if t.clearSeq == cleared {
+		t.deleteFail = err != nil
+	}
 	t.changeLocked()
 	t.mu.Unlock()
 	if err != nil {

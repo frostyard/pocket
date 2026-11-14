@@ -906,3 +906,268 @@ func TestNewPairClearsTheError(t *testing.T) {
 		t.Errorf("Load kept the last error: %v", err)
 	}
 }
+
+// TestStaleRefusedRefreshKeepsTheNewPair: a refresh that answers
+// bad_refresh_token after a new pair was adopted ends nothing: the new pair
+// and its entry stay.
+func TestStaleRefusedRefreshKeepsTheNewPair(t *testing.T) {
+	s := newSource(t)
+	s.load(s.pair(oldAccess, time.Minute))
+	release, entered := s.sign.blockToken(t, 200, `{"error":"bad_refresh_token"}`)
+	leased := make(chan error, 1)
+	go func() {
+		_, _, rel, err := s.ts.Lease(context.Background())
+		if err == nil {
+			rel()
+		}
+		leased <- err
+	}()
+	<-entered // the refresh is in GitHub
+	const adopted = "ghu_ADOPTED0000"
+	gen := s.ts.BeginSignIn()
+	if err := s.ts.Adopt(s.pair(adopted, 8*time.Hour), gen); err != nil {
+		t.Fatal(err)
+	}
+	release()
+	waitFor(t, s.ts, "the refresh to end", func() bool { return !s.ts.refreshing })
+	select {
+	case <-leased:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the lease did not return")
+	}
+	if st := s.ts.Status(); !st.SignedIn || st.Login != Login {
+		t.Errorf("the new pair is gone: %+v", st)
+	}
+	if saved, ok := s.st.get(); !ok || saved.Access != adopted {
+		t.Errorf("the keyring holds %+v, want the adopted pair", saved)
+	}
+	if _, deletes, _ := s.st.counts(); deletes != 0 {
+		t.Errorf("the ended refresh deleted the new entry: %d", deletes)
+	}
+}
+
+// TestStaleNoAnswerRefreshKeepsTheNewPair: a refresh with no answer after a
+// new pair was adopted changes nothing of the new pair.
+func TestStaleNoAnswerRefreshKeepsTheNewPair(t *testing.T) {
+	s := newSource(t)
+	s.load(s.pair(oldAccess, time.Minute))
+	release, entered := s.sign.blockToken(t, 502, `{"message":"Server Error"}`)
+	go func() {
+		if _, _, rel, err := s.ts.Lease(context.Background()); err == nil {
+			rel()
+		}
+	}()
+	<-entered
+	const adopted = "ghu_ADOPTED0000"
+	gen := s.ts.BeginSignIn()
+	if err := s.ts.Adopt(s.pair(adopted, 8*time.Hour), gen); err != nil {
+		t.Fatal(err)
+	}
+	release()
+	waitFor(t, s.ts, "the refresh to end", func() bool { return !s.ts.refreshing })
+	s.ts.mu.Lock()
+	due, lastErr := s.ts.due, s.ts.lastErr
+	s.ts.mu.Unlock()
+	if due || lastErr != nil {
+		t.Errorf("the stale refresh changed the new pair: due %v, err %v", due, lastErr)
+	}
+	// The new pair leases, with no second refresh.
+	tok, _, releaseLease := s.lease(context.Background())
+	releaseLease()
+	if tok != adopted {
+		t.Errorf("the lease gave %q", tok)
+	}
+	if got := s.sign.tokenRequests(); got != 1 {
+		t.Errorf("refresh requests %d, want 1", got)
+	}
+}
+
+// TestSaveAgainAfterANewPairSavesNothing: Save again writes only the pair the
+// keyring did not keep: a pair adopted while it waited for the write mutex
+// wins.
+func TestSaveAgainAfterANewPairSavesNothing(t *testing.T) {
+	const adopted = "ghu_ADOPTED0000"
+	s := newSource(t)
+	queued := make(chan string, 8)
+	s.ts.queued = func(what string) { queued <- what }
+	// A pair the keyring did not keep, as a failed save of a refresh leaves
+	// it.
+	s.load(s.pair(oldAccess, 8*time.Hour))
+	s.ts.mu.Lock()
+	s.ts.unsaved = true
+	s.ts.mu.Unlock()
+	// An Adopt holds the write mutex while Save again queues behind it.
+	gate, entered := s.st.hold(t, "save")
+	adoptedGen := s.ts.BeginSignIn()
+	adoptedDone := make(chan error, 1)
+	go func() { adoptedDone <- s.ts.Adopt(s.pair(adopted, 8*time.Hour), adoptedGen) }()
+	if what := <-queued; what != "adopt" {
+		t.Fatalf("first write: %s", what)
+	}
+	<-entered // the adopt holds the write mutex, in the store
+	saveDone := make(chan error, 1)
+	go func() { saveDone <- s.ts.SaveAgain() }()
+	if what := <-queued; what != "save again" {
+		t.Fatalf("second write: %s", what)
+	}
+	gate()
+	if err := <-adoptedDone; err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+	if err := <-saveDone; err != nil {
+		t.Fatalf("save again: %v", err)
+	}
+	if saved, ok := s.st.get(); !ok || saved.Access != adopted {
+		t.Errorf("the keyring holds %+v, want the adopted pair", saved)
+	}
+	if st := s.ts.Status(); st.Unsaved {
+		t.Errorf("status %+v", st)
+	}
+}
+
+// TestForgetKeepsANewerPair: Sign out deletes only while its own clear is the
+// last 1 and no pair is in memory: a sign-in that committed while Sign out
+// waited keeps its entry.
+func TestForgetKeepsANewerPair(t *testing.T) {
+	const adopted = "ghu_ADOPTED0000"
+	s := newSource(t)
+	s.load(s.pair(oldAccess, 8*time.Hour))
+	// Sign out's clear, then a new sign-in that commits before the delete
+	// runs: exactly the state its delete checks.
+	s.ts.mu.Lock()
+	cleared := s.ts.clearLocked()
+	s.ts.changeLocked()
+	s.ts.mu.Unlock()
+	gen := s.ts.BeginSignIn()
+	if err := s.ts.Adopt(s.pair(adopted, 8*time.Hour), gen); err != nil {
+		t.Fatal(err)
+	}
+	s.ts.startWork()
+	s.ts.wmu.Lock()
+	err := s.ts.deleteLocked(cleared)
+	s.ts.wmu.Unlock()
+	s.ts.endWork()
+	if err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if saved, ok := s.st.get(); !ok || saved.Access != adopted {
+		t.Errorf("Sign out deleted the newer pair: %+v, %v", saved, ok)
+	}
+	if st := s.ts.Status(); !st.SignedIn {
+		t.Errorf("status %+v", st)
+	}
+}
+
+// TestDeleteAgainKeepsANewerPair: Delete again deletes only the entry of a
+// sign-out: a pair adopted while it waited for the write mutex keeps its
+// entry.
+func TestDeleteAgainKeepsANewerPair(t *testing.T) {
+	const adopted = "ghu_ADOPTED0000"
+	s := newSource(t)
+	queued := make(chan string, 8)
+	s.load(s.pair(oldAccess, 8*time.Hour))
+	s.st.setErr(nil, nil, errors.New("the keyring is locked"))
+	if err := s.ts.Forget(); err == nil {
+		t.Fatal("sign out: no error")
+	}
+	s.ts.queued = func(what string) { queued <- what }
+	if st := s.ts.Status(); !st.DeleteFailed {
+		t.Fatalf("status %+v", st)
+	}
+	s.st.setErr(nil, nil, nil)
+	// A new sign-in holds the write mutex while Delete again queues behind
+	// it, with the failed delete still in hand.
+	gate, entered := s.st.hold(t, "save")
+	gen := s.ts.BeginSignIn()
+	adoptedDone := make(chan error, 1)
+	go func() { adoptedDone <- s.ts.Adopt(s.pair(adopted, 8*time.Hour), gen) }()
+	if what := <-queued; what != "adopt" {
+		t.Fatalf("first write: %s", what)
+	}
+	<-entered
+	deleted := make(chan error, 1)
+	go func() { deleted <- s.ts.DeleteAgain() }()
+	if what := <-queued; what != "delete again" {
+		t.Fatalf("second write: %s", what)
+	}
+	gate()
+	if err := <-adoptedDone; err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+	if err := <-deleted; err != nil {
+		t.Fatalf("delete again: %v", err)
+	}
+	if saved, ok := s.st.get(); !ok || saved.Access != adopted {
+		t.Errorf("Delete again deleted the new pair: %+v, %v", saved, ok)
+	}
+	if st := s.ts.Status(); !st.SignedIn {
+		t.Errorf("status %+v", st)
+	}
+}
+
+// TestCloseKeepsARunningRefresh: a refresh that was already running saves its
+// pair when Pocket closes: GitHub has spent the old refresh token.
+func TestCloseKeepsARunningRefresh(t *testing.T) {
+	s := newSource(t)
+	s.load(s.pair(oldAccess, time.Minute))
+	release, entered := s.sign.blockToken(t, 200, goodPairAnswer())
+	go func() {
+		if _, _, rel, err := s.ts.Lease(context.Background()); err == nil {
+			rel()
+		}
+	}()
+	<-entered // the refresh is in GitHub
+	s.ts.closeWait = 10 * time.Second
+	closed := make(chan struct{})
+	go func() { s.ts.Close(); close(closed) }()
+	waitFor(t, s.ts, "Close to start", func() bool { return s.ts.closed })
+	release()
+	waitDone(t, closed, "Close with the running refresh")
+	if saved, ok := s.st.get(); !ok || saved.Access != newAccess {
+		t.Errorf("the keyring holds %+v, want the refreshed pair", saved)
+	}
+	if st := s.ts.Status(); !st.SignedIn {
+		t.Errorf("status %+v", st)
+	}
+}
+
+// TestLeaseWithACancelledContext: a cancelled waiter gets no lease, holds
+// none, and starts no refresh.
+func TestLeaseWithACancelledContext(t *testing.T) {
+	t.Run("a valid pair", func(t *testing.T) {
+		s := newSource(t)
+		s.load(s.pair(oldAccess, 8*time.Hour))
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if _, _, release, err := s.ts.Lease(ctx); !errors.Is(err, context.Canceled) || release != nil {
+			t.Fatalf("err %v, release %v", err, release != nil)
+		}
+		s.ts.mu.Lock()
+		leases := s.ts.leases
+		s.ts.mu.Unlock()
+		if leases != 0 {
+			t.Errorf("a cancelled waiter holds %d leases", leases)
+		}
+		if got := s.sign.tokenRequests(); got != 0 {
+			t.Errorf("refresh requests %d", got)
+		}
+	})
+	t.Run("a refresh due", func(t *testing.T) {
+		s := newSource(t)
+		s.load(s.pair(oldAccess, time.Minute))
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if _, _, _, err := s.ts.Lease(ctx); !errors.Is(err, context.Canceled) {
+			t.Fatalf("err %v", err)
+		}
+		s.ts.mu.Lock()
+		refreshing := s.ts.refreshing
+		s.ts.mu.Unlock()
+		if refreshing {
+			t.Error("a cancelled waiter started a refresh")
+		}
+		if got := s.sign.tokenRequests(); got != 0 {
+			t.Errorf("a cancelled waiter started a refresh: %d requests", got)
+		}
+	})
+}

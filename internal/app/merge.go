@@ -150,8 +150,11 @@ type ghState struct {
 	signInGen     int
 	code          github.DeviceCode
 	codeAt        time.Time
+	pollID        int
 	cancelPoll    func()
 	checking      bool
+	checkJob      int    // the newest CheckApp job of the start
+	preflightJob  int    // the newest preflight job
 	preflightBusy bool   // the 1 preflight job runs
 	fail          string // why the last sign-in failed
 	deleteWhy     string // why the keyring did not delete the sign-in
@@ -266,6 +269,8 @@ func (a *App) checkOwners(done func()) {
 	}
 	apiFn := a.gh.api
 	a.gh.checking = true
+	a.gh.checkJob++
+	job, signInGen := a.gh.checkJob, a.gh.signInGen
 	a.ghReview()
 	gen := 0
 	ghRead(a, "Checking the GitHub App's installations", func(ctx context.Context) (github.AppCheck, error) {
@@ -279,8 +284,24 @@ func (a *App) checkOwners(done func()) {
 		}
 		return api.CheckApp(ctx, githubOwners)
 	}, func(check github.AppCheck, err error) {
+		// A check that started before a Sign out, or a new sign-in, says
+		// nothing of the sign-in there is now: only its own busy flag goes.
+		if signInGen != a.gh.signInGen {
+			if a.gh.checkJob == job {
+				a.gh.checking = false
+			}
+			a.ghReview()
+			// done still runs: the attempts a crash left are settled by
+			// reads, whatever the owners are.
+			if done != nil {
+				done()
+			}
+			return
+		}
 		a.jobErr(err, gen)
-		a.gh.checking = false
+		if a.gh.checkJob == job {
+			a.gh.checking = false
+		}
 		if err != nil {
 			a.console.Add(frostui.LevelWarn, "github", "Checking the GitHub App's installations: "+err.Error())
 			if done != nil {
@@ -1759,13 +1780,18 @@ func (a *App) githubSignIn() {
 func (a *App) pollSignIn(dc github.DeviceCode, gen int) {
 	auth := a.opts.GitHubAuth
 	ctx, cancel := context.WithDeadline(context.Background(), dc.Expires)
+	a.gh.pollID++
+	id := a.gh.pollID
 	a.gh.cancelPoll = cancel
 	post := a.post
 	go func() {
 		tok, err := auth.Poll(ctx, dc)
 		post(func() {
 			cancel()
-			a.gh.cancelPoll = nil
+			// Only its own handle: a newer poll's stays.
+			if a.gh.pollID == id {
+				a.gh.cancelPoll = nil
+			}
 			if gen != a.gh.signInGen || a.gh.phase != signInCode {
 				return // cancelled, signed out, or a newer sign-in
 			}
@@ -1797,7 +1823,7 @@ func (a *App) countdown() {
 // frame asks for 1 more view of the window.
 func (a *App) frame() { a.post(func() {}) }
 
-// stopPoll cancels a running poll, if 1 runs.
+// stopPoll cancels a running poll, if 1 runs, and forgets its handle.
 func (a *App) stopPoll() {
 	if a.gh.cancelPoll != nil {
 		a.gh.cancelPoll()
@@ -2067,6 +2093,8 @@ func (a *App) githubPreflight() {
 	apiFn := a.gh.api
 	// The installations are checked again: the cards say so while it runs.
 	a.gh.preflightBusy, a.gh.checking = true, true
+	a.gh.preflightJob++
+	job, signInGen := a.gh.preflightJob, a.gh.signInGen
 	for _, owner := range githubOwners {
 		pf := a.preflightOf(owner)
 		pf.busy, pf.err = true, ""
@@ -2099,8 +2127,24 @@ func (a *App) githubPreflight() {
 		}
 		return run, nil
 	}, func(got preflightRun, err error) {
+		// A preflight that started before a Sign out, or a new sign-in,
+		// says nothing of the sign-in there is now: only its own busy flags
+		// go.
+		if signInGen != a.gh.signInGen {
+			if a.gh.preflightJob == job {
+				a.gh.preflightBusy, a.gh.checking = false, false
+				for _, owner := range githubOwners {
+					a.preflightOf(owner).busy = false
+				}
+			}
+			a.ghReview()
+			return
+		}
 		a.jobErr(err, got.gen)
-		a.gh.preflightBusy, a.gh.checking = false, false
+		a.refusedRows(got)
+		if a.gh.preflightJob == job {
+			a.gh.preflightBusy, a.gh.checking = false, false
+		}
 		for _, owner := range githubOwners {
 			a.preflightOf(owner).busy = false
 		}
@@ -2126,6 +2170,21 @@ func (a *App) githubPreflight() {
 		}
 		a.ghReview()
 	})
+}
+
+// refusedRow takes the first refused read of a preflight's rows: a 401 there
+// invalidates the lease the job held, which the rows alone cannot say.
+func (a *App) refusedRows(run preflightRun) {
+	for _, owner := range githubOwners {
+		for _, row := range run.rows[owner] {
+			if row.Err == nil {
+				continue
+			}
+			if a.refused(row.Err, run.gen) {
+				return
+			}
+		}
+	}
 }
 
 // githubSettingsPage is Settings > GitHub.

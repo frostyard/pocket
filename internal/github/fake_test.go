@@ -88,6 +88,11 @@ type fake struct {
 	user, expiry string
 	// installs are the installations of GET /user/installations, in order.
 	installs []map[string]any
+	// installTotal is the total_count the pages give; nil is the number of
+	// installations.
+	installTotal *int
+	// installPage fails 1 page (from 1) with a status and a body.
+	installPage func(page int) (int, string)
 	// gets are the REST paths read, in order.
 	gets []string
 
@@ -325,7 +330,17 @@ func (f *fake) serve(w http.ResponseWriter, r *http.Request) {
 		page, _ := strconv.Atoi(q.Get("page"))
 		lo, hi := (page-1)*installationsPerPage, page*installationsPerPage
 		lo, hi = min(max(lo, 0), len(f.installs)), min(max(hi, 0), len(f.installs))
-		b, _ := json.Marshal(map[string]any{"total_count": len(f.installs), "installations": f.installs[lo:hi]})
+		total := len(f.installs)
+		if f.installTotal != nil {
+			total = *f.installTotal
+		}
+		if f.installPage != nil {
+			if status, body := f.installPage(page); status != 0 {
+				f.write(w, status, body, nil)
+				return
+			}
+		}
+		b, _ := json.Marshal(map[string]any{"total_count": total, "installations": f.installs[lo:hi]})
 		f.write(w, 200, string(b), nil)
 		return
 	}

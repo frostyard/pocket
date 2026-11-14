@@ -565,6 +565,30 @@ func TestStartNamesTheError(t *testing.T) {
 	}
 }
 
+// blockToken makes the token endpoint wait, and answers status and body when
+// the release is called. entered closes when its first request is in.
+func (f *signIn) blockToken(t *testing.T, status int, body string) (release func(), entered chan struct{}) {
+	t.Helper()
+	gate, entered := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	release = func() { once.Do(func() { close(gate) }) }
+	t.Cleanup(release)
+	var mu sync.Mutex
+	n := 0
+	f.answer(nil, func(w http.ResponseWriter, _ int) {
+		mu.Lock()
+		first := n == 0
+		n++
+		mu.Unlock()
+		if first {
+			close(entered)
+		}
+		<-gate
+		writeAnswer(w, status, body)
+	})
+	return release, entered
+}
+
 // holdToken makes the token endpoint wait for release, and gives the
 // channel that closes when its first request is in.
 func (f *signIn) holdToken(t *testing.T) (release func(), entered chan struct{}) {
