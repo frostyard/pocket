@@ -240,6 +240,32 @@ func (c *Client) DeskAct(ctx context.Context, thread, action string, body map[st
 	return c.Post(ctx, "/api/x/desk/threads/"+url.PathEscape(thread)+"/"+action, body, nil)
 }
 
+// MergeRecord is 1 result of an approve + merge attempt (ADR-0008), for
+// the Desk's receipt route.
+type MergeRecord struct {
+	Op     string `json:"op"`     // the attempt's id, a lowercase UUID v4
+	Ref    string `json:"ref"`    // owner/name#N, a link of the thread
+	Head   string `json:"head"`   // the shown head, 40 lowercase hex
+	Result string `json:"result"` // approved, merged, queued, refused, failed, unknown
+	Method string `json:"method,omitempty"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// RecordMerge posts r to the thread's merge receipts. recorded is false when
+// the Desk already had the same receipt; a receipt of the same op and result
+// with other fields is an error (409).
+func (c *Client) RecordMerge(ctx context.Context, thread string, r MergeRecord) (recorded bool, err error) {
+	body := struct {
+		MergeRecord
+		Via string `json:"via"`
+	}{r, "pocket"}
+	var out struct {
+		Recorded bool `json:"recorded"`
+	}
+	err = c.Post(ctx, "/api/x/desk/threads/"+url.PathEscape(thread)+"/merges", body, &out)
+	return err == nil && out.Recorded, err
+}
+
 // DeskGrant lets the supervisor start count more threads past the cap.
 func (c *Client) DeskGrant(ctx context.Context, count int) error {
 	return c.Post(ctx, "/api/x/desk/grant", map[string]any{"count": count}, nil)

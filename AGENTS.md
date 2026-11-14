@@ -69,7 +69,10 @@ them rather than improvising, whichever agent you are. Start a new one from
   `signin.go`, `webnav.go` (where the artifact web view may go, and its cookie)
   and `webpane.go` (`ArtifactWeb`: the web view's sign-in, sign-out and native
   calls, in order, over the `WebNative` that `cmd/pocket` gives it).
-  `internal/config` holds settings and credentials; `internal/icons` the
+  `internal/config` holds settings and credentials (`github.go`: the
+  owner's GitHub tokens, in the keyring only); `internal/github` is the
+  GitHub client that approves and merges a PR as the owner (ADR-0008): its
+  reads, gates, intent check and `Act`, with no UI; `internal/icons` the
   icons Pocket draws.
 - **UI thread.** `App` and everything in it belong to the UI thread. Work
   that waits on the network runs on a goroutine and hands its result back
