@@ -60,12 +60,12 @@
     {
       "glob": "internal/config/secret.go",
       "level": "L2",
-      "why": "secrets: where the sign-in token is kept, in the keyring or a file"
+      "why": "secrets and credentials: where the sign-in token is kept, in the keyring or a file"
     },
     {
       "glob": "cmd/pocket/main.go",
       "level": "L2",
-      "why": "secrets: the keyring service the token is stored under"
+      "why": "secrets and credentials: the keyring service the token is stored under"
     },
     {
       "glob": "internal/pocket/client.go",
@@ -80,12 +80,12 @@
     {
       "glob": "internal/app/terminal_replay.go",
       "level": "L2",
-      "why": "security: isolates historical terminal queries from live shell input"
+      "why": "destructive operations: isolates historical terminal queries from live shell input, where they could run commands"
     },
     {
       "glob": "internal/pocket/terminal.go",
       "level": "L2",
-      "why": "security: authenticated shell input and terminal replay boundary"
+      "why": "auth: authenticated shell input and terminal replay boundary"
     },
     {
       "glob": "internal/app/desk_actions.go",
@@ -120,7 +120,7 @@
     {
       "glob": "cmd/pocket/files.go",
       "level": "L2",
-      "why": "filesystem: writes exports to a user-selected local path"
+      "why": "destructive operations: writes exports to a user-selected local path, over a file that is there"
     },
     {
       "glob": "internal/pocket/running.go",
@@ -145,27 +145,27 @@
     {
       "glob": "internal/pocket/attachments.go",
       "level": "L2",
-      "why": "filesystem and destructive operations: uploads selected files and withdraws queued messages"
+      "why": "destructive operations: withdraws queued messages and uploads selected local files"
     },
     {
       "glob": "internal/app/attachments.go",
       "level": "L2",
-      "why": "filesystem and destructive operations: uploads selected files and withdraws queued messages"
+      "why": "destructive operations: withdraws queued messages and uploads selected local files"
     },
     {
       "glob": "internal/app/upload_file_*.go",
       "level": "L2",
-      "why": "filesystem: opens upload sources without blocking on special files"
+      "why": "secrets and credentials: opens the local files that an upload sends, without blocking on special files"
     },
     {
       "glob": "internal/pocket/files.go",
       "level": "L2",
-      "why": "filesystem and destructive operations: authenticated file reads, downloads and confirmed reverts"
+      "why": "destructive operations: confirmed reverts, and authenticated file reads and downloads"
     },
     {
       "glob": "internal/app/session_files.go",
       "level": "L2",
-      "why": "filesystem and destructive operations: authenticated file reads, downloads and confirmed reverts"
+      "why": "destructive operations: confirmed reverts, and authenticated file reads and downloads"
     },
     {
       "glob": "internal/pocket/plans.go",
