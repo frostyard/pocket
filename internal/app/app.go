@@ -105,6 +105,9 @@ type App struct {
 	arts    artifacts
 	terms   terms
 	arrakis arrakis
+	// views counts the window's views: a place tells from it whether the
+	// view before drew it.
+	views int
 	// peeks are live summaries of the sessions that wait or work.
 	peeks   map[int]*pocket.Peek
 	peekIDs []int

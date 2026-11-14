@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -93,29 +94,146 @@ func TestArrakisFarRidgeHoldsSoMany(t *testing.T) {
 	}
 }
 
-func TestArrakisBlowsSpiceWhereARunEnds(t *testing.T) {
+// kinds lists the events the scene plays, as "kind key<from".
+func kinds(sc *sandScene) []string {
+	var out []string
+	for _, ev := range sc.events {
+		out = append(out, fmt.Sprintf("%d %s<%s", ev.kind, ev.key, ev.from))
+	}
+	return out
+}
+
+func TestArrakisPlaysWhatChanged(t *testing.T) {
 	a, _ := teamApp(t)
 	at := time.Date(2026, 11, 12, 15, 30, 0, 0, time.UTC)
-	scene := func(at time.Time) *sandScene {
+	look := func(after time.Duration, away bool) *sandScene {
+		a.invalidateDerived()
 		sc := a.sandScene()
-		a.arrakis.noteRuns(sc, at)
+		a.arrakis.note(sc, at.Add(after), away)
 		return sc
 	}
-	if sc := scene(at); len(sc.blows) != 0 {
-		t.Fatalf("spice blows before any run ended: %v", sc.blows)
+	has := func(sc *sandScene, kind sandEventKind, key, from string) bool {
+		return slices.Contains(kinds(sc), fmt.Sprintf("%d %s<%s", kind, key, from))
 	}
+	if sc := look(0, false); len(sc.events) != 0 {
+		t.Fatalf("the first look plays %v", kinds(sc))
+	}
+	// A run takes a step: its harvester strikes spice.
+	a.peeks[3].Lines = append(a.peeks[3].Lines, pocket.PeekLine{Kind: "tool", Name: "edit", Args: map[string]any{"path": "desk.go"}})
+	if sc := look(time.Second, false); !has(sc, evPuff, "a:sheeana", "") || len(sc.events) != 1 {
+		t.Errorf("a step plays %v", kinds(sc))
+	}
+	// A run ends: a carryall lifts the harvester. One that fails: the worm.
 	a.byID[3].Busy = false
-	a.invalidateDerived()
-	sc := scene(at.Add(time.Second))
-	if _, ok := sc.blows["a:sheeana"]; !ok {
-		t.Fatalf("no spice blows where Sheeana's run ended: %v", sc.blows)
+	if sc := look(2*time.Second, false); !has(sc, evLift, "a:sheeana", "") {
+		t.Errorf("a run that ended plays %v", kinds(sc))
 	}
-	if _, ok := sc.blows["a:odrade"]; ok {
-		t.Errorf("spice blows where a run still goes on")
+	a.byID[1].Busy, a.byID[1].Subagents, a.byID[1].Failed = false, nil, true
+	a.byID[1].EndedAt = pocket.Millis(a.serverNow().UnixMilli())
+	if sc := look(3*time.Second, false); !has(sc, evTaken, "a:odrade", "") {
+		t.Errorf("a run that failed plays %v", kinds(sc))
 	}
-	sc = scene(at.Add(time.Second + 2*sandBlow))
-	if len(sc.blows) != 0 {
-		t.Errorf("the blow never ends: %v", sc.blows)
+	// A run begins: a harvester comes down, and the task flies in from the
+	// supervisor for a session another started, else from the owner.
+	a.byID[3].Busy = true
+	a.byID[4].Busy = true
+	sc := look(4*time.Second, false)
+	if !has(sc, evSetDown, "a:sheeana", "") || !has(sc, evMessage, "a:sheeana", "a:odrade") || !has(sc, evMessage, "a:irulan", sandDial) {
+		t.Errorf("runs that began play %v", kinds(sc))
+	}
+	// A new call flies to the eclipse, which rings.
+	a.byID[3].Busy, a.byID[3].Waiting = false, true
+	sc = look(5*time.Second, false)
+	if !has(sc, evMessage, sandDial, "a:sheeana") || !has(sc, evVoice, sandDial, "") {
+		t.Errorf("a call plays %v", kinds(sc))
+	}
+	// Each plays for a while, and no longer.
+	if sc := look(5*time.Second+evLift.lasts(), false); len(sc.events) != 0 {
+		t.Errorf("events never end: %v", kinds(sc))
+	}
+	// What changed while the place was away does not play.
+	a.byID[4].Busy = false
+	if sc := look(20*time.Second, true); len(sc.events) != 0 {
+		t.Errorf("the desert replays what it missed: %v", kinds(sc))
+	}
+}
+
+func TestArrakisVisionGoesAround(t *testing.T) {
+	a, loop := teamApp(t)
+	seen := map[sandEventKind]bool{}
+	states := map[string]bool{}
+	var ar arrakis
+	at := time.Date(2026, 11, 12, 15, 30, 0, 0, time.UTC)
+	for tick := range 400 {
+		sc := visionScene(float64(tick) * 0.4)
+		ar.note(sc, at.Add(time.Duration(tick)*sandVisionLook), false)
+		for _, ev := range sc.events {
+			seen[ev.kind] = true
+		}
+		if len(sc.figures) != len(visionOrder) || !sc.figures[0].supervisor {
+			t.Fatalf("the vision's order: %+v", sc.figures)
+		}
+		sc.each(func(_ int, f *sandFigure) {
+			states[fmt.Sprint(f.working > 0, f.calling > 0, f.failed > 0, f.fresh > 0)] = true
+		})
+		if len(sc.events) > sandEventsMax {
+			t.Fatalf("%d events at once", len(sc.events))
+		}
+	}
+	for kind := evSetDown; kind <= evVoice; kind++ {
+		if !seen[kind] {
+			t.Errorf("the vision never plays event %d", kind)
+		}
+	}
+	if len(states) < 5 {
+		t.Errorf("the vision shows only %v", states)
+	}
+
+	// In the window it moves by itself, shows who it is not, and leads
+	// nowhere.
+	a.goPlace("x:arrakis")
+	tt := ui.NewTesterWith(a.View, 1440, 900, ui.TesterOptions{})
+	frames := func(n int) {
+		for range n {
+			tt.Advance(sandVisionLook)
+			loop.Flush()
+			tt.Frame()
+		}
+	}
+	frames(2)
+	if err := tt.Click("Vision"); err != nil {
+		t.Fatal(err)
+	}
+	frames(3)
+	if a.arrakis.vision.IsZero() || !tt.HasText("A vision: a made-up order at work, to show how the desert moves. It is not your team, and leads nowhere. Turn Vision off to see your own.") {
+		t.Fatalf("no vision: %v", tt.Texts())
+	}
+	if _, ok := tt.Access("Duncan: 1 call for you, 1 run failed"); ok {
+		t.Errorf("the team shows in the vision")
+	}
+	for i, name := range []string{"arrakis-vision-1", "arrakis-vision-2", "arrakis-vision-3", "arrakis-vision-4"} {
+		loop.Post(func() { a.arrakis.sky = []sandSky{skyNight, skyDusk, skyDay, skyNight}[i] })
+		frames(13 + 4*i)
+		writePNG(t, tt, name)
+	}
+	if len(a.arrakis.events) == 0 {
+		t.Errorf("the vision plays nothing in the window")
+	}
+	r, _ := tt.Find("Open the Inbox")
+	tt.ClickAt(r.X+r.W/2, r.Y+r.H/2)
+	frames(1)
+	if a.selected != "x:arrakis" {
+		t.Errorf("the vision led to %q", a.selected)
+	}
+	if err := tt.Click("Vision"); err != nil {
+		t.Fatal(err)
+	}
+	frames(2)
+	if !a.arrakis.vision.IsZero() || len(a.arrakis.events) != 0 {
+		t.Errorf("the vision stays: %v", a.arrakis.events)
+	}
+	if _, ok := tt.Access("Duncan: 1 call for you, 1 run failed"); !ok {
+		t.Errorf("the team does not come back")
 	}
 }
 

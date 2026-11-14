@@ -37,10 +37,17 @@ type arrakis struct {
 	// epoch is when the place first drew, on the frame clock: the scene's
 	// motion counts from it.
 	epoch time.Time
-	// atWork are the figures at work when the view last ran, and blows when
-	// each one's run last ended, on the frame clock: spice blows there.
-	atWork map[string]bool
-	blows  map[string]time.Time
+	// seen is each figure as the view last saw it, and waits what the Inbox
+	// counted then: what changed since becomes events, which the painter
+	// plays (arrakis_action.go). views is the window's view that last drew
+	// the place.
+	seen   map[string]figureSeen
+	waits  int
+	views  int
+	events []sandEvent
+	// vision is when a vision of a made-up order at work began, on the
+	// frame clock; zero shows the team.
+	vision time.Time
 	// size is the scene's box in the last frame that drew it.
 	size ui.Rect
 }
@@ -75,10 +82,13 @@ type sandFigure struct {
 	subagents                                int
 
 	// caption says the most pressing thing about it, in tone; last what it
-	// did last when nothing presses.
+	// did last when nothing presses. step is what its run at work does now,
+	// and linked whether another session started that run.
 	caption string
 	tone    sandTone
 	last    string
+	step    string
+	linked  bool
 
 	// A double click opens session, or the Inbox at the item inbox.
 	session int
@@ -144,8 +154,10 @@ type sandScene struct {
 	clock                  string  // the device's time, "15:04"
 	sel, hover             string
 	epoch                  time.Time
-	blows                  map[string]time.Time
+	events                 []sandEvent
 	still                  bool // the desktop asks for less motion
+	rider                  bool // the rider of worms is at work: she rides
+	vision                 bool // a made-up order, not the team
 }
 
 // figure finds a figure by its key.
@@ -186,14 +198,11 @@ func (sc *sandScene) summary() string {
 // how many stand in for the team on a server without one.
 const looseMax = 7
 
-// sandScene gathers the desert from what the window knows. It changes
-// nothing: noteRuns adds the spice blows, which take the frame clock.
-func (a *App) sandScene() *sandScene {
-	ar := &a.arrakis
-	sc := &sandScene{waits: a.inboxCount(), epoch: ar.epoch, sel: ar.sel}
+// skyOf sets the hour of the scene's sky and its clock.
+func (a *App) skyOf(sc *sandScene) {
 	local := a.opts.Now()
 	sc.clock = local.Format("15:04")
-	switch ar.sky {
+	switch a.arrakis.sky {
 	case skyDay:
 		sc.hour = 12
 	case skyDusk:
@@ -203,6 +212,14 @@ func (a *App) sandScene() *sandScene {
 	default:
 		sc.hour = float64(local.Hour()) + float64(local.Minute())/60
 	}
+}
+
+// sandScene gathers the desert from what the window knows. It changes
+// nothing: arrakis.note adds the events, which take the frame clock.
+func (a *App) sandScene() *sandScene {
+	ar := &a.arrakis
+	sc := &sandScene{waits: a.inboxCount(), epoch: ar.epoch, sel: ar.sel}
+	a.skyOf(sc)
 	// The supervisor stands first, under the eclipse.
 	agents := make([]*pocket.Persona, 0, len(a.team.agents))
 	for i := range a.team.agents {
@@ -280,36 +297,15 @@ func (a *App) sandScene() *sandScene {
 	if v := a.desk.view; v != nil {
 		sc.ready = len(v.Ready)
 	}
+	sc.each(func(_ int, f *sandFigure) {
+		if f.working > 0 && f.title == "Rider of worms" {
+			sc.rider = true
+		}
+	})
 	if sc.figure(sc.sel) == nil {
 		sc.sel = ""
 	}
 	return sc
-}
-
-// noteRuns keeps which figures are at work, and gives the scene the spice
-// blows: where a run ended since the view last ran, for a while from now,
-// the frame clock.
-func (ar *arrakis) noteRuns(sc *sandScene, now time.Time) {
-	atWork := map[string]bool{}
-	sc.each(func(_ int, f *sandFigure) {
-		if f.working > 0 {
-			atWork[f.key] = true
-		} else if ar.atWork[f.key] {
-			if ar.blows == nil {
-				ar.blows = map[string]time.Time{}
-			}
-			ar.blows[f.key] = now
-		}
-	})
-	ar.atWork = atWork
-	sc.blows = make(map[string]time.Time, len(ar.blows))
-	for key, at := range ar.blows {
-		if now.Sub(at) > sandBlow {
-			delete(ar.blows, key)
-			continue
-		}
-		sc.blows[key] = at
-	}
 }
 
 func boolRank(b bool) int {
@@ -449,6 +445,12 @@ func (a *App) settleFigure(f *sandFigure, latest *pocket.Session) {
 		f.tone = toneFresh
 		f.caption = count(f.fresh) + "finished · " + first.DisplayTitle()
 	}
+	for _, s := range f.sessions {
+		if a.stateOf(s) == stateWorking {
+			f.step, f.linked = a.lastStep(s.ID), s.LinkedFrom != nil
+			break
+		}
+	}
 	if latest != nil {
 		f.last = latest.DisplayTitle()
 		if at := ago(a.serverNow(), latest.UpdatedAt.Time()); at != "" {
@@ -517,10 +519,22 @@ func (a *App) arrakisPane(c *ui.Context) {
 	if ar.epoch.IsZero() {
 		ar.epoch = c.Now()
 	}
-	sc := a.sandScene()
+	var sc *sandScene
+	if ar.vision.IsZero() {
+		sc = a.sandScene()
+		ar.sel = sc.sel // a figure that left takes the choice with it
+	} else {
+		sc = visionScene(c.Now().Sub(ar.vision).Seconds())
+		sc.epoch = ar.epoch
+		a.skyOf(sc)
+		// The vision moves on its own: look again soon.
+		c.After(sandVisionLook)
+	}
 	sc.still = c.Preferences().ReduceMotion
-	ar.sel = sc.sel // a figure that left takes the choice with it
-	ar.noteRuns(sc, c.Now())
+	// After a view that did not show the place, nothing counts as changed.
+	away := ar.views != a.views-1
+	ar.views = a.views
+	ar.note(sc, c.Now(), away)
 	box := ui.Box(c).Grow(1).Clip().Label("Arrakis: " + sc.summary())
 	if b := box.Bounds(); b.W > 0 && b.H > 0 {
 		ar.size = ui.Rect{W: b.W, H: b.H}
@@ -540,7 +554,7 @@ func (a *App) arrakisPane(c *ui.Context) {
 		if dial.Hovered() {
 			sc.hover = "dial"
 		}
-		if dial.Clicked() {
+		if dial.Clicked() && !sc.vision {
 			a.goPlace("x:inbox")
 		}
 		sc.each(func(i int, f *sandFigure) {
@@ -551,6 +565,8 @@ func (a *App) arrakisPane(c *ui.Context) {
 				sc.hover = f.key
 			}
 			switch {
+			case sc.vision:
+				// A vision shows; it leads nowhere.
 			case btn.DoubleClicked():
 				ar.sel = f.key
 				a.openFigure(f)
@@ -562,7 +578,9 @@ func (a *App) arrakisPane(c *ui.Context) {
 				}
 			}
 		})
-		sc.sel = ar.sel
+		if !sc.vision {
+			sc.sel = ar.sel
+		}
 	})
 }
 
@@ -614,9 +632,25 @@ func (a *App) moveArrakis(by int) {
 	a.arrakis.sel = keys[i]
 }
 
-// arrakisBar holds the place's own control: which sky it shows.
+// setVision starts or ends the vision. Either way the desert starts anew:
+// the figures of one are not those of the other.
+func (a *App) setVision(on bool, now time.Time) {
+	ar := &a.arrakis
+	ar.vision = time.Time{}
+	if on {
+		ar.vision = now
+	}
+	ar.seen, ar.events, ar.sel = nil, nil, ""
+}
+
+// arrakisBar holds the place's own controls: a vision of an order at work,
+// and which sky it shows.
 func (a *App) arrakisBar(c *ui.Context) {
 	ui.Spacer(c)
+	vision := !a.arrakis.vision.IsZero()
+	if ui.Toggle(c, &vision, "Vision").Tooltip("Show a made-up order at work, to see the desert move").Clicked() {
+		a.setVision(vision, c.Now())
+	}
 	names := []string{"Sky follows the clock", "Day", "Dusk", "Night"}
 	ui.MenuButton(c, names[a.arrakis.sky], func(m *ui.Menu) {
 		for i, name := range names {
@@ -630,6 +664,11 @@ func (a *App) arrakisBar(c *ui.Context) {
 // arrakisContext is the right pane beside the desert: the chosen figure,
 // or how to read the scene.
 func (a *App) arrakisContext(c *ui.Context) {
+	if !a.arrakis.vision.IsZero() {
+		frostui.Body(c, "A vision: a made-up order at work, to show how the desert moves. It is not your team, and leads nowhere. Turn Vision off to see your own.").Wrap()
+		a.arrakisLegend(c)
+		return
+	}
 	sc := a.sandScene()
 	f := sc.figure(a.arrakis.sel)
 	if f == nil {
@@ -689,11 +728,13 @@ func (a *App) arrakisLegend(c *ui.Context) {
 	for _, row := range [][2]string{
 		{"The eclipse", "What waits on you. Its ring is every open thread, by who moves it next. Click it for the Inbox."},
 		{"A figure", "A named agent, the supervisor under the eclipse. Click for its sessions here; double-click to go where it presses most."},
-		{"A thumper", "It calls for you: a call to allow, a question, or a decision."},
-		{"A glowglobe", "A run at work. The small lights around it are its subagents."},
-		{"Embers", "A run failed."},
+		{"A thumper", "It calls for you: a call to allow, a question, or a decision. An ornithopter carries the call to the eclipse, which rings."},
+		{"A harvester", "A run at work, beside its agent, under a glowglobe whose small lights are its subagents. It strikes spice at each step the run takes."},
+		{"A carryall", "It sets a harvester down when a run begins, after an ornithopter brings the task, and lifts it away in a blow of spice when the run ends."},
+		{"The worm", "It passes while work is under way, and takes the harvester of a run that fails."},
+		{"Embers and the storm", "A run failed. The storm on the horizon stands until you have read it."},
 		{"Water", "A run finished that you have not read."},
-		{"Wormsign", "Work is under way somewhere; a run that ends blows spice."},
+		{"A heighliner", "A pull request ready to merge, waiting in the sky."},
 		{"The far ridge", "Sessions of no named agent, while something about them moves."},
 	} {
 		ui.Column(c.Key(row[0])).Gap(2).AlignItems(ui.Start).Children(func() {
