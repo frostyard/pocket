@@ -440,11 +440,25 @@ panes less room.
   A replay-render failure ends the attachment. A thread's session is matched
   by title. A session's agent comes from its folder: an agent's home, or a
   delegation's worktree `<checkout>--<agent>-<slug>`.
-- **GitHub (decided, not built yet):** Approve + merge on the Inbox's ready
-  cards will call `api.github.com` with the owner's own fine-grained tokens
-  from the desktop keyring, never through the server, under
+- **GitHub (client built, no UI yet):** Approve + merge on the Inbox's
+  ready cards calls `api.github.com` with the owner's own fine-grained
+  tokens from the desktop keyring, never through the server, under
   [ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md).
-  Its recorded GitHub answers are in `internal/github/testdata/`.
+  `internal/github` holds the client: `Preview` reads the PR query, the
+  rules, rulesets and branch protection of its base, and runs the gates;
+  `Act` re-reads before each of its 3 allowed mutations (approve at the
+  shown head, then merge or enqueue), checks the frozen intent, and
+  reconciles by 3 reads a mutation whose answer does not prove a refusal
+  (no answer, a 5xx, or any 200 with `errors`: GitHub can make the change,
+  then null the result); only a 4xx is a refusal, and its 1 read only
+  upgrades it when the effect is there. Every read fails closed: a null
+  that the Nulls rule does not allow, a null rules page or an unknown merge
+  state refuses. It follows no
+  redirect and redacts the token from every error. `config.GitHubTokens`
+  keeps the tokens in the keyring with no file fallback, and
+  `pocket.Client.RecordMerge` posts each result to the Desk's
+  `POST /api/x/desk/threads/:id/merges` as information only. Its recorded
+  GitHub answers are in `internal/github/testdata/`.
 - **Threads:** the client's goroutines never touch UI state; they post
   functions to the window (`Window.Update`).
 

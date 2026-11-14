@@ -181,6 +181,26 @@
       "glob": "internal/app/new_plan.go",
       "level": "L2",
       "why": "destructive operations: plan approval, scope revision, consult stops or plan creation"
+    },
+    {
+      "glob": "internal/github/**",
+      "level": "L2",
+      "why": "auth: the owner's GitHub token, approvals and merges"
+    },
+    {
+      "glob": "internal/config/github.go",
+      "level": "L2",
+      "why": "secrets and credentials: the GitHub tokens in the keyring"
+    },
+    {
+      "glob": "internal/app/merge.go",
+      "level": "L2",
+      "why": "destructive operations: approves and merges PRs as the owner"
+    },
+    {
+      "glob": "internal/app/merge_journal.go",
+      "level": "L2",
+      "why": "destructive operations: approves and merges PRs as the owner"
     }
   ]
 }
