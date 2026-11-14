@@ -477,11 +477,17 @@ panes less room.
     compare of the base and the shown head, opened only by Pocket's own
     URL) and no check box; its button turns on only after the opener
     reports no error at that head, and a new head locks it again. The
-    Desk's `url` is never used for a GitHub call.
+    Desk's `url` is never used for a GitHub call, nor opened: **Review on
+    GitHub** opens `https://github.com/<owner>/<name>/pull/<n>`, built from
+    the ref (any owner), and a ref that does not parse gets no button.
   - **Dialog:** the confirm dialog reads each PR again and lists its ref,
     title, head and method; its 1 button (**Approve + merge as bketelsen**,
     **Approve + merge N as bketelsen**, or **I read the diff at abc1234:
-    approve + merge**) is the only path that starts a mutation. Pocket works
+    approve + merge**) is the only path that starts a mutation. The dialog
+    keeps the server and user the window showed when it opened (and each
+    row's Desk thread): every attempt records that origin, and under
+    another account the dialog does not start ("signed in to another
+    account: close and open again"). Pocket works
     the list 1 PR at a time in Inbox order: a refusal stops only that PR, a
     401 stops that owner's PRs and marks the token bad, a rate limit stops
     the batch ("not started: rate limit until HH:MM"), and **Stop** starts
@@ -492,10 +498,13 @@ panes less room.
     never in a batch.
   - **Results:** a merged card leaves the Inbox, and stays hidden while
     GitHub says MERGED (a `State` read at each Desk read). A queued card
-    shows "In merge queue" with no button; at each Desk read `Settle` finds
-    it merged (with the queue's method from the rules, else `merge`), still
-    queued, or out of the queue (the card comes back, the attempt ends as
-    approved: "left the merge queue"). An unknown outcome keeps the PR
+    shows "In merge queue" with no button; at start and at each Desk read
+    `Settle` reads every queued attempt, whether the Desk still lists its PR
+    or not, and finds it merged (only with the queue's method from the
+    rules: a failed rules read, or rules with no queue method, claim
+    nothing, and the attempt stays queued), still queued, or out of the
+    queue (the card comes back, the attempt ends as approved: "left the
+    merge queue"). An unknown outcome keeps the PR
     locked, with **Check again** (reads only), **Open on GitHub** and **Try
     again** (a new attempt through the dialog). GitHub work runs on
     `githubDo`, whose result reaches the window whatever the server sign-in
@@ -504,21 +513,29 @@ panes less room.
     the config folder (mode 0600, no token) keeps each attempt: its origin
     (server, user, thread), its intent, its last step and result, and its
     Desk receipt. Each write goes to `operations.json.tmp`, is synced and
-    renamed. Pocket writes "about to approve" and "about to merge" before
-    each mutation, and a failed write sends nothing. `operations.lock`
+    renamed. Pocket writes the checkpoints "about to approve" and "about to
+    merge" before each mutation, and a failed write sends nothing; no other
+    step replaces a checkpoint before the result is saved, so a crash after
+    a merge was sent reads as "merge may be pending" (unknown, locked). `operations.lock`
     (created with `O_EXCL` at start, removed at exit) keeps 1 Pocket on it;
     a held lock or a file that does not parse (kept as
-    `operations.json.corrupt-<time>`) turns the buttons off until the owner
-    clicks **Release the journal lock** or **Start a new journal** in
-    Settings > GitHub. At start each unfinished or unknown attempt is
+    `operations.json.corrupt-<time>`, named in the marker
+    `operations.corrupt`, which keeps it corrupt across restarts) turns the
+    buttons off until the owner clicks **Release the journal lock** or
+    **Start a new journal** in Settings > GitHub; the marker goes only once
+    the new journal is saved, and a marker that cannot be written leaves the
+    journal broken. At start each unfinished or unknown attempt is
     settled by reads only; a batch never resumes. An ended attempt whose
-    receipt settled is kept 7 days.
+    receipts all settled is kept 7 days. The file is version 2 (a list of
+    receipts per attempt); a version 1 file's single receipt is migrated.
   - **Receipts:** `pocket.Client.RecordMerge` posts each result to the
     Desk's `POST /api/x/desk/threads/:id/merges` as information only, and
     only while the window is signed in to the attempt's server and user.
-    A failed post shows "not recorded on the Desk" and goes again with the
-    same `op` at each Desk read for 24 hours, then gives up; a 400 or 409
-    is rejected. A receipt never hides or undoes the GitHub result.
+    An attempt keeps 1 receipt per result (the Desk keys them
+    `<op>:<result>`): a later result, such as merged after queued, adds its
+    own and never replaces another's. A receipt that waits shows "not
+    recorded on the Desk" and goes again with the same `op` at start and at
+    each Desk read for 24 hours, then gives up; a 400 or 409 is rejected. A receipt never hides or undoes the GitHub result.
   - **Settings > GitHub:** a masked field per owner with **Check** (the
     token must sign in as `bketelsen` and read a ready repository of that
     owner; only then is it saved, so with no ready PR of that owner a typed

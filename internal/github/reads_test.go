@@ -190,3 +190,42 @@ func TestReadsSendNoMutation(t *testing.T) {
 		}
 	}
 }
+
+// TestSettleQueueClaimsNothingWithoutTheQueueMethod: on a queue base, a
+// failed rules read, or rules with no merge queue method, give unknown with
+// the error and no method: a merge's method is never made up.
+func TestSettleQueueClaimsNothingWithoutTheQueueMethod(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  func(*fake)
+	}{
+		{"rules read fails", func(f *fake) {
+			f.restFail = func(path string) (int, string, http.Header) {
+				if strings.Contains(path, "/rules/branches/") {
+					return 403, `{"message":"Resource not accessible"}`, nil
+				}
+				return 0, "", nil
+			}
+		}},
+		{"rules name no queue", func(f *fake) { f.rulesRaw = "[]" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := queue(t)
+			c := f.client()
+			p, err := c.Preview(context.Background(), f.ref)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pr := f.pr()
+			pr["state"], pr["mergedBy"], pr["mergeCommit"] = "MERGED", map[string]any{"login": Login}, map[string]any{"oid": mergeOid}
+			tc.set(f)
+			r := c.Settle(context.Background(), Intent{Preview: p, Mode: "single"}, "op", false)
+			if r.Kind != "unknown" || r.Method != "" || r.Err == nil {
+				t.Errorf("settle %+v", r)
+			}
+			if len(f.mutations) != 0 {
+				t.Errorf("mutations %v", f.mutations)
+			}
+		})
+	}
+}

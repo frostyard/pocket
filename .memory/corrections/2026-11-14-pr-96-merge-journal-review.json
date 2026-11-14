@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-14",
+  "scope": "approve-merge",
+  "correction": "Keep the mutation checkpoint until the result is saved, persist the corrupt-journal state across restarts, freeze the origin when the dialog opens, reconcile queued ops without their Desk row, and keep 1 receipt per result. Open only URLs Pocket builds, and never invent a queue merge method.",
+  "evidence": "frostyard/pocket#96, cross-review (openai/gpt-6.1-sol) of head 5ab9ced6cfec467bf5e651a3aabcd3ef5f8fbb1b",
+  "promoted_to": "internal/app/merge_review_test.go TestCrashAfterTheMergeCheckpointStaysUnknown, internal/app/merge_review_test.go TestCorruptJournalStaysCorruptAfterARestart, internal/app/merge_review_test.go TestDialogKeepsTheOriginItOpenedWith, internal/app/merge_review_test.go TestQueuedOpSettlesWithoutItsDeskRow, internal/app/merge_review_test.go TestEachResultKeepsItsOwnReceipt, internal/app/merge_review_test.go TestJournalReadsTheVersion1Receipt, internal/app/merge_review_test.go TestReviewOnGitHubOpensTheBuiltURL, internal/app/merge_review_test.go TestQueueMergeWithoutAMethodStaysQueued, internal/github/reads_test.go TestSettleQueueClaimsNothingWithoutTheQueueMethod"
+}

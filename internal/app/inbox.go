@@ -11,6 +11,7 @@ import (
 	"github.com/egoist/mygo/ui/markdown"
 	"github.com/frostyard/frostui"
 
+	"github.com/frostyard/pocket/internal/github"
 	"github.com/frostyard/pocket/internal/pocket"
 )
 
@@ -524,8 +525,10 @@ func (a *App) readyItem(c *ui.Context, it *inboxItem) {
 			}
 			facts = append(facts, "thread "+p.Thread)
 			frostui.Caption(c, strings.Join(facts, " · ")).Grow(1)
-			if p.URL != "" && ui.PrimaryButton(c, "Review on GitHub").Clicked() {
-				a.openURL(p.URL)
+			// Pocket opens only a URL it builds from the ref, never the
+			// Desk's url (ADR-0008); a ref that does not parse gets none.
+			if r, err := github.ParseRef(p.Ref); err == nil && ui.PrimaryButton(c, "Review on GitHub").Label("Review "+p.Ref+" on GitHub").Clicked() {
+				a.openURL(prURL(r))
 			}
 		})
 		a.mergeControls(c, p)

@@ -270,7 +270,7 @@ func TestConfirmClickApprovesAndMergesWithARealClient(t *testing.T) {
 	if steps != "about to approve; about to merge" {
 		t.Errorf("journal steps at the mutations: %s", steps)
 	}
-	loop.RunUntil(t, func() bool { return h.count() == 1 && a.gh.j.latest(ref).Receipt.State == receiptRecorded })
+	loop.RunUntil(t, func() bool { return h.count() == 1 && rcpt(a.gh.j.latest(ref)).State == receiptRecorded })
 	o := a.gh.j.latest(ref)
 	want := map[string]any{"op": o.ID, "ref": ref, "head": head, "result": "merged", "method": "merge", "via": "pocket"}
 	got := h.bodies[0]
@@ -395,7 +395,7 @@ func mergeSnapshotApp(t *testing.T) (*App, *frostuitest.Loop, *fakeGH) {
 	// The snapshot app's server answers 404: the receipts wait.
 	loop.RunUntil(t, func() bool {
 		o := a.gh.j.latest(refs[5])
-		return o != nil && o.Receipt.Failed
+		return o != nil && rcpt(o).Failed
 	})
 	a.gh.sel[refs[0]] = true
 	a.pendingToasts = nil

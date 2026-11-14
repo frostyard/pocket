@@ -459,7 +459,7 @@ func (a *App) mergeControls(c *ui.Context, p *pocket.ReadyPR) {
 			}
 			frostui.Toned(c, line, tone).Wrap().Grow(1)
 		})
-		if note := receiptNote(o); note != "" {
+		if note := a.receiptNote(o); note != "" {
 			frostui.Caption(c, note).Wrap()
 		}
 	}
@@ -556,16 +556,29 @@ func opLine(o *mergeOp, running bool) (string, frostui.Tone) {
 	return o.Result, frostui.Neutral
 }
 
-// receiptNote says when the Desk has not recorded a result.
-func receiptNote(o *mergeOp) string {
-	switch o.Receipt.State {
-	case receiptPending:
-		if o.Receipt.Failed {
-			return "not recorded on the Desk"
+// receiptNote says when the Desk has not recorded a result: a receipt
+// that waits (its post failed, or none is under way), 1 Pocket gave up on,
+// or 1 the Desk refused.
+func (a *App) receiptNote(o *mergeOp) string {
+	waits, gaveUp, rejected := false, false, false
+	for _, r := range o.Receipts {
+		switch r.State {
+		case receiptPending:
+			if r.Failed || a.gh.posting[o.ID+":"+r.Result] == nil {
+				waits = true
+			}
+		case receiptGaveUp:
+			gaveUp = true
+		case receiptRejected:
+			rejected = true
 		}
-	case receiptGaveUp:
+	}
+	switch {
+	case waits:
+		return "not recorded on the Desk"
+	case gaveUp:
 		return "not recorded on the Desk (gave up)"
-	case receiptRejected:
+	case rejected:
 		return "the Desk refused the receipt"
 	}
 	return ""
@@ -683,6 +696,10 @@ func (a *App) mergeHeading(c *ui.Context) {
 
 // mergeDialog is the confirm dialog, then the progress of its attempts.
 type mergeDialog struct {
+	// origin is the server and user the window showed when the dialog
+	// opened: every attempt of the dialog records it, and its receipts go
+	// only there. Each row keeps its own Desk thread (mergeItem.pr).
+	origin   accountKey
 	batch    bool
 	items    []*mergeItem
 	started  bool
@@ -728,7 +745,7 @@ func (a *App) openMergeDialog(prs []pocket.ReadyPR, batch bool) {
 	if !a.ghOn() || a.gh.dialog != nil || len(prs) == 0 {
 		return
 	}
-	d := &mergeDialog{batch: batch}
+	d := &mergeDialog{batch: batch, origin: a.account}
 	for _, p := range prs {
 		r, ok := ghRef(p.Ref)
 		if !ok || (batch && len(d.items) == batchMax) {
@@ -743,8 +760,25 @@ func (a *App) openMergeDialog(prs []pocket.ReadyPR, batch bool) {
 	a.ghPump()
 }
 
+// otherAccount says why the dialog cannot start under the window's account
+// now, or "".
+func (a *App) otherAccount(d *mergeDialog) string {
+	switch {
+	case !d.origin.set():
+		return "not signed in to a server when this opened: close and open again"
+	case a.account != d.origin:
+		return "signed in to another account: close and open again"
+	}
+	return ""
+}
+
 // confirmLabel is the dialog's 1 button, and whether it is on.
 func (a *App) confirmLabel(d *mergeDialog) (string, bool) {
+	label, on := a.confirmText(d)
+	return label, on && a.otherAccount(d) == ""
+}
+
+func (a *App) confirmText(d *mergeDialog) (string, bool) {
 	n := 0
 	waiting := false
 	for _, it := range d.items {
@@ -814,6 +848,9 @@ func (a *App) mergeDialogBody(c *ui.Context, d *mergeDialog) {
 		frostui.Muted(c, line)
 	default:
 		frostui.Muted(c, "Pocket reads each PR again, approves its head, and merges it with the method shown. Nothing starts until you confirm.").Wrap()
+		if why := a.otherAccount(d); why != "" {
+			frostui.Problem(c, why)
+		}
 	}
 	ui.Scroll(c).MaxHeight(420).Children(func() {
 		ui.Column(c).Gap(frostui.SpaceS).AlignItems(ui.Stretch).Children(func() {
@@ -947,6 +984,10 @@ func (a *App) mergeConfirm(d *mergeDialog) {
 	if d != a.gh.dialog || d.started || !a.gh.j.ok() {
 		return
 	}
+	if why := a.otherAccount(d); why != "" {
+		a.console.Add(frostui.LevelWarn, "github", "Approve + merge did not start: "+why)
+		return
+	}
 	if _, on := a.confirmLabel(d); !on {
 		return
 	}
@@ -1012,7 +1053,7 @@ func (a *App) mergeStart(d *mergeDialog, it *mergeItem) {
 	now := a.opts.Now()
 	op := &mergeOp{
 		ID:     newOpID(),
-		Origin: opOrigin{Server: a.account.server, User: a.account.user, Thread: it.pr.Thread},
+		Origin: opOrigin{Server: d.origin.server, User: d.origin.user, Thread: it.pr.Thread},
 		Intent: opIntent{Ref: it.pr.Ref, NodeID: p.NodeID, BaseRef: p.BaseRef, BaseOid: p.BaseOid, Head: p.Head,
 			Method: p.Method, Queue: p.Queue, Mode: mode, Risk: p.RiskHigh, AckHead: ack},
 		Step: "start", At: now,
@@ -1055,8 +1096,15 @@ func (a *App) mergeStart(d *mergeDialog, it *mergeItem) {
 	})
 }
 
-// journalStep writes the step an attempt reached.
+// journalStep writes the checkpoint an attempt reached before a mutation:
+// "about to approve" or "about to merge". Act also tells its final kind;
+// that is no checkpoint, and is ignored: the result is saved by
+// applyResult, and until then the last checkpoint must stay, so a crash
+// after a merge was sent still reads as "about to merge".
 func (a *App) journalStep(id, name string) error {
+	if name != stepAboutToApprove && name != stepAboutToMerge {
+		return nil
+	}
 	o := a.gh.j.find(id)
 	if o == nil {
 		return errors.New("the attempt is not in the journal")
@@ -1104,11 +1152,15 @@ func (a *App) applyResult(op *mergeOp, res github.Result) {
 	if res.Step != "" {
 		op.Step = res.Step
 	}
-	if op.Result == "merged" && op.Method == "" {
-		op.Method = "merge"
+	if op.Result == "merged" && op.Method == "" && !op.Intent.Queue {
+		op.Method = op.Intent.Method // a direct merge uses the frozen method
 	}
 	op.EndedAt = now
-	op.Receipt = opReceipt{State: receiptPending, Since: now}
+	// 1 receipt per result: a new result adds its own, and never replaces
+	// another result's (the Desk keys them <op>:<result>).
+	if op.receipt(op.Result) == nil {
+		op.Receipts = append(op.Receipts, newReceipt(op, now))
+	}
 	delete(a.gh.notMerged, op.Intent.Ref)
 	line, _ := opLine(op, false)
 	a.console.Add(frostui.LevelInfo, "github", op.Intent.Ref+": "+line)
@@ -1122,10 +1174,16 @@ func (a *App) applyResult(op *mergeOp, res github.Result) {
 	a.postReceipt(op)
 }
 
+// The checkpoints Act tells its step callback before each mutation.
+const (
+	stepAboutToApprove = "about to approve"
+	stepAboutToMerge   = "about to merge"
+)
+
 // mergeSent says the attempt may have sent its merge or enqueue.
 func mergeSent(o *mergeOp) bool {
 	switch o.Step {
-	case "about to merge", "merge", "reconcile merge":
+	case stepAboutToMerge, "merge", "reconcile merge":
 		return true
 	}
 	return false
@@ -1172,6 +1230,9 @@ func (a *App) settleUnknown(o *mergeOp, res github.Result, approvedWhy string) {
 		return
 	}
 	switch {
+	case res.Kind == "merged" && !queueMethodKnown(o, res):
+		// A queue merge with no method from the queue's rules: keep what
+		// the journal says and read it again later.
 	case res.Kind == "merged" || res.Kind == "queued" || res.Kind == "refused":
 		a.applyResult(o, res)
 	case res.Kind == "approved" && !mergeSent(o):
@@ -1186,17 +1247,35 @@ func (a *App) settleUnknown(o *mergeOp, res github.Result, approvedWhy string) {
 	}
 }
 
+// queueMethodKnown says a merged result names a real method: on a queue
+// base, the queue's own method from its rules, never one Pocket makes up.
+func queueMethodKnown(o *mergeOp, res github.Result) bool {
+	if !o.Intent.Queue {
+		return true
+	}
+	switch res.Method {
+	case "merge", "squash", "rebase":
+		return true
+	}
+	return false
+}
+
 // reconcileJournal settles, at start, each attempt a crash left
-// unfinished or unknown. A batch never resumes.
+// unfinished or unknown, and each queued one. A batch never resumes.
 func (a *App) reconcileJournal() {
 	if !a.gh.j.ok() {
 		return
 	}
 	for _, o := range slices.Clone(a.gh.j.ops) {
-		if o.Superseded != "" || (o.Result != "" && o.Result != "unknown") || a.gh.running[o.ID] {
+		if o.Superseded != "" || a.gh.running[o.ID] {
 			continue
 		}
-		a.settleOp(o, false, func(res github.Result) { a.settleUnknown(o, res, "Pocket stopped before the merge") })
+		switch o.Result {
+		case "", "unknown":
+			a.settleOp(o, false, func(res github.Result) { a.settleUnknown(o, res, "Pocket stopped before the merge") })
+		case "queued":
+			a.settleOp(o, false, func(res github.Result) { a.settleQueued(o, res) })
+		}
 	}
 }
 
@@ -1229,14 +1308,14 @@ func (a *App) githubDeskRead() {
 	}
 	a.ghPreviewReady()
 	for _, p := range a.desk.view.Ready {
-		o := a.gh.j.latest(p.Ref)
-		if o == nil {
-			continue
-		}
-		switch {
-		case o.Result == "merged" && !a.gh.notMerged[p.Ref]:
+		if o := a.gh.j.latest(p.Ref); o != nil && o.Result == "merged" && !a.gh.notMerged[p.Ref] {
 			a.mergedState(p.Ref)
-		case o.Result == "queued":
+		}
+	}
+	// Every queued attempt, whether the Desk still lists its PR or not:
+	// the merge and its receipt must not wait on the Desk row.
+	for _, o := range slices.Clone(a.gh.j.ops) {
+		if o.Result == "queued" && o.Superseded == "" {
 			a.settleOp(o, false, func(res github.Result) { a.settleQueued(o, res) })
 		}
 	}
@@ -1276,11 +1355,11 @@ func (a *App) settleQueued(o *mergeOp, res github.Result) {
 	}
 	switch {
 	case res.Kind == "merged":
-		// The queue's own method when the rules name it, else "merge".
-		if res.Method == "" || res.Method == "queue" {
-			res.Method = "merge"
+		// Only with the queue's own method from its rules: never a made-up
+		// one. Without it the attempt stays queued and is read again.
+		if queueMethodKnown(o, res) {
+			a.applyResult(o, res)
 		}
-		a.applyResult(o, res)
 	case res.Kind == "queued":
 	case res.Kind == "refused":
 		a.applyResult(o, res)
@@ -1301,35 +1380,50 @@ func (a *App) retryReceipts() {
 	}
 }
 
-// receiptOf is the Desk body of an attempt's result.
-func receiptOf(o *mergeOp) pocket.MergeRecord {
-	rec := pocket.MergeRecord{Op: o.ID, Ref: o.Intent.Ref, Head: o.Intent.Head, Result: o.Result}
+// newReceipt is the receipt of the attempt's current result, pending.
+func newReceipt(o *mergeOp, now time.Time) *opReceipt {
+	r := &opReceipt{Result: o.Result, State: receiptPending, Since: now}
 	switch o.Result {
 	case "merged":
-		rec.Method = firstNonEmpty(o.Method, "merge")
+		r.Method = o.Method
 	case "queued":
-		rec.Method = "queue"
+		r.Method = "queue"
 	case "approved":
-		rec.Reason = o.Reason
+		r.Reason = o.Reason
 	default:
-		rec.Reason = firstNonEmpty(o.Reason, o.Step, o.Result)
+		r.Reason = firstNonEmpty(o.Reason, o.Step, o.Result)
 	}
-	if r := []rune(rec.Reason); len(r) > 300 {
-		rec.Reason = string(r[:300])
+	if rs := []rune(r.Reason); len(rs) > 300 {
+		r.Reason = string(rs[:300])
 	}
-	return rec
+	return r
 }
 
-// postReceipt posts an attempt's result to its Desk thread, only while the
-// window is signed in to the server and user the attempt started under.
-// It never undoes or hides the GitHub result.
+// receiptOf is the Desk body of 1 receipt of an attempt.
+func receiptOf(o *mergeOp, r *opReceipt) pocket.MergeRecord {
+	return pocket.MergeRecord{Op: o.ID, Ref: o.Intent.Ref, Head: o.Intent.Head, Result: r.Result, Method: r.Method, Reason: r.Reason}
+}
+
+// postReceipt posts each receipt of an attempt that waits to its Desk
+// thread, with the attempt's op, only while the window is signed in to the
+// server and user the attempt started under. It never undoes or hides the
+// GitHub result.
 func (a *App) postReceipt(o *mergeOp) {
-	if o.Receipt.State != receiptPending || o.Result == "" || o.unsaved {
+	if o.unsaved {
 		return
 	}
-	if a.opts.Now().Sub(o.Receipt.Since) > receiptRetry {
-		o.Receipt.State = receiptGaveUp
-		a.console.Add(frostui.LevelWarn, "github", o.Intent.Ref+": gave up recording the result on the Desk")
+	for _, r := range o.Receipts {
+		a.postOne(o, r)
+	}
+}
+
+func (a *App) postOne(o *mergeOp, r *opReceipt) {
+	if r.State != receiptPending {
+		return
+	}
+	if a.opts.Now().Sub(r.Since) > receiptRetry {
+		r.State = receiptGaveUp
+		a.console.Add(frostui.LevelWarn, "github", o.Intent.Ref+": gave up recording "+r.Result+" on the Desk")
 		if err := a.gh.j.save(); err != nil {
 			a.console.Add(frostui.LevelError, "github", "journal write failed: "+err.Error())
 		}
@@ -1339,31 +1433,36 @@ func (a *App) postReceipt(o *mergeOp) {
 	if client == nil || a.account.server != o.Origin.Server || a.account.user != o.Origin.User || o.Origin.Thread == "" {
 		return
 	}
-	if a.gh.posting[o.ID] == client {
+	key := o.ID + ":" + r.Result
+	if a.gh.posting[key] == client {
 		return
 	}
-	a.gh.posting[o.ID] = client
-	rec, thread, id, result := receiptOf(o), o.Origin.Thread, o.ID, o.Result
-	a.request("Recording "+o.Intent.Ref+" on the Desk", func(ctx context.Context, c *pocket.Client) error {
+	a.gh.posting[key] = client
+	rec, thread, id, result := receiptOf(o, r), o.Origin.Thread, o.ID, r.Result
+	a.request("Recording "+o.Intent.Ref+" ("+result+") on the Desk", func(ctx context.Context, c *pocket.Client) error {
 		_, err := c.RecordMerge(ctx, thread, rec)
 		return err
 	}, func(err error) {
-		if a.gh.posting[id] == client {
-			delete(a.gh.posting, id)
+		if a.gh.posting[key] == client {
+			delete(a.gh.posting, key)
 		}
 		o := a.gh.j.find(id)
-		if o == nil || o.Result != result || o.Receipt.State != receiptPending {
+		if o == nil {
+			return
+		}
+		r := o.receipt(result)
+		if r == nil || r.State != receiptPending {
 			return
 		}
 		var api *pocket.APIError
 		switch {
 		case err == nil:
-			o.Receipt.State, o.Receipt.Failed = receiptRecorded, false
+			r.State, r.Failed = receiptRecorded, false
 		case errors.As(err, &api) && (api.Status == 400 || api.Status == 409):
-			o.Receipt.State = receiptRejected
+			r.State = receiptRejected
 			a.console.Add(frostui.LevelWarn, "github", "The Desk refused the receipt of "+o.Intent.Ref+": "+err.Error())
 		default:
-			o.Receipt.Failed = true
+			r.Failed = true
 		}
 		if err := a.gh.j.save(); err != nil {
 			a.console.Add(frostui.LevelError, "github", "journal write failed: "+err.Error())

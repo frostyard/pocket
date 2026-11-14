@@ -700,13 +700,13 @@ func TestJournalRetention(t *testing.T) {
 	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 	old := now.Add(-8 * 24 * time.Hour)
 	recorded := journalOp("old-recorded", "frostyard/core#1", "merge", "merged")
-	recorded.EndedAt, recorded.Receipt = old, opReceipt{State: receiptRecorded}
+	recorded.EndedAt, recorded.Receipts = old, []*opReceipt{{Result: "merged", State: receiptRecorded}}
 	pending := journalOp("old-pending", "frostyard/core#2", "merge", "merged")
-	pending.EndedAt, pending.Receipt = old, opReceipt{State: receiptPending, Since: old}
+	pending.EndedAt, pending.Receipts = old, []*opReceipt{{Result: "merged", State: receiptPending, Since: old}}
 	unknown := journalOp("old-unknown", "frostyard/core#3", "reconcile merge", "unknown")
-	unknown.EndedAt, unknown.Receipt = old.Add(-30*24*time.Hour), opReceipt{State: receiptRecorded}
+	unknown.EndedAt, unknown.Receipts = old.Add(-30*24*time.Hour), []*opReceipt{{Result: "unknown", State: receiptRecorded}}
 	fresh := journalOp("fresh", "frostyard/core#4", "merge", "refused")
-	fresh.EndedAt, fresh.Receipt = now.Add(-time.Hour), opReceipt{State: receiptRecorded}
+	fresh.EndedAt, fresh.Receipts = now.Add(-time.Hour), []*opReceipt{{Result: "refused", State: receiptRecorded}}
 	writeJournal(t, dir, recorded, pending, unknown, fresh)
 	j := newJournal(dir, func() time.Time { return now })
 	j.open()
@@ -767,7 +767,7 @@ func TestReceiptBodyRetryAndGiveUp(t *testing.T) {
 	a.link.client.HTTP = &http.Client{Transport: h}
 	startMerge(t, a, loop)
 	runDialog(t, a, loop, false, ref)
-	loop.RunUntil(t, func() bool { o := a.gh.j.latest(ref); return o.Receipt.Failed })
+	loop.RunUntil(t, func() bool { o := a.gh.j.latest(ref); return rcpt(o).Failed })
 	o := a.gh.j.latest(ref)
 	if h.count() != 1 || h.paths[0] != "/api/x/desk/threads/T1/merges" {
 		t.Fatalf("posts %v", h.paths)
@@ -782,37 +782,37 @@ func TestReceiptBodyRetryAndGiveUp(t *testing.T) {
 	if _, ok := body["reason"]; ok {
 		t.Errorf("merged with a reason: %v", body)
 	}
-	if receiptNote(o) != "not recorded on the Desk" {
-		t.Errorf("note %q", receiptNote(o))
+	if a.receiptNote(o) != "not recorded on the Desk" {
+		t.Errorf("note %q", a.receiptNote(o))
 	}
 	// The next Desk refresh posts it again with the same op.
 	h.mu.Lock()
 	h.status = 0
 	h.mu.Unlock()
 	a.githubDeskRead()
-	loop.RunUntil(t, func() bool { return o.Receipt.State == receiptRecorded })
+	loop.RunUntil(t, func() bool { return rcpt(o).State == receiptRecorded })
 	if h.count() != 2 || h.bodies[1]["op"] != o.ID {
 		t.Errorf("retry %v", h.bodies)
 	}
 	// A receipt that waits more than 24 hours gives up.
 	o2 := journalOp("op-2", ref, "read", "refused")
 	o2.Reason = "the PR is a draft"
-	o2.Receipt = opReceipt{State: receiptPending, Since: a.opts.Now().Add(-25 * time.Hour), Failed: true}
+	o2.Receipts = []*opReceipt{{Result: "refused", Reason: o2.Reason, State: receiptPending, Since: a.opts.Now().Add(-25 * time.Hour), Failed: true}}
 	a.gh.j.ops = append([]*mergeOp{o2}, a.gh.j.ops...)
 	a.retryReceipts()
-	if o2.Receipt.State != receiptGaveUp || receiptNote(o2) != "not recorded on the Desk (gave up)" || h.count() != 2 {
-		t.Errorf("receipt %+v posts %d", o2.Receipt, h.count())
+	if rcpt(o2).State != receiptGaveUp || a.receiptNote(o2) != "not recorded on the Desk (gave up)" || h.count() != 2 {
+		t.Errorf("receipt %+v posts %d", rcpt(o2), h.count())
 	}
 	// 409: rejected, not retried.
 	o3 := journalOp("op-3", ref, "read", "refused")
 	o3.Reason = "gate"
-	o3.Receipt = opReceipt{State: receiptPending, Since: a.opts.Now()}
+	o3.Receipts = []*opReceipt{{Result: "refused", Reason: o3.Reason, State: receiptPending, Since: a.opts.Now()}}
 	a.gh.j.ops = append(a.gh.j.ops, o3)
 	h.mu.Lock()
 	h.status = 409
 	h.mu.Unlock()
 	a.postReceipt(o3)
-	loop.RunUntil(t, func() bool { return o3.Receipt.State == receiptRejected })
+	loop.RunUntil(t, func() bool { return rcpt(o3).State == receiptRejected })
 	if h.bodies[2]["reason"] != "gate" || h.bodies[2]["result"] != "refused" {
 		t.Errorf("refused body %v", h.bodies[2])
 	}
@@ -826,7 +826,7 @@ func TestReceiptWaitsForItsAccount(t *testing.T) {
 	startMerge(t, a, loop)
 	o := journalOp("op-1", ref, "merge", "merged")
 	o.Method = "squash"
-	o.Receipt = opReceipt{State: receiptPending, Since: a.opts.Now()}
+	o.Receipts = []*opReceipt{{Result: "merged", Method: o.Method, State: receiptPending, Since: a.opts.Now()}}
 	a.gh.j.ops = append(a.gh.j.ops, o)
 	home := a.account
 	for _, other := range []accountKey{{server: home.server, user: "u2"}, {server: "https://other.example.org", user: home.user}} {
@@ -839,7 +839,7 @@ func TestReceiptWaitsForItsAccount(t *testing.T) {
 	}
 	a.account = home
 	a.retryReceipts()
-	loop.RunUntil(t, func() bool { return o.Receipt.State == receiptRecorded })
+	loop.RunUntil(t, func() bool { return rcpt(o).State == receiptRecorded })
 	if h.count() != 1 || h.bodies[0]["op"] != "op-1" || h.bodies[0]["method"] != "squash" {
 		t.Errorf("bodies %v", h.bodies)
 	}
@@ -1101,4 +1101,12 @@ func TestTheTokenNeverLeaksFromEchoedErrors(t *testing.T) {
 	if !strings.Contains(strings.Join(lines, "\n"), "[token]") || !strings.Contains(f.fail, "[token]") || !strings.Contains(string(data), "[token]") {
 		t.Error("the redacted errors are not where they should show")
 	}
+}
+
+// rcpt is the receipt of the attempt's current result.
+func rcpt(o *mergeOp) *opReceipt {
+	if r := o.receipt(o.Result); r != nil {
+		return r
+	}
+	return &opReceipt{}
 }

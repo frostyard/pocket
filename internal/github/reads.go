@@ -138,11 +138,17 @@ func (c *Client) Settle(ctx context.Context, in Intent, op string, wait bool) Re
 func (c *Client) settle(ctx context.Context, in Intent, wait bool) Result {
 	ref := in.Preview.Ref
 	// A queue base needs its rules for the method of a merge the queue made.
+	// Without them nothing is claimed: a merge's method is never made up.
 	var r RepoRules
 	if in.Preview.Queue {
-		if got, err := c.Rules(ctx, ref, in.Preview.BaseRef); err == nil {
-			r = got
+		got, err := c.Rules(ctx, ref, in.Preview.BaseRef)
+		if err == nil && got.queueMethod == "" {
+			err = incomplete("the rules name no merge queue method")
 		}
+		if err != nil {
+			return Result{Kind: "unknown", Step: "settle", Reason: "could not read the merge queue's rules", Err: err}
+		}
+		r = got
 	}
 	var last *PRFacts
 	var end *Result

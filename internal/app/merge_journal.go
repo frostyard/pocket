@@ -18,6 +18,13 @@ import (
 const (
 	journalName = "operations.json"
 	lockName    = "operations.lock"
+	// corruptName marks a journal that did not parse: it holds the name the
+	// file was kept as, and keeps the buttons off across restarts until the
+	// owner starts a new journal.
+	corruptName = "operations.corrupt"
+	// journalVersion is the file's shape: 2 keeps 1 receipt per result; 1
+	// kept 1 receipt per attempt, and is read and migrated.
+	journalVersion = 2
 	// journalKeep is how long an ended attempt with a settled receipt stays.
 	journalKeep = 7 * 24 * time.Hour
 )
@@ -53,9 +60,16 @@ const (
 	receiptGaveUp   = "gave-up"
 )
 
-// opReceipt is the Desk receipt of the attempt's last result.
+// opReceipt is the Desk receipt of 1 result of an attempt: the Desk keys
+// it <op>:<result>, so a later result adds a receipt and never replaces
+// another's.
 type opReceipt struct {
-	State string `json:"state,omitempty"`
+	// Result, Method and Reason are the receipt's body (with the op's id,
+	// ref and head).
+	Result string `json:"result,omitempty"`
+	Method string `json:"method,omitempty"`
+	Reason string `json:"reason,omitempty"`
+	State  string `json:"state,omitempty"`
 	// Since is when the result came; Pocket gives up 24 hours later.
 	Since time.Time `json:"since,omitzero"`
 	// Failed says a post failed and the receipt waits for the next try.
@@ -77,13 +91,60 @@ type mergeOp struct {
 	Method      string `json:"method,omitempty"`
 	MergeCommit string `json:"mergeCommit,omitempty"`
 	// Superseded is the attempt that Try again started after this one.
-	Superseded string    `json:"superseded,omitempty"`
-	Receipt    opReceipt `json:"receipt"`
-	At         time.Time `json:"at"`
-	EndedAt    time.Time `json:"endedAt,omitzero"`
+	Superseded string `json:"superseded,omitempty"`
+	// Receipts are the Desk receipts, 1 per result, in order.
+	Receipts []*opReceipt `json:"receipts,omitempty"`
+	// Receipt is the 1 receipt of a version 1 file, read only to migrate.
+	Receipt *opReceipt `json:"receipt,omitempty"`
+	At      time.Time  `json:"at"`
+	EndedAt time.Time  `json:"endedAt,omitzero"`
 
 	// unsaved: the write of the result failed; the PR stays locked.
 	unsaved bool
+}
+
+// receipt is the receipt of result, or nil.
+func (o *mergeOp) receipt(result string) *opReceipt {
+	for _, r := range o.Receipts {
+		if r.Result == result {
+			return r
+		}
+	}
+	return nil
+}
+
+// settled says no receipt of the attempt waits.
+func (o *mergeOp) settled() bool {
+	for _, r := range o.Receipts {
+		if r.State != receiptRecorded && r.State != receiptRejected && r.State != receiptGaveUp {
+			return false
+		}
+	}
+	return true
+}
+
+// migrate moves a version 1 receipt into the list, as the receipt of the
+// result the attempt had then.
+func (o *mergeOp) migrate() {
+	if o.Receipt == nil {
+		return
+	}
+	if len(o.Receipts) == 0 && o.Receipt.State != "" && o.Result != "" {
+		r := *o.Receipt
+		r.Result = o.Result
+		switch o.Result {
+		case "merged":
+			r.Method = firstNonEmpty(o.Method, "merge")
+		case "queued":
+			r.Method = "queue"
+		case "approved":
+			r.Reason = o.Reason
+		default:
+			r.Reason = firstNonEmpty(o.Reason, o.Step, o.Result)
+		}
+		o.Receipts = []*opReceipt{&r}
+	}
+	o.Receipt = nil
 }
 
 // ended says the attempt's result is final: not running, not queued, not
@@ -128,8 +189,9 @@ func newJournal(dir string, now func() time.Time) *journal {
 	return &journal{dir: dir, now: now, rename: os.Rename}
 }
 
-func (j *journal) path() string { return filepath.Join(j.dir, journalName) }
-func (j *journal) lock() string { return filepath.Join(j.dir, lockName) }
+func (j *journal) path() string   { return filepath.Join(j.dir, journalName) }
+func (j *journal) lock() string   { return filepath.Join(j.dir, lockName) }
+func (j *journal) marker() string { return filepath.Join(j.dir, corruptName) }
 
 // ok says mutations may start.
 func (j *journal) ok() bool { return j != nil && j.state == journalOK }
@@ -156,6 +218,17 @@ func (j *journal) open() {
 		_ = f.Close()
 		j.held = true
 	}
+	// A journal found corrupt before stays corrupt until the owner starts a
+	// new one, also when operations.json is gone.
+	switch kept, err := os.ReadFile(j.marker()); {
+	case err == nil:
+		j.state, j.corrupt = journalCorrupt, string(kept)
+		j.why = "the journal did not parse; Pocket kept it as " + j.corrupt
+		return
+	case !errors.Is(err, fs.ErrNotExist):
+		j.state, j.why = journalBroken, "reading the journal's corrupt marker: "+err.Error()
+		return
+	}
 	data, err := os.ReadFile(j.path())
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -166,8 +239,13 @@ func (j *journal) open() {
 		return
 	}
 	var file journalFile
-	if err := json.Unmarshal(data, &file); err != nil || file.Version != 1 || !validOps(file.Ops) {
+	if err := json.Unmarshal(data, &file); err != nil || (file.Version != 1 && file.Version != journalVersion) || !validOps(file.Ops) {
 		name := journalName + ".corrupt-" + j.now().UTC().Format("20060102T150405Z")
+		// The marker first: without it a restart would open as new.
+		if werr := j.writeAtomic(j.marker(), []byte(name)); werr != nil {
+			j.state, j.why = journalBroken, "the journal does not parse, and marking it failed: "+werr.Error()
+			return
+		}
 		if rerr := os.Rename(j.path(), filepath.Join(j.dir, name)); rerr != nil {
 			j.state, j.why = journalBroken, "the journal does not parse, and keeping it aside failed: "+rerr.Error()
 			return
@@ -175,6 +253,9 @@ func (j *journal) open() {
 		j.state, j.corrupt = journalCorrupt, name
 		j.why = "the journal did not parse; Pocket kept it as " + name
 		return
+	}
+	for _, o := range file.Ops {
+		o.migrate()
 	}
 	j.ops = file.Ops
 	j.state = journalOK
@@ -224,6 +305,11 @@ func (j *journal) startNew() error {
 		j.state = journalCorrupt
 		return err
 	}
+	// The marker goes only once the new journal is on disk.
+	if err := os.Remove(j.marker()); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		j.state = journalCorrupt
+		return err
+	}
 	j.why, j.corrupt = "", ""
 	return nil
 }
@@ -234,8 +320,7 @@ func (j *journal) prune() bool {
 	now := j.now()
 	kept := j.ops[:0]
 	for _, o := range j.ops {
-		settled := o.Receipt.State == receiptRecorded || o.Receipt.State == receiptRejected || o.Receipt.State == receiptGaveUp
-		if o.ended() && settled && !o.EndedAt.IsZero() && now.Sub(o.EndedAt) > journalKeep {
+		if o.ended() && o.settled() && !o.EndedAt.IsZero() && now.Sub(o.EndedAt) > journalKeep {
 			continue
 		}
 		kept = append(kept, o)
@@ -253,11 +338,17 @@ func (j *journal) save() error {
 		return errors.New("the journal is not open: " + j.why)
 	}
 	j.prune()
-	data, err := json.MarshalIndent(journalFile{Version: 1, Ops: j.ops}, "", "  ")
+	data, err := json.MarshalIndent(journalFile{Version: journalVersion, Ops: j.ops}, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp := j.path() + ".tmp"
+	return j.writeAtomic(j.path(), data)
+}
+
+// writeAtomic writes data to path: a copy, synced, renamed over path, mode
+// 0600. A failed rename leaves the old file whole.
+func (j *journal) writeAtomic(path string, data []byte) error {
+	tmp := path + ".tmp"
 	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
@@ -276,7 +367,7 @@ func (j *journal) save() error {
 		_ = os.Remove(tmp)
 		return err
 	}
-	if err := j.rename(tmp, j.path()); err != nil {
+	if err := j.rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
 		return err
 	}
