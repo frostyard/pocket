@@ -1,0 +1,141 @@
+{
+  "data": {
+    "viewer": {
+      "login": "frostyard-machines"
+    },
+    "repository": {
+      "viewerDefaultMergeMethod": "MERGE",
+      "mergeCommitAllowed": true,
+      "squashMergeAllowed": true,
+      "rebaseMergeAllowed": true,
+      "pullRequest": {
+        "id": "PR_kwDOT1orks8AAAABPE6xFg",
+        "number": 253,
+        "title": "feat(fleet): check that make ci is each repository's local CI gate (ADR-0083)",
+        "state": "MERGED",
+        "isDraft": false,
+        "viewerDidAuthor": true,
+        "baseRefName": "main",
+        "baseRefOid": "3d3d5c703fc24db3734408765171938a97840f4c",
+        "headRefOid": "2a33a276702138f1f79616861903e3944f723743",
+        "mergeable": "UNKNOWN",
+        "mergeStateStatus": "UNKNOWN",
+        "reviewDecision": "APPROVED",
+        "isMergeQueueEnabled": true,
+        "isInMergeQueue": false,
+        "viewerLatestReview": null,
+        "labels": {
+          "pageInfo": {
+            "hasNextPage": false
+          },
+          "nodes": [
+            {
+              "name": "ready-for-human"
+            },
+            {
+              "name": "level:L3"
+            }
+          ]
+        },
+        "latestOpinionatedReviews": {
+          "pageInfo": {
+            "hasNextPage": false
+          },
+          "nodes": [
+            {
+              "state": "APPROVED",
+              "author": {
+                "login": "bketelsen"
+              },
+              "commit": {
+                "oid": "2a33a276702138f1f79616861903e3944f723743"
+              }
+            }
+          ]
+        },
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "oid": "2a33a276702138f1f79616861903e3944f723743",
+                "statusCheckRollup": {
+                  "contexts": {
+                    "pageInfo": {
+                      "hasNextPage": false,
+                      "endCursor": "NQ"
+                    },
+                    "nodes": [
+                      {
+                        "__typename": "CheckRun",
+                        "name": "docs-gate",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "checkSuite": {
+                          "app": {
+                            "databaseId": 15368
+                          }
+                        }
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "pr-triage / pr-triage",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "checkSuite": {
+                          "app": {
+                            "databaseId": 15368
+                          }
+                        }
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "pr-triage / pr-triage",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "checkSuite": {
+                          "app": {
+                            "databaseId": 15368
+                          }
+                        }
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "fleet-conventions",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "checkSuite": {
+                          "app": {
+                            "databaseId": 15368
+                          }
+                        }
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "scaffold-e2e",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "checkSuite": {
+                          "app": {
+                            "databaseId": 15368
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "mergedBy": {
+          "login": "bketelsen"
+        },
+        "mergeCommit": {
+          "oid": "433f9e6b7903b993a8b1b506fccbfd363757ae9d"
+        },
+        "mergedAt": "2026-11-14T04:25:56Z",
+        "mergeQueueEntry": null
+      }
+    }
+  }
+}

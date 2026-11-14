@@ -3,7 +3,8 @@
 Living document. Rationale: [ADR-0004](../adr/0004-build-a-native-client-of-pi-pockets-own-api.md),
 [ADR-0005](../adr/0005-organize-the-window-around-what-needs-the-owner.md),
 [ADR-0006](../adr/0006-filter-notifications-in-the-client.md),
-[ADR-0007](../adr/0007-render-terminal-history-before-attaching.md).
+[ADR-0007](../adr/0007-render-terminal-history-before-attaching.md),
+[ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md).
 Contracts: none of its own; Pocket speaks Pi Pocket's protocol (below).
 Built in: [roadmap](../plans/roadmap.md).
 
@@ -439,6 +440,11 @@ panes less room.
   A replay-render failure ends the attachment. A thread's session is matched
   by title. A session's agent comes from its folder: an agent's home, or a
   delegation's worktree `<checkout>--<agent>-<slug>`.
+- **GitHub (decided, not built yet):** Approve + merge on the Inbox's ready
+  cards will call `api.github.com` with the owner's own fine-grained tokens
+  from the desktop keyring, never through the server, under
+  [ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md).
+  Its recorded GitHub answers are in `internal/github/testdata/`.
 - **Threads:** the client's goroutines never touch UI state; they post
   functions to the window (`Window.Update`).
 
@@ -491,6 +497,6 @@ Desk list, so older closures and their reports remain readable in the inspector.
 
 ## References
 
-- Rationale: [ADR-0004](../adr/0004-build-a-native-client-of-pi-pockets-own-api.md), [ADR-0005](../adr/0005-organize-the-window-around-what-needs-the-owner.md), [ADR-0006](../adr/0006-filter-notifications-in-the-client.md)
+- Rationale: [ADR-0004](../adr/0004-build-a-native-client-of-pi-pockets-own-api.md), [ADR-0005](../adr/0005-organize-the-window-around-what-needs-the-owner.md), [ADR-0006](../adr/0006-filter-notifications-in-the-client.md), [ADR-0007](../adr/0007-render-terminal-history-before-attaching.md), [ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md)
 - Repository structure: [agent-ready repository](agent-ready-repository.md)
 - Built in: [roadmap](../plans/roadmap.md)

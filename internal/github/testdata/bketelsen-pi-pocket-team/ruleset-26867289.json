@@ -1,0 +1,35 @@
+{
+  "id": 26867289,
+  "name": "frostyard: required checks",
+  "target": "branch",
+  "source_type": "Repository",
+  "source": "bketelsen/pi-pocket-team",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "exclude": [],
+      "include": [
+        "~DEFAULT_BRANCH"
+      ]
+    }
+  },
+  "rules": [
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": false,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          {
+            "context": "Test",
+            "integration_id": 15368
+          }
+        ]
+      }
+    }
+  ],
+  "node_id": "RRS_lACqUmVwb3NpdG9yec5VGdWszgGZ9lk",
+  "created_at": "2026-11-09T11:13:42.153-05:00",
+  "updated_at": "2026-11-09T11:13:42.268-05:00",
+  "current_user_can_bypass": "never"
+}

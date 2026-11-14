@@ -1,0 +1,74 @@
+{
+  "data": {
+    "viewer": {
+      "login": "frostyard-machines"
+    },
+    "repository": {
+      "viewerDefaultMergeMethod": "MERGE",
+      "mergeCommitAllowed": true,
+      "squashMergeAllowed": true,
+      "rebaseMergeAllowed": true,
+      "pullRequest": {
+        "id": "PR_kwDOVT6bws8AAAABPIq8Xw",
+        "number": 55,
+        "title": "desk.json: turn the subscription meter on for Anthropic, hold off",
+        "state": "MERGED",
+        "isDraft": false,
+        "viewerDidAuthor": true,
+        "baseRefName": "main",
+        "baseRefOid": "125fa2f98e462a713be40ddab826583b736e9ce6",
+        "headRefOid": "84f524603dcd3b19bba24285e9361f2e4f2d09c5",
+        "mergeable": "UNKNOWN",
+        "mergeStateStatus": "UNKNOWN",
+        "reviewDecision": "APPROVED",
+        "isMergeQueueEnabled": false,
+        "isInMergeQueue": false,
+        "viewerLatestReview": null,
+        "labels": {
+          "pageInfo": {
+            "hasNextPage": false
+          },
+          "nodes": [
+            {
+              "name": "ready-for-human"
+            }
+          ]
+        },
+        "latestOpinionatedReviews": {
+          "pageInfo": {
+            "hasNextPage": false
+          },
+          "nodes": [
+            {
+              "state": "APPROVED",
+              "author": {
+                "login": "bketelsen"
+              },
+              "commit": {
+                "oid": "84f524603dcd3b19bba24285e9361f2e4f2d09c5"
+              }
+            }
+          ]
+        },
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "oid": "84f524603dcd3b19bba24285e9361f2e4f2d09c5",
+                "statusCheckRollup": null
+              }
+            }
+          ]
+        },
+        "mergedBy": {
+          "login": "bketelsen"
+        },
+        "mergeCommit": {
+          "oid": "b729a160a331a6124a02ea08f052f3aa36dbf5fe"
+        },
+        "mergedAt": "2026-11-14T11:37:20Z",
+        "mergeQueueEntry": null
+      }
+    }
+  }
+}

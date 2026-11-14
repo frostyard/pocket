@@ -1,0 +1,16 @@
+{
+  "name": "main",
+  "commit": {
+    "sha": "17ea42dde5615dce7fb8d1846fb024ef96fbdd07"
+  },
+  "protected": true,
+  "protection": {
+    "enabled": false,
+    "required_status_checks": {
+      "enforcement_level": "off",
+      "contexts": [],
+      "checks": []
+    }
+  },
+  "protection_url": "https://api.github.com/repos/frostyard/core/branches/main/protection"
+}

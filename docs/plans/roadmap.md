@@ -64,6 +64,12 @@ server that surpasses its web app at a desk. Phases 1 to 4 shipped on
   Arrakis extension ([design](../design/pocket.md#places); implemented
   2026-11-13). Harvesters, carryalls, ornithopters, the storm and a Vision
   of a made-up order followed the same day.
+- Approve + merge as the owner on the Inbox's ready cards, with his own
+  GitHub tokens from the desktop keyring: protocol and recorded GitHub
+  answers decided 2026-11-14
+  ([ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md),
+  [design](../design/pocket.md#the-protocol)); the client and the Inbox
+  controls follow.
 - **Done when:** the owner uses Pocket for a full working day without opening
   the web app.
 

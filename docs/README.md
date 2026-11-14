@@ -19,8 +19,8 @@ Docs are split by the question they answer:
 - [0004 — Build a native client of Pi Pocket's own API](adr/0004-build-a-native-client-of-pi-pockets-own-api.md)
 - [0005 — Organize the window around what needs the owner](adr/0005-organize-the-window-around-what-needs-the-owner.md)
 - [0006 — Filter notifications in the client](adr/0006-filter-notifications-in-the-client.md)
-
 - [0007 — Render terminal history before attaching](adr/0007-render-terminal-history-before-attaching.md)
+- [0008 — Approve and merge as the owner from the desktop](adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md)
 
 ### Org-wide decisions
 

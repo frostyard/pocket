@@ -1,0 +1,30 @@
+{
+  "data": {
+    "viewer": {
+      "login": "frostyard-machines"
+    },
+    "repository": {
+      "viewerDefaultMergeMethod": "MERGE",
+      "mergeCommitAllowed": true,
+      "squashMergeAllowed": true,
+      "rebaseMergeAllowed": true,
+      "pullRequest": null
+    }
+  },
+  "errors": [
+    {
+      "type": "NOT_FOUND",
+      "path": [
+        "repository",
+        "pullRequest"
+      ],
+      "locations": [
+        {
+          "line": 10,
+          "column": 5
+        }
+      ],
+      "message": "Could not resolve to a PullRequest with the number of 999999."
+    }
+  ]
+}
