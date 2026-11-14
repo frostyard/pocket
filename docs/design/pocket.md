@@ -506,7 +506,11 @@ panes less room.
     queue (the card comes back, the attempt ends as approved: "left the
     merge queue"). An unknown outcome keeps the PR
     locked, with **Check again** (reads only), **Open on GitHub** and **Try
-    again** (a new attempt through the dialog). GitHub work runs on
+    again** (a new attempt through the dialog). A result whose journal
+    write failed shows with "journal write failed" and keeps the same lock
+    and **Check again**: it wins over the merged hide and the queued view,
+    and no receipt goes out. Each Desk read writes the journal again; on
+    success the lock ends and the receipt is posted. GitHub work runs on
     `githubDo`, whose result reaches the window whatever the server sign-in
     is then.
   - **Journal** (`internal/app/merge_journal.go`): `operations.json` in

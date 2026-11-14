@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -745,5 +746,97 @@ func TestCorruptJournalNeverOverwritesAnEarlierCopy(t *testing.T) {
 	}
 	if !bytes.Equal(fileBytes(t, filepath.Join(dir, name)), earlier) || !bytes.Equal(fileBytes(t, filepath.Join(dir, j.corrupt)), original) {
 		t.Error("a copy was written over")
+	}
+}
+
+// TestUnsavedResultKeepsCheckAgain: GitHub answers merged or queued, then
+// the journal write of that result fails. The card stays in the Inbox,
+// locked, with Check again (neither the merged hide nor the queued view
+// wins), and no receipt goes out. The next Desk refresh writes the journal
+// again; then the lock ends and the receipt is posted.
+func TestUnsavedResultKeepsCheckAgain(t *testing.T) {
+	for _, kind := range []string{"merged", "queued"} {
+		t.Run(kind, func(t *testing.T) {
+			ref := "frostyard/core#1"
+			a, loop, gh, _ := mergeApp(t, ref)
+			h := &receiptHTTP{}
+			a.link.client.HTTP = &http.Client{Transport: h}
+			gh.states[ref] = github.PRState{State: "MERGED"}
+			gh.settle = func(github.Intent, bool) github.Result {
+				return github.Result{Kind: kind, Step: "settle", Method: "merge"}
+			}
+			gh.act = func(in github.Intent, _ string, step func(string) error) github.Result {
+				if err := step(stepAboutToApprove); err != nil {
+					return github.Result{Kind: "refused", Step: "approve", Err: err}
+				}
+				if err := step(stepAboutToMerge); err != nil {
+					return github.Result{Kind: "approved", Step: "merge", Err: err}
+				}
+				if kind == "queued" {
+					return github.Result{Kind: "queued", Step: "merge"}
+				}
+				return github.Result{Kind: "merged", Step: "merge", Method: in.Preview.Method}
+			}
+			startMerge(t, a, loop)
+			var mu sync.Mutex
+			fail, writes := true, 0
+			a.gh.j.rename = func(oldpath, newpath string) error {
+				mu.Lock()
+				defer mu.Unlock()
+				writes++
+				// The start and the 2 checkpoints go; the result fails.
+				if fail && writes > 3 {
+					return errors.New("disk full")
+				}
+				return os.Rename(oldpath, newpath)
+			}
+			runDialog(t, a, loop, false, ref)
+			a.closeMergeDialog()
+			o := a.gh.j.latest(ref)
+			if o == nil || o.Result != kind || !o.unsaved {
+				t.Fatalf("op %+v", o)
+			}
+			if a.mergeHidden(ref) {
+				t.Error("the card of an unsaved result is hidden")
+			}
+			if !a.mergeLocked(ref) {
+				t.Error("the PR of an unsaved result is not locked")
+			}
+			tt := inboxTester(t, a, loop)
+			if _, ok := tt.Find("Check again " + ref); !ok {
+				t.Error("no Check again on the card of an unsaved result")
+			}
+			if h.count() != 0 {
+				t.Errorf("a receipt of an unsaved result went out: %v", h.bodies)
+			}
+			// A Desk refresh while the disk still fails keeps the lock.
+			a.githubDeskRead()
+			loop.RunUntil(t, func() bool { return a.gh.inflight == 0 && len(a.gh.busy) == 0 })
+			if !o.unsaved || !a.mergeLocked(ref) || h.count() != 0 {
+				t.Errorf("after a failed rewrite: unsaved %v locked %v posts %d", o.unsaved, a.mergeLocked(ref), h.count())
+			}
+			// The disk works again: the next Desk refresh writes the journal.
+			mu.Lock()
+			fail = false
+			mu.Unlock()
+			a.githubDeskRead()
+			loop.RunUntil(t, func() bool { return h.count() == 1 })
+			if o.unsaved || h.bodies[0]["op"] != o.ID || h.bodies[0]["result"] != kind {
+				t.Errorf("unsaved %v receipt %v", o.unsaved, h.bodies)
+			}
+			data, err := os.ReadFile(filepath.Join(a.opts.Store.Dir(), journalName))
+			if err != nil || !strings.Contains(string(data), `"result": "`+kind+`"`) {
+				t.Errorf("journal %s %v", data, err)
+			}
+			if kind == "merged" && !a.mergeHidden(ref) {
+				t.Error("a saved merge still shows its card")
+			}
+			if kind == "queued" {
+				tt = inboxTester(t, a, loop)
+				if _, ok := tt.Find("Check again " + ref); ok || a.mergeLocked(ref) {
+					t.Error("a saved queued attempt still shows Check again")
+				}
+			}
+		})
 	}
 }
