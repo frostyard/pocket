@@ -19,8 +19,8 @@ GO_LANGUAGE := $(shell echo "$(GO_VERSION)" | cut -d. -f1,2)
 # runs on it.
 NODE_MAJOR := $(shell node -p "process.versions.node.split('.')[0]" 2>/dev/null)
 
-# The GOOS/GOARCH pairs Pocket builds for. The cross-build matrix of
-# .github/workflows/ci.yml lists the same pairs.
+# The GOOS/GOARCH pairs Pocket builds for. make cross builds and vets each
+# pair; make ci runs make cross, so CI's verify job checks every pair.
 CROSS_TARGETS ?= linux/amd64 linux/arm64 windows/amd64 windows/arm64 darwin/amd64 darwin/arm64
 
 # Where make snapshot and make live write the views as PNGs.
