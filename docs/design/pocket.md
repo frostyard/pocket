@@ -94,6 +94,8 @@ internal/icons ── the icons Pocket draws itself
   linked to a thread or marked failed. Forms retain the revision they opened
   on. Conflicts refresh the same board; a failed supervisor read restores the
   displayed board's choice. An uncertain retry retains its operation key.
+  A waiting row may carry `held: { reason, at }` when the Desk's opt-in meter
+  hold holds its launch; Pocket ignores the field for now.
 - **Numbers** (⌘5) — the Desk's dashboard: completion, closures, cycle time,
   workload, PRs, cost and tokens, closures by day, by repository. The 7/30/90-day
   range and GitHub owner/repository choices filter the snapshot. Delivery and PR
@@ -103,6 +105,10 @@ internal/icons ── the icons Pocket draws itself
   Coverage limits and metric definitions explain what the totals omit.
   The daily closure chart has an integer count axis; hover or keyboard focus
   shows the day's date and count beneath it, including zero-closure days.
+  A Subscriptions card sits above the rest when the dashboard has the optional
+  `meter` field (pi-pocket-team's Desk meter); with no field, there is no card.
+  Each provider row is fresh (a gauge), stale, awaiting a report, or none; its
+  texts come from the server, and Pocket computes no projection.
 - **Wiki** (⌘6) — the homewiki module's pages, read-only, rendered natively;
   links between pages stay in the wiki, and it reads again as pages change.
   A read that fails stays an error in the pane with Try again; until then a

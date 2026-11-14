@@ -329,6 +329,92 @@ type Dashboard struct {
 			Metrics MetricsView `json:"metrics"`
 		} `json:"owners"`
 	} `json:"rows"`
+	// Meter is the Desk's subscription meter (pi-pocket-team's `MeterView`);
+	// nil when the server sends none.
+	Meter *MeterView `json:"meter,omitempty"`
+}
+
+// MeterView is the Desk's subscription meter: 1 row for each provider, as
+// the server reads and projects it. Optional fields are absent when unknown.
+type MeterView struct {
+	At        Millis          `json:"at"`
+	Providers []MeterProvider `json:"providers"`
+	Coverage  MeterCoverage   `json:"coverage"`
+	Hold      *float64        `json:"hold,omitempty"`
+}
+
+// MeterCoverage says how much of the usage ledger the server has read.
+type MeterCoverage struct {
+	Since    *Millis `json:"since,omitempty"`
+	Complete bool    `json:"complete"`
+	Done     int     `json:"done"`
+	Total    int     `json:"total"`
+}
+
+// MeterProvider is 1 provider's subscription usage and ledger. Line is the
+// server's text, with its times already in the server's zone.
+type MeterProvider struct {
+	Provider     string        `json:"provider"`
+	Label        string        `json:"label"`
+	Line         string        `json:"line"`
+	Off          string        `json:"off,omitempty"`
+	LastAttempt  *MeterAttempt `json:"lastAttempt,omitempty"`
+	ReadAt       *Millis       `json:"readAt,omitempty"`
+	MainWindowID string        `json:"mainWindowId,omitempty"`
+	Windows      []MeterWindow `json:"windows"`
+	Grants       []MeterGrant  `json:"grants,omitempty"`
+	GrantsNote   string        `json:"grantsNote,omitempty"`
+	Ledger       MeterLedger   `json:"ledger"`
+}
+
+// MeterAttempt is the server's last try to read a provider's report.
+type MeterAttempt struct {
+	At    Millis `json:"at"`
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
+// MeterWindow is 1 usage window of a provider (a week, a model's week).
+// State is "fresh", "stale" or "awaiting".
+type MeterWindow struct {
+	ID               string   `json:"id"`
+	Label            string   `json:"label"`
+	Scoped           bool     `json:"scoped"`
+	State            string   `json:"state"`
+	Percent          *float64 `json:"percent,omitempty"`
+	ResetsAt         *Millis  `json:"resetsAt,omitempty"`
+	Severity         string   `json:"severity,omitempty"`
+	Active           bool     `json:"active"`
+	BurnPerHour      *float64 `json:"burnPerHour,omitempty"`
+	BurnSpanMinutes  *float64 `json:"burnSpanMinutes,omitempty"`
+	HoursToFull      *float64 `json:"hoursToFull,omitempty"`
+	FullBeforeReset  *bool    `json:"fullBeforeReset,omitempty"`
+	ProjectedAtReset *float64 `json:"projectedAtReset,omitempty"`
+	ResetSeenAt      *Millis  `json:"resetSeenAt,omitempty"`
+}
+
+// MeterGrant is a grant of extra resets that a provider gave.
+type MeterGrant struct {
+	Label      string  `json:"label"`
+	Type       string  `json:"type,omitempty"`
+	ResetsLeft int     `json:"resetsLeft"`
+	EndsAt     *Millis `json:"endsAt,omitempty"`
+}
+
+// MeterLedger is a provider's usage at the API's list price, in US dollars.
+type MeterLedger struct {
+	LastHour    float64          `json:"lastHour"`
+	Today       float64          `json:"today"`
+	Days7       float64          `json:"days7"`
+	Partial     bool             `json:"partial"`
+	Top         []MeterModelCost `json:"top"`
+	UnknownCost *int             `json:"unknownCost,omitempty"`
+}
+
+// MeterModelCost is 1 model's list price in a ledger's top list.
+type MeterModelCost struct {
+	Model string  `json:"model"`
+	Cost  float64 `json:"cost"`
 }
 
 // ProjectRow is one repository's numbers.
