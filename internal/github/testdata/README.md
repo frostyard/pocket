@@ -27,7 +27,7 @@ test that needs the owner's view sets those fields itself.
 
 | Repository | Base | Answers |
 | --- | --- | --- |
-| frostyard/core | merge queue (`SQUASH`), strict checks, 1 organization and 1 repository ruleset | rules, 2 rulesets, branch, PR 253 merged by the queue |
+| frostyard/core | merge queue (`SQUASH`), strict checks, 1 organization and 1 repository ruleset | rules, 2 rulesets, branch, PR 253 merged by the queue, PR 256 open (`ready-for-human`, `risk:high`, every check green, before approval: BLOCKED, REVIEW_REQUIRED, not in the queue) |
 | bketelsen/pi-pocket-team | no queue, 2 repository rulesets | rules, 2 rulesets, branch, PR 237 merged, PR 238 open (`risk:high`, before `ready-for-human`: BLOCKED, REVIEW_REQUIRED, 1 check in progress, the required check `Test` not yet run), PR 999999 not found (HTTP 200 with `errors`) |
 | bketelsen/pi-pocket-config | no ruleset | rules (empty), branch, PR 55 merged (`statusCheckRollup` null) |
 
@@ -48,7 +48,7 @@ test that needs the owner's view sets those fields itself.
 From this folder, with a read-only `gh` sign-in:
 
 ```sh
-./record.sh frostyard/core main 253:merged <open PR>:open
+./record.sh frostyard/core main 253:merged 256:open
 ./record.sh bketelsen/pi-pocket-team main 237:merged 999999 238:open
 ./record.sh bketelsen/pi-pocket-config main 55:merged
 ./record.sh --schema

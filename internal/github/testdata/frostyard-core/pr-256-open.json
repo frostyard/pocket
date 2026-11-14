@@ -1,0 +1,130 @@
+{
+  "data": {
+    "viewer": {
+      "login": "frostyard-machines"
+    },
+    "repository": {
+      "viewerDefaultMergeMethod": "MERGE",
+      "mergeCommitAllowed": true,
+      "squashMergeAllowed": true,
+      "rebaseMergeAllowed": true,
+      "pullRequest": {
+        "id": "PR_kwDOT1orks8AAAABPJeaYg",
+        "number": 256,
+        "title": "feat(risk-paths): add supply chain to the categories of rule B",
+        "state": "OPEN",
+        "isDraft": false,
+        "viewerDidAuthor": true,
+        "baseRefName": "main",
+        "baseRefOid": "17ea42dde5615dce7fb8d1846fb024ef96fbdd07",
+        "headRefOid": "35be957c8a8c373b84e0ef1c035698a7cedb6179",
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "BLOCKED",
+        "reviewDecision": "REVIEW_REQUIRED",
+        "isMergeQueueEnabled": true,
+        "isInMergeQueue": false,
+        "viewerLatestReview": null,
+        "labels": {
+          "pageInfo": {
+            "hasNextPage": false
+          },
+          "nodes": [
+            {
+              "name": "ready-for-human"
+            },
+            {
+              "name": "risk:high"
+            },
+            {
+              "name": "level:L2"
+            }
+          ]
+        },
+        "latestOpinionatedReviews": {
+          "pageInfo": {
+            "hasNextPage": false
+          },
+          "nodes": []
+        },
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "oid": "35be957c8a8c373b84e0ef1c035698a7cedb6179",
+                "statusCheckRollup": {
+                  "contexts": {
+                    "pageInfo": {
+                      "hasNextPage": false,
+                      "endCursor": "NQ"
+                    },
+                    "nodes": [
+                      {
+                        "__typename": "CheckRun",
+                        "name": "docs-gate",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "checkSuite": {
+                          "app": {
+                            "databaseId": 15368
+                          }
+                        }
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "pr-triage / pr-triage",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "checkSuite": {
+                          "app": {
+                            "databaseId": 15368
+                          }
+                        }
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "pr-triage / pr-triage",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "checkSuite": {
+                          "app": {
+                            "databaseId": 15368
+                          }
+                        }
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "fleet-conventions",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "checkSuite": {
+                          "app": {
+                            "databaseId": 15368
+                          }
+                        }
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "scaffold-e2e",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "checkSuite": {
+                          "app": {
+                            "databaseId": 15368
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "mergedBy": null,
+        "mergeCommit": null,
+        "mergedAt": null,
+        "mergeQueueEntry": null
+      }
+    }
+  }
+}

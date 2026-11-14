@@ -142,6 +142,10 @@ Metadata: read.
 - The rules, rulesets and branch answers of frostyard/core (merge queue) and
   bketelsen/pi-pocket-team (no queue), and the PR query for merged PRs of
   frostyard/core, bketelsen/pi-pocket-team and bketelsen/pi-pocket-config.
+- The PR query for an open PR of frostyard/core with `ready-for-human` and
+  every check green, before its approval: `isMergeQueueEnabled` true,
+  `isInMergeQueue` false, `mergeQueueEntry` null, `mergeable` MERGEABLE,
+  `mergeStateStatus` BLOCKED, `reviewDecision` REVIEW_REQUIRED.
 - The PR query for an open PR of bketelsen/pi-pocket-team before its
   approval: `mergeable` MERGEABLE, `mergeStateStatus` BLOCKED,
   `reviewDecision` REVIEW_REQUIRED, `viewerLatestReview` null. A required
