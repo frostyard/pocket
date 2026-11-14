@@ -1,0 +1,217 @@
+[
+  {
+    "inputs": [
+      {
+        "name": "clientMutationId",
+        "required": false,
+        "type": "String"
+      },
+      {
+        "name": "pullRequestId",
+        "required": true,
+        "type": "ID"
+      },
+      {
+        "name": "commitOID",
+        "required": false,
+        "type": "GitObjectID"
+      },
+      {
+        "name": "body",
+        "required": false,
+        "type": "String"
+      },
+      {
+        "name": "event",
+        "required": false,
+        "type": "PullRequestReviewEvent"
+      },
+      {
+        "name": "comments",
+        "required": false,
+        "type": "DraftPullRequestReviewComment"
+      },
+      {
+        "name": "threads",
+        "required": false,
+        "type": "DraftPullRequestReviewThread"
+      }
+    ],
+    "name": "AddPullRequestReviewInput"
+  },
+  {
+    "inputs": [
+      {
+        "name": "clientMutationId",
+        "required": false,
+        "type": "String"
+      },
+      {
+        "name": "pullRequestId",
+        "required": true,
+        "type": "ID"
+      },
+      {
+        "name": "commitHeadline",
+        "required": false,
+        "type": "String"
+      },
+      {
+        "name": "commitBody",
+        "required": false,
+        "type": "String"
+      },
+      {
+        "name": "expectedHeadOid",
+        "required": false,
+        "type": "GitObjectID"
+      },
+      {
+        "name": "mergeMethod",
+        "required": false,
+        "type": "PullRequestMergeMethod"
+      },
+      {
+        "name": "authorEmail",
+        "required": false,
+        "type": "String"
+      }
+    ],
+    "name": "MergePullRequestInput"
+  },
+  {
+    "inputs": [
+      {
+        "name": "clientMutationId",
+        "required": false,
+        "type": "String"
+      },
+      {
+        "name": "pullRequestId",
+        "required": true,
+        "type": "ID"
+      },
+      {
+        "name": "jump",
+        "required": false,
+        "type": "Boolean"
+      },
+      {
+        "name": "expectedHeadOid",
+        "required": false,
+        "type": "GitObjectID"
+      }
+    ],
+    "name": "EnqueuePullRequestInput"
+  },
+  {
+    "deprecated": [
+      "DRAFT"
+    ],
+    "name": "MergeStateStatus",
+    "values": [
+      "DIRTY",
+      "UNKNOWN",
+      "BLOCKED",
+      "BEHIND",
+      "UNSTABLE",
+      "HAS_HOOKS",
+      "CLEAN"
+    ]
+  },
+  {
+    "deprecated": [],
+    "name": "MergeableState",
+    "values": [
+      "MERGEABLE",
+      "CONFLICTING",
+      "UNKNOWN"
+    ]
+  },
+  {
+    "deprecated": [],
+    "name": "PullRequestReviewDecision",
+    "values": [
+      "CHANGES_REQUESTED",
+      "APPROVED",
+      "REVIEW_REQUIRED"
+    ]
+  },
+  {
+    "deprecated": [],
+    "name": "PullRequestReviewState",
+    "values": [
+      "PENDING",
+      "COMMENTED",
+      "APPROVED",
+      "CHANGES_REQUESTED",
+      "DISMISSED"
+    ]
+  },
+  {
+    "deprecated": [],
+    "name": "PullRequestReviewEvent",
+    "values": [
+      "COMMENT",
+      "APPROVE",
+      "REQUEST_CHANGES",
+      "DISMISS"
+    ]
+  },
+  {
+    "deprecated": [],
+    "name": "PullRequestMergeMethod",
+    "values": [
+      "MERGE",
+      "SQUASH",
+      "REBASE"
+    ]
+  },
+  {
+    "deprecated": [],
+    "name": "PullRequestState",
+    "values": [
+      "OPEN",
+      "CLOSED",
+      "MERGED"
+    ]
+  },
+  {
+    "deprecated": [],
+    "name": "CheckStatusState",
+    "values": [
+      "REQUESTED",
+      "QUEUED",
+      "IN_PROGRESS",
+      "COMPLETED",
+      "WAITING",
+      "PENDING"
+    ]
+  },
+  {
+    "deprecated": [],
+    "name": "CheckConclusionState",
+    "values": [
+      "ACTION_REQUIRED",
+      "TIMED_OUT",
+      "CANCELLED",
+      "FAILURE",
+      "SUCCESS",
+      "NEUTRAL",
+      "SKIPPED",
+      "STARTUP_FAILURE",
+      "STALE"
+    ]
+  },
+  {
+    "deprecated": [],
+    "name": "StatusState",
+    "values": [
+      "EXPECTED",
+      "ERROR",
+      "FAILURE",
+      "PENDING",
+      "SUCCESS"
+    ]
+  }
+]

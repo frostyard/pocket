@@ -1,0 +1,16 @@
+{
+  "name": "main",
+  "commit": {
+    "sha": "6b189e0e2f432ca2a74a330a135e643f3b280dc7"
+  },
+  "protected": true,
+  "protection": {
+    "enabled": false,
+    "required_status_checks": {
+      "enforcement_level": "off",
+      "contexts": [],
+      "checks": []
+    }
+  },
+  "protection_url": "https://api.github.com/repos/bketelsen/pi-pocket-team/branches/main/protection"
+}

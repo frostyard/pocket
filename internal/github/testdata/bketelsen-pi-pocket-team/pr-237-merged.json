@@ -1,0 +1,177 @@
+{
+  "data": {
+    "viewer": {
+      "login": "frostyard-machines"
+    },
+    "repository": {
+      "viewerDefaultMergeMethod": "MERGE",
+      "mergeCommitAllowed": true,
+      "squashMergeAllowed": true,
+      "rebaseMergeAllowed": true,
+      "pullRequest": {
+        "id": "PR_kwDOVRnVrM8AAAABPFy9OA",
+        "number": 237,
+        "title": "desk: wire the subscription meter (desk usage, board line, digest footer, dashboard field, Subscriptions card)",
+        "state": "MERGED",
+        "isDraft": false,
+        "viewerDidAuthor": true,
+        "baseRefName": "main",
+        "baseRefOid": "f14be2b2725727728d05ad12e480689e71a8cd99",
+        "headRefOid": "fb6fc9759c03401e522ec8a896d410f5ac0152cb",
+        "mergeable": "UNKNOWN",
+        "mergeStateStatus": "UNKNOWN",
+        "reviewDecision": "APPROVED",
+        "isMergeQueueEnabled": false,
+        "isInMergeQueue": false,
+        "viewerLatestReview": null,
+        "labels": {
+          "pageInfo": {
+            "hasNextPage": false
+          },
+          "nodes": [
+            {
+              "name": "ready-for-human"
+            },
+            {
+              "name": "risk:high"
+            },
+            {
+              "name": "level:L1"
+            }
+          ]
+        },
+        "latestOpinionatedReviews": {
+          "pageInfo": {
+            "hasNextPage": false
+          },
+          "nodes": [
+            {
+              "state": "APPROVED",
+              "author": {
+                "login": "bketelsen"
+              },
+              "commit": {
+                "oid": "fb6fc9759c03401e522ec8a896d410f5ac0152cb"
+              }
+            }
+          ]
+        },
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "oid": "fb6fc9759c03401e522ec8a896d410f5ac0152cb",
+                "statusCheckRollup": {
+                  "contexts": {
+                    "pageInfo": {
+                      "hasNextPage": false,
+                      "endCursor": "OA"
+                    },
+                    "nodes": [
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Test on Pi Pocket v0.27.0",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "checkSuite": {
+                          "app": {
+                            "databaseId": 15368
+                          }
+                        }
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "pr-triage / pr-triage",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "checkSuite": {
+                          "app": {
+                            "databaseId": 15368
+                          }
+                        }
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "pr-triage / pr-triage",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "checkSuite": {
+                          "app": {
+                            "databaseId": 15368
+                          }
+                        }
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "pr-triage / pr-triage",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "checkSuite": {
+                          "app": {
+                            "databaseId": 15368
+                          }
+                        }
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "build",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "checkSuite": {
+                          "app": {
+                            "databaseId": 15368
+                          }
+                        }
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Test on Pi Pocket v0.28.1-bk.1",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "checkSuite": {
+                          "app": {
+                            "databaseId": 15368
+                          }
+                        }
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "deploy",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "checkSuite": {
+                          "app": {
+                            "databaseId": 15368
+                          }
+                        }
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Test",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "checkSuite": {
+                          "app": {
+                            "databaseId": 15368
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "mergedBy": {
+          "login": "bketelsen"
+        },
+        "mergeCommit": {
+          "oid": "6b189e0e2f432ca2a74a330a135e643f3b280dc7"
+        },
+        "mergedAt": "2026-11-14T11:13:24Z",
+        "mergeQueueEntry": null
+      }
+    }
+  }
+}

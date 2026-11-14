@@ -1,0 +1,102 @@
+query PocketPR($owner: String!, $name: String!, $number: Int!, $cursor: String) {
+  viewer {
+    login
+  }
+  repository(owner: $owner, name: $name) {
+    viewerDefaultMergeMethod
+    mergeCommitAllowed
+    squashMergeAllowed
+    rebaseMergeAllowed
+    pullRequest(number: $number) {
+      id
+      number
+      title
+      state
+      isDraft
+      viewerDidAuthor
+      baseRefName
+      baseRefOid
+      headRefOid
+      mergeable
+      mergeStateStatus
+      reviewDecision
+      isMergeQueueEnabled
+      isInMergeQueue
+      viewerLatestReview {
+        state
+        commit {
+          oid
+        }
+      }
+      labels(first: 100) {
+        pageInfo {
+          hasNextPage
+        }
+        nodes {
+          name
+        }
+      }
+      latestOpinionatedReviews(first: 100) {
+        pageInfo {
+          hasNextPage
+        }
+        nodes {
+          state
+          author {
+            login
+          }
+          commit {
+            oid
+          }
+        }
+      }
+      commits(last: 1) {
+        nodes {
+          commit {
+            oid
+            statusCheckRollup {
+              contexts(first: 100, after: $cursor) {
+                pageInfo {
+                  hasNextPage
+                  endCursor
+                }
+                nodes {
+                  __typename
+                  ... on CheckRun {
+                    name
+                    status
+                    conclusion
+                    checkSuite {
+                      app {
+                        databaseId
+                      }
+                    }
+                  }
+                  ... on StatusContext {
+                    context
+                    state
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      mergedBy {
+        login
+      }
+      mergeCommit {
+        oid
+      }
+      mergedAt
+      mergeQueueEntry {
+        enqueuer {
+          login
+        }
+        headCommit {
+          oid
+        }
+      }
+    }
+  }
+}
