@@ -50,6 +50,16 @@ func TestWhoamiRedactsAndNamesTheMissingPermission(t *testing.T) {
 	}
 }
 
+// TestWhoamiNamesTheCall: an error of GET /user names the call.
+func TestWhoamiNamesTheCall(t *testing.T) {
+	f := direct(t)
+	f.restFail = func(string) (int, string, http.Header) { return 401, `{"message":"Bad credentials"}`, nil }
+	_, err := f.client().Whoami(context.Background())
+	if err == nil || !strings.HasPrefix(err.Error(), "GET /user: ") {
+		t.Fatalf("err %v", err)
+	}
+}
+
 func TestCheckRepo(t *testing.T) {
 	f := direct(t)
 	if err := f.client().CheckRepo(context.Background(), f.ref.Owner, f.ref.Name); err != nil {

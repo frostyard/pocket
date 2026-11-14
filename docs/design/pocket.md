@@ -4,7 +4,8 @@ Living document. Rationale: [ADR-0004](../adr/0004-build-a-native-client-of-pi-p
 [ADR-0005](../adr/0005-organize-the-window-around-what-needs-the-owner.md),
 [ADR-0006](../adr/0006-filter-notifications-in-the-client.md),
 [ADR-0007](../adr/0007-render-terminal-history-before-attaching.md),
-[ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md).
+[ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md),
+[ADR-0009](../adr/0009-read-check-runs-only-with-a-token-that-can.md).
 Contracts: none of its own; Pocket speaks Pi Pocket's protocol (below).
 Built in: [roadmap](../plans/roadmap.md).
 
@@ -445,8 +446,9 @@ panes less room.
   delegation's worktree `<checkout>--<agent>-<slug>`.
 - **GitHub (Approve + merge):** the owner approves and merges a ready PR
   as `bketelsen` from the Inbox, calling `api.github.com` with his own
-  fine-grained tokens from the desktop keyring, never through the server,
-  under [ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md).
+  tokens from the desktop keyring, never through the server, under
+  [ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md)
+  and [ADR-0009](../adr/0009-read-check-runs-only-with-a-token-that-can.md).
   `internal/github` holds the client: `Preview` reads the PR query, the
   rules, rulesets and branch protection of its base, and runs the gates;
   `Act` re-reads before each of its 3 allowed mutations (approve at the
@@ -456,9 +458,16 @@ panes less room.
   then null the result); only a 4xx is a refusal, and its 1 read only
   upgrades it when the effect is there. Every read fails closed: a null
   that the Nulls rule does not allow, a null rules page or an unknown merge
-  state refuses. It follows no redirect and redacts the token from every
-  error; a 403 or 404 keeps GitHub's `X-Accepted-GitHub-Permissions` as the
-  missing permission. The reads of Settings and of an earlier attempt send
+  state refuses. A fine-grained token cannot read check runs (GitHub has no
+  Checks permission for it): a PR query whose `errors` refuse a node under
+  `statusCheckRollup` fails with `ErrChecksUnreadable`, so a PR with check
+  runs gets no button with such a token, and no gate reads around it
+  (ADR-0009). It follows no redirect and redacts the token from every
+  error. Each error names its call (`GET <path>` without the query string,
+  or `GraphQL <operation>`) and, for a GraphQL `errors` list, the type and
+  path of each entry (3 at most, then a count); a 403 or 404 keeps GitHub's
+  `X-Accepted-GitHub-Permissions` as the missing permission and adds it to
+  the text. The reads of Settings and of an earlier attempt send
   no mutation: `Whoami` (`GET /user`, the login and the header
   `github-authentication-token-expiration`), `CheckRepo`, `Preflight`
   (the full read of 1 ready PR, gates 1 and 2), `State` (1 PR query) and
@@ -618,6 +627,6 @@ Desk list, so older closures and their reports remain readable in the inspector.
 
 ## References
 
-- Rationale: [ADR-0004](../adr/0004-build-a-native-client-of-pi-pockets-own-api.md), [ADR-0005](../adr/0005-organize-the-window-around-what-needs-the-owner.md), [ADR-0006](../adr/0006-filter-notifications-in-the-client.md), [ADR-0007](../adr/0007-render-terminal-history-before-attaching.md), [ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md)
+- Rationale: [ADR-0004](../adr/0004-build-a-native-client-of-pi-pockets-own-api.md), [ADR-0005](../adr/0005-organize-the-window-around-what-needs-the-owner.md), [ADR-0006](../adr/0006-filter-notifications-in-the-client.md), [ADR-0007](../adr/0007-render-terminal-history-before-attaching.md), [ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md), [ADR-0009](../adr/0009-read-check-runs-only-with-a-token-that-can.md)
 - Repository structure: [agent-ready repository](agent-ready-repository.md)
 - Built in: [roadmap](../plans/roadmap.md)

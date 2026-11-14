@@ -1,6 +1,7 @@
 # 0008 — Approve and merge as the owner from the desktop
 
-- **Status:** Accepted
+- **Status:** Accepted; the PR query's permissions are corrected by
+  [ADR-0009](0009-read-check-runs-only-with-a-token-that-can.md)
 - **Date:** 2026-11-14
 
 ## Context

@@ -40,17 +40,18 @@ func parseExpiry(v string) time.Time {
 	return time.Time{}
 }
 
-// Whoami reads GET /user: the token's login and its expiry.
+// Whoami reads GET /user: the token's login and its expiry. Every error
+// names the call.
 func (c *Client) Whoami(ctx context.Context) (Identity, error) {
 	data, h, err := c.doHeaders(ctx, http.MethodGet, "/user", nil)
 	if err != nil {
-		return Identity{}, Redact(err, c.Token)
+		return Identity{}, Redact(onCall("GET /user", err), c.Token)
 	}
 	var u struct {
 		Login *string `json:"login"`
 	}
 	if err := json.Unmarshal(data, &u); err != nil || u.Login == nil || *u.Login == "" {
-		return Identity{}, incomplete("the user has no login")
+		return Identity{}, onCall("GET /user", incomplete("the user has no login"))
 	}
 	return Identity{Login: *u.Login, Expires: parseExpiry(h.Get("Github-Authentication-Token-Expiration"))}, nil
 }

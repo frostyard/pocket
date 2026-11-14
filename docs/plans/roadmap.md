@@ -69,7 +69,10 @@ server that surpasses its web app at a desk. Phases 1 to 4 shipped on
   answers decided 2026-11-14
   ([ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md),
   [design](../design/pocket.md#the-protocol)); the client and the Inbox
-  controls follow.
+  controls follow. A fine-grained token cannot read check runs: such a PR
+  gets a named refusal until a later decision picks the token
+  ([ADR-0009](../adr/0009-read-check-runs-only-with-a-token-that-can.md),
+  2026-11-14).
 - **Done when:** the owner uses Pocket for a full working day without opening
   the web app.
 
