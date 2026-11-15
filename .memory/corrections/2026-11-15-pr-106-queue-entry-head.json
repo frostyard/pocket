@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-15",
+  "scope": "approve-merge",
+  "correction": "A queued claim must compare the PR's head, not mergeQueueEntry.headCommit, which is the merge group's commit once GitHub builds the group.",
+  "evidence": "frostyard/pocket#106; Desk receipts of 2026-11-15: frostyard/repogen#114, std#114 and updex#527 reported \"left the merge queue\" seconds after the merge group started, then merged",
+  "promoted_to": "internal/github/reads_test.go TestSettleQueueClaimsThePRsHead"
+}

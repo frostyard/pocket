@@ -188,7 +188,7 @@ func mergeEffect(f *fake) {
 func enqueueEffect(f *fake) {
 	pr := f.pr()
 	pr["isInMergeQueue"] = true
-	pr["mergeQueueEntry"] = map[string]any{"enqueuer": map[string]any{"login": Login}, "headCommit": map[string]any{"oid": f.head()}}
+	pr["mergeQueueEntry"] = map[string]any{"enqueuer": map[string]any{"login": Login}}
 }
 
 // failFrom fails every PR read from read n on.
@@ -269,7 +269,7 @@ func TestPreviewRefusesNestedNulls(t *testing.T) {
 		pr["mergeCommit"] = map[string]any{"oid": mergeOid}
 	}
 	entry := func(f *fake) {
-		f.pr()["mergeQueueEntry"] = map[string]any{"enqueuer": map[string]any{"login": Login}, "headCommit": map[string]any{"oid": f.head()}}
+		f.pr()["mergeQueueEntry"] = map[string]any{"enqueuer": map[string]any{"login": Login}}
 	}
 	review := func(f *fake) {
 		f.pr()["viewerLatestReview"] = map[string]any{"state": "COMMENTED", "commit": map[string]any{"oid": f.head()}}
@@ -295,8 +295,6 @@ func TestPreviewRefusesNestedNulls(t *testing.T) {
 		{"mergeCommit oid null", func(f *fake) { merged(f); obj(f.pr(), "mergeCommit")["oid"] = nil }, "mergeCommit.oid is null"},
 		{"mergeQueueEntry enqueuer null", func(f *fake) { entry(f); obj(f.pr(), "mergeQueueEntry")["enqueuer"] = nil }, "mergeQueueEntry.enqueuer is null"},
 		{"mergeQueueEntry enqueuer login null", func(f *fake) { entry(f); obj(f.pr(), "mergeQueueEntry", "enqueuer")["login"] = nil }, "mergeQueueEntry.enqueuer.login is null"},
-		{"mergeQueueEntry headCommit null", func(f *fake) { entry(f); obj(f.pr(), "mergeQueueEntry")["headCommit"] = nil }, "mergeQueueEntry.headCommit is null"},
-		{"mergeQueueEntry headCommit oid null", func(f *fake) { entry(f); obj(f.pr(), "mergeQueueEntry", "headCommit")["oid"] = nil }, "mergeQueueEntry.headCommit.oid is null"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := direct(t)

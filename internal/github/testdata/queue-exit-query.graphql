@@ -1,0 +1,22 @@
+query PocketQueueExit($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      timelineItems(last: 2, itemTypes: [ADDED_TO_MERGE_QUEUE_EVENT, REMOVED_FROM_MERGE_QUEUE_EVENT]) {
+        nodes {
+          __typename
+          ... on AddedToMergeQueueEvent {
+            enqueuer {
+              login
+            }
+          }
+          ... on RemovedFromMergeQueueEvent {
+            reason
+            actor {
+              login
+            }
+          }
+        }
+      }
+    }
+  }
+}

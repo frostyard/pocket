@@ -10,6 +10,9 @@
 #                           (writes only the reads of a base that the owner
 #                            can bypass, ADR-0011: bypass-<PR>.json,
 #                            activity-<PR>.json and compare-<PR>.json)
+#   ./record.sh --queue-exit OWNER/NAME PR [PR ...]
+#                           (writes only the reads of why a PR left the merge
+#                            queue: queue-exit-<PR>.json)
 # Writes OWNER-NAME/*.json. LABEL names the answer (for example 253:merged
 # writes pr-253-merged.json); without it the PR's state names it.
 #
@@ -58,6 +61,20 @@ if [ "${1:-}" = "--bypass" ]; then
 		# Only the counts: the commits and files carry names and email addresses.
 		gh api "repos/$repo/compare/$tip...$head" \
 			| jq '{status, ahead_by, behind_by}' >"$here/$dir/compare-$number.json"
+	done
+	exit 0
+fi
+
+if [ "${1:-}" = "--queue-exit" ]; then
+	repo="$2"
+	shift 2
+	owner="${repo%/*}"
+	name="${repo#*/}"
+	dir="${owner}-${name}"
+	mkdir -p "$here/$dir"
+	for number in "$@"; do
+		gh api graphql -F owner="$owner" -F name="$name" -F number="$number" \
+			-F query=@"$here/queue-exit-query.graphql" | jq '.' >"$here/$dir/queue-exit-$number.json"
 	done
 	exit 0
 fi

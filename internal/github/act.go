@@ -26,6 +26,10 @@ type Result struct {
 	// Step is where the attempt ended: "read", "approve", "reconcile
 	// approve", "read 2", "merge" or "reconcile merge".
 	Step string
+	// QueueExit is why a queued PR left the merge queue, in words, from
+	// GitHub's RemovedFromMergeQueueEvent ("merge conflict", "failed checks",
+	// "merged", with who removed it when a person did); "" when unknown.
+	QueueExit string
 	// Err is GitHub's error (redacted) or the step callback's, when there is
 	// 1: errors.As finds a 401 or a rate limit (*APIError) in it.
 	Err error
@@ -182,11 +186,14 @@ func (c *Client) pending(what string, err error) string {
 const maxReason = 300
 
 // capReason cuts s to maxReason runes.
-func capReason(s string) string {
-	if utf8.RuneCountInString(s) <= maxReason {
+func capReason(s string) string { return clipRunes(s, maxReason) }
+
+// clipRunes cuts s to n runes.
+func clipRunes(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
 		return s
 	}
-	return string([]rune(s)[:maxReason])
+	return string([]rune(s)[:n])
 }
 
 // claimMerge is what 1 read shows of a merge or an enqueue: a merge or a
@@ -208,7 +215,12 @@ func claimMerge(f PRFacts, in Intent, r RepoRules) *Result {
 			by = "someone"
 		}
 		return &Result{Kind: "refused", Reason: "merged by " + by + " at " + shortSHA(f.HeadRefOid)}
-	case f.IsInMergeQueue && f.QueueEntry != nil && f.QueueEntry.Enqueuer == Login && f.QueueEntry.Head == head:
+	// The queue entry's own headCommit is the merge group's commit once GitHub
+	// builds the group, never the PR's head, so the entry proves the enqueue
+	// and the PR's own head is the check: GitHub removes a PR from the queue
+	// when its head moves, so a PR still queued at the shown head is the one
+	// this attempt enqueued.
+	case f.IsInMergeQueue && f.QueueEntry != nil && f.QueueEntry.Enqueuer == Login && f.HeadRefOid == head:
 		return &Result{Kind: "queued", Method: "queue"}
 	}
 	return nil

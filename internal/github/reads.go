@@ -244,7 +244,7 @@ func (c *Client) Preflight(ctx context.Context, ref Ref) PreflightRow {
 type PRState struct {
 	State, MergedBy, Head string
 	InQueue               bool
-	QueueBy, QueueHead    string
+	QueueBy               string
 }
 
 // State reads ref with 1 PR query.
@@ -255,7 +255,7 @@ func (c *Client) State(ctx context.Context, ref Ref) (PRState, error) {
 	}
 	s := PRState{State: f.State, MergedBy: f.MergedBy, Head: f.HeadRefOid, InQueue: f.IsInMergeQueue}
 	if f.QueueEntry != nil {
-		s.QueueBy, s.QueueHead = f.QueueEntry.Enqueuer, f.QueueEntry.Head
+		s.QueueBy = f.QueueEntry.Enqueuer
 	}
 	return s, nil
 }
@@ -266,7 +266,10 @@ func (c *Client) State(ctx context.Context, ref Ref) (PRState, error) {
 // at the shown head is merged or queued; a merge by another actor or at
 // another head is refused, never claimed. Else the owner's approval at the
 // shown head is "approved" ("approved, not merged"), and nothing is
-// "unknown" ("no effect seen"); Err holds a read's error.
+// "unknown" ("no effect seen"); Err holds a read's error. On a queue base,
+// a PR that is open and out of the queue gets 1 more read (PocketQueueExit):
+// a removal that says "merged" stays queued, and any other reason goes in
+// QueueExit.
 func (c *Client) Settle(ctx context.Context, in Intent, op string, wait bool) Result {
 	res := c.settle(ctx, in, wait)
 	res.Op = op
@@ -309,13 +312,144 @@ func (c *Client) settle(ctx context.Context, in Intent, wait bool) Result {
 		end.Step = "settle"
 		return *end
 	}
-	if last != nil && approvedAt(*last, in.Preview.Head) {
-		return Result{Kind: "approved", Step: "settle", Reason: "approved, not merged"}
+	// A PR that is open and out of the queue without a merge says why: the
+	// removal's reason. A removal by the queue that says it merged, while
+	// GitHub does not say MERGED yet, keeps the attempt queued: the queue
+	// merges the group 1 or 2 minutes after its removal. Only at the shown
+	// head: an exit at another head is another enqueue's, never this
+	// attempt's.
+	var exit string
+	exitOK := false
+	if in.Preview.Queue && last != nil && last.State == "OPEN" && !last.IsInMergeQueue && last.HeadRefOid == in.Preview.Head {
+		var exitErr error
+		exit, exitOK, exitErr = c.queueExit(ctx, ref)
+		if exitErr != nil {
+			// The removal may say merged: an error proves nothing, so the
+			// result is unknown with the error, and a queued attempt stays
+			// queued and is read again.
+			return Result{Kind: "unknown", Step: "settle", Reason: "could not read why the PR left the merge queue", Err: exitErr}
+		}
 	}
-	if last == nil && err != nil {
-		return Result{Kind: "unknown", Step: "settle", Reason: "could not read the PR", Err: err}
+	if exitOK && exit == queueExitMerged {
+		return Result{Kind: "queued", Step: "settle", Method: "queue", Reason: "the merge queue merged it; GitHub does not say MERGED yet"}
 	}
-	return Result{Kind: "unknown", Step: "settle", Reason: "no effect seen"}
+	res := Result{Kind: "unknown", Step: "settle", Reason: "no effect seen"}
+	switch {
+	case last != nil && approvedAt(*last, in.Preview.Head):
+		res = Result{Kind: "approved", Step: "settle", Reason: "approved, not merged"}
+	case last == nil && err != nil:
+		res = Result{Kind: "unknown", Step: "settle", Reason: "could not read the PR", Err: err}
+	}
+	if exitOK {
+		res.QueueExit = exit
+	}
+	return res
+}
+
+// queueExitMerged is the exit reason of a PR the queue merged: it stays
+// queued until GitHub shows MERGED.
+const queueExitMerged = "merged"
+
+// mergeQueueActor is GitHub's own login in the actor of a removal from the
+// merge queue: it is not a person, so it is never named in the words.
+const mergeQueueActor = "github-merge-queue"
+
+// maxQueueExit is the longest exit reason in words, in runes.
+const maxQueueExit = 100
+
+// queueExitQuery is the read of why a PR left the merge queue
+// (PocketQueueExit). It is the text of testdata/queue-exit-query.graphql,
+// which a test holds it to.
+const queueExitQuery = `query PocketQueueExit($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      timelineItems(last: 2, itemTypes: [ADDED_TO_MERGE_QUEUE_EVENT, REMOVED_FROM_MERGE_QUEUE_EVENT]) {
+        nodes {
+          __typename
+          ... on AddedToMergeQueueEvent {
+            enqueuer {
+              login
+            }
+          }
+          ... on RemovedFromMergeQueueEvent {
+            reason
+            actor {
+              login
+            }
+          }
+        }
+      }
+    }
+  }
+}
+`
+
+// rawQueueExitNode is 1 timeline event of the queue-exit query: the removal's
+// reason and actor, and the enqueue's enqueuer.
+type rawQueueExitNode struct {
+	Typename *string `json:"__typename"`
+	Enqueuer *struct {
+		Login *string `json:"login"`
+	} `json:"enqueuer"`
+	Reason *string `json:"reason"`
+	Actor  *struct {
+		Login *string `json:"login"`
+	} `json:"actor"`
+}
+
+// queueExit reads the last 2 merge queue events of ref: why the PR left the
+// queue, in words, and true. It is true only when the last event is a removal
+// with a reason and the event before it is the owner's own enqueue; any other
+// shape, a null field or no reason is "" and false, never an error. Only a
+// GraphQL error comes back. The actor may be null: it names a person only
+// when GitHub gives 1.
+func (c *Client) queueExit(ctx context.Context, ref Ref) (string, bool, error) {
+	var out struct {
+		Repository *struct {
+			PullRequest *struct {
+				TimelineItems *struct {
+					Nodes *[]*rawQueueExitNode `json:"nodes"`
+				} `json:"timelineItems"`
+			} `json:"pullRequest"`
+		} `json:"repository"`
+	}
+	vars := map[string]any{"owner": ref.Owner, "name": ref.Name, "number": ref.Number}
+	if err := c.GraphQL(ctx, queueExitQuery, vars, &out); err != nil {
+		return "", false, err
+	}
+	if out.Repository == nil || out.Repository.PullRequest == nil ||
+		out.Repository.PullRequest.TimelineItems == nil || out.Repository.PullRequest.TimelineItems.Nodes == nil {
+		return "", false, nil
+	}
+	nodes := *out.Repository.PullRequest.TimelineItems.Nodes
+	if len(nodes) != 2 || nodes[0] == nil || nodes[1] == nil {
+		return "", false, nil
+	}
+	added, removed := nodes[0], nodes[1]
+	if added.Typename == nil || *added.Typename != "AddedToMergeQueueEvent" ||
+		added.Enqueuer == nil || added.Enqueuer.Login == nil || *added.Enqueuer.Login != Login {
+		return "", false, nil
+	}
+	if removed.Typename == nil || *removed.Typename != "RemovedFromMergeQueueEvent" ||
+		removed.Reason == nil || *removed.Reason == "" {
+		return "", false, nil
+	}
+	actor := ""
+	if removed.Actor != nil && removed.Actor.Login != nil {
+		actor = *removed.Actor.Login
+	}
+	return queueExitWords(*removed.Reason, actor), true, nil
+}
+
+// queueExitWords is a removal's reason in words, with who removed it when a
+// person did: "merge conflict", "failed checks", "merged; removed by
+// <login>".
+func queueExitWords(reason, actor string) string {
+	words := strings.ReplaceAll(strings.ToLower(reason), "_", " ")
+	if actor != "" && actor != mergeQueueActor && !strings.HasSuffix(actor, "[bot]") {
+		words += "; removed by " + actor
+	}
+	return clipRunes(words, maxQueueExit)
 }
 
 // String is the row in words, for a log line.

@@ -93,9 +93,6 @@ query PocketPR($owner: String!, $name: String!, $number: Int!, $cursor: String) 
         enqueuer {
           login
         }
-        headCommit {
-          oid
-        }
       }
     }
   }

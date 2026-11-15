@@ -511,7 +511,18 @@ panes less room.
   does not check on a base the owner can bypass), `State` (1 PR query) and
   `Settle` (1 read, or 4 with waits: merged or queued by the owner at the
   shown head, a merge by another actor refused and never claimed, the
-  owner's approval "approved, not merged", else unknown).
+  owner's approval "approved, not merged", else unknown). A queued claim
+  reads the PR's own head, never the queue entry's `headCommit`: that is the
+  merge group's commit once GitHub builds the group, and GitHub removes a PR
+  from the queue when its head moves. A queued PR that is open and out of
+  the queue at the shown head gets 1 more read, `PocketQueueExit` (the last 2 merge queue
+  events: the owner's enqueue, then the removal's reason and actor), which
+  gives the result's `QueueExit` in words: "merge conflict", "failed
+  checks", "merged", with "; removed by <login>" when a person removed it.
+  An exit reason of exactly "merged" keeps the attempt queued and reads it
+  again, so a removal the queue made before GitHub says MERGED ends as
+  merged, not as "left the merge queue". A failed `PocketQueueExit` read
+  gives unknown with its error, so the attempt stays queued.
   Its recorded GitHub answers are in `internal/github/testdata/`.
   - **Sign-in** (`internal/github/app.go`, `tokensource.go`; ADR-0010):
     the device flow with the App's client ID and no client secret.
@@ -588,8 +599,12 @@ panes less room.
     or not, and finds it merged (only with the queue's method from the
     rules: a failed rules read, or rules with no queue method, claim
     nothing, and the attempt stays queued), still queued, or out of the
-    queue (the card comes back, the attempt ends as approved: "left the
-    merge queue"). An unknown outcome keeps the PR
+    queue: the card comes back and the attempt ends as approved, "left the
+    merge queue", with GitHub's own reason when `PocketQueueExit` gives 1
+    ("left the merge queue: failed checks", "...: merge conflict", "...:
+    merge conflict; removed by <login>"), and no reason when it does not.
+    A removal that says the queue merged it is not an exit: the attempt
+    stays queued and is read again. An unknown outcome keeps the PR
     locked, with **Check again** (reads only), **Open on GitHub** and **Try
     again** (a new attempt through the dialog). A result whose journal
     write failed shows with "journal write failed" and keeps the same lock

@@ -1637,7 +1637,11 @@ func (a *App) settleQueued(o *mergeOp, res github.Result) {
 	case res.Kind == "refused":
 		a.applyResult(o, res)
 	case res.Kind == "approved" || (res.Kind == "unknown" && res.Err == nil):
-		a.applyResult(o, github.Result{Op: o.ID, Kind: "approved", Step: "settle", Reason: "left the merge queue"})
+		reason := "left the merge queue"
+		if res.QueueExit != "" {
+			reason += ": " + res.QueueExit
+		}
+		a.applyResult(o, github.Result{Op: o.ID, Kind: "approved", Step: "settle", Reason: reason})
 		delete(a.gh.previews, o.Intent.Ref)
 		a.ghPreviewReady()
 	}

@@ -20,6 +20,11 @@ test that needs the owner's view sets those fields itself.
   read only on a base where the owner can bypass a ruleset. The client's
   `internal/github/bypass.go` sends the same text; a test holds it to this
   file.
+- `queue-exit-query.graphql`: the read-only query `PocketQueueExit`, why a
+  queued PR left the merge queue (the last 2 merge queue events: the
+  enqueue, then the removal's reason and actor). The client's
+  `internal/github/reads.go` sends the same text; a test holds it to this
+  file.
 - `record.sh`: the recorder. Every call is a REST GET or a GraphQL query.
 - `schema.json`: by introspection, the inputs of `addPullRequestReview`,
   `mergePullRequest` and `enqueuePullRequest`, and the enums the gates read
@@ -38,10 +43,13 @@ test that needs the owner's view sets those fields itself.
     those PRs merged: the reviews show the owner's approval, the newest
     activity is the branch's deletion, and the base has moved on. The tests
     set the open state themselves.
+  - `queue-exit-<number>.json`: the `PocketQueueExit` answer of a PR that
+    left the merge queue: the owner's enqueue and the removal's `reason`
+    and `actor.login`. Recorded on 2026-11-15.
 
 | Repository | Base | Answers |
 | --- | --- | --- |
-| frostyard/core | merge queue (`SQUASH`), strict checks, 1 organization and 1 repository ruleset | rules, 2 rulesets, branch, PR 253 merged by the queue, PR 256 open (`ready-for-human`, `risk:high`, every check green, before approval: BLOCKED, REVIEW_REQUIRED, not in the queue) |
+| frostyard/core | merge queue (`SQUASH`), strict checks, 1 organization and 1 repository ruleset | rules, 2 rulesets, branch, PR 253 merged by the queue, PR 256 open (`ready-for-human`, `risk:high`, every check green, before approval: BLOCKED, REVIEW_REQUIRED, not in the queue), the queue exits of PR 209 (`merge_conflict`) and PR 260 (`merged`) |
 | bketelsen/pi-pocket-team | no queue, 2 repository rulesets | rules, 2 rulesets, branch, PR 237 merged, PR 238 open (`risk:high`, before `ready-for-human`: BLOCKED, REVIEW_REQUIRED, 1 check in progress, the required check `Test` not yet run), PR 999999 not found (HTTP 200 with `errors`) |
 | bketelsen/pi-pocket-config | no ruleset | rules (empty), branch, PR 55 merged (`statusCheckRollup` null) |
 
@@ -68,6 +76,7 @@ From this folder, with a read-only `gh` sign-in:
 ./record.sh --schema
 ./record.sh --bypass frostyard/core main 256
 ./record.sh --bypass bketelsen/pi-pocket-team main 238
+./record.sh --queue-exit frostyard/core 209 260
 ```
 
 Then check the diff, and run `make verify`.
