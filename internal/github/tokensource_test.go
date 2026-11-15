@@ -500,9 +500,21 @@ func TestTokenSourceRefreshAnotherBuild(t *testing.T) {
 	if st := s.ts.Status(); st.SignedIn || st.Login != "" {
 		t.Errorf("status %+v", st)
 	}
+	waitForDelete(t, s)
 	if _, ok := s.st.get(); ok {
 		t.Error("the entry was kept")
 	}
+}
+
+// waitForDelete waits until the ended sign-in's entry is deleted: the waiting
+// Lease returns when memory is cleared, and the delete follows under the
+// write mutex, which wakes the waiters again.
+func waitForDelete(t *testing.T, s *source) {
+	t.Helper()
+	waitFor(t, s.ts, "the delete of the entry", func() bool {
+		_, deletes, _ := s.st.counts()
+		return deletes > 0
+	})
 }
 
 // TestRefreshEndsTheSignIn: a spent, refused or malformed refresh clears
@@ -530,6 +542,7 @@ func TestTokenSourceRefreshEndsTheSignIn(t *testing.T) {
 			if !errors.Is(err, ErrSignIn) {
 				t.Fatalf("lease: %v", err)
 			}
+			waitForDelete(t, s)
 			if st := s.ts.Status(); st.SignedIn || st.DeleteFailed {
 				t.Errorf("status %+v", st)
 			}
