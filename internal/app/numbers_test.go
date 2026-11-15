@@ -290,3 +290,163 @@ func TestMeterFractionalGrants(t *testing.T) {
 		t.Fatalf("grants = %q, want %q", got, want)
 	}
 }
+
+// agentCostFixture is a dashboard with the Desk's cost by agent: an agent
+// with 2 providers and their models, an agent with a 4-figure 7-day cost, a
+// row the Desk could not attribute, and conversations not attributed yet.
+const agentCostFixture = `{"asOf":1763089000000,"range":{"from":"2026-10-14","to":"2026-11-12"},"agents":{
+"at":1763089000000,"partial":true,"pending":2,"rows":[
+{"kind":"agent","agent":"sheeana","label":"Sheeana","sessions":4,
+ "today":{"cost":12.5,"input":1000,"output":200,"cacheRead":5000,"cacheWrite":300,"entries":9,"unknownCost":0},
+ "days7":{"cost":80.25,"input":9000,"output":1500,"cacheRead":40000,"cacheWrite":2000,"entries":60,"unknownCost":1},
+ "providers":[
+  {"provider":"anthropic",
+   "today":{"cost":9.44,"input":800,"output":140,"cacheRead":4000,"cacheWrite":200,"entries":6,"unknownCost":0},
+   "days7":{"cost":70,"input":8000,"output":1300,"cacheRead":36000,"cacheWrite":1500,"entries":50,"unknownCost":1},
+   "models":[{"model":"claude-opus-5-5",
+    "today":{"cost":9.44,"input":800,"output":140,"cacheRead":4000,"cacheWrite":200,"entries":6,"unknownCost":0},
+    "days7":{"cost":70,"input":8000,"output":1300,"cacheRead":36000,"cacheWrite":1500,"entries":50,"unknownCost":1}}]},
+  {"provider":"openai",
+   "today":{"cost":3.06,"input":200,"output":60,"cacheRead":1000,"cacheWrite":100,"entries":3,"unknownCost":0},
+   "days7":{"cost":10.25,"input":1000,"output":200,"cacheRead":4000,"cacheWrite":500,"entries":10,"unknownCost":0},
+   "models":[{"model":"gpt-6.1",
+    "today":{"cost":3.06,"input":200,"output":60,"cacheRead":1000,"cacheWrite":100,"entries":3,"unknownCost":0},
+    "days7":{"cost":10.25,"input":1000,"output":200,"cacheRead":4000,"cacheWrite":500,"entries":10,"unknownCost":0}}]}]},
+{"kind":"agent","agent":"odrade","label":"Odrade","sessions":9,
+ "today":{"cost":0.4,"input":20000,"output":3000,"cacheRead":5000,"cacheWrite":0,"entries":4,"unknownCost":0},
+ "days7":{"cost":1234.5,"input":2000000,"output":300000,"cacheRead":500000,"cacheWrite":0,"entries":120,"unknownCost":2},
+ "providers":[
+  {"provider":"anthropic",
+   "today":{"cost":0.4,"input":20000,"output":3000,"cacheRead":5000,"cacheWrite":0,"entries":4,"unknownCost":0},
+   "days7":{"cost":1234.5,"input":2000000,"output":300000,"cacheRead":500000,"cacheWrite":0,"entries":120,"unknownCost":2},
+   "models":[{"model":"claude-opus-5-5",
+    "today":{"cost":0.4,"input":20000,"output":3000,"cacheRead":5000,"cacheWrite":0,"entries":4,"unknownCost":0},
+    "days7":{"cost":1234.5,"input":2000000,"output":300000,"cacheRead":500000,"cacheWrite":0,"entries":120,"unknownCost":2}}]}]},
+{"kind":"unattributed","label":"Unattributed","sessions":1,
+ "today":{"cost":0,"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"entries":0,"unknownCost":0},
+ "days7":{"cost":0.5,"input":100,"output":20,"cacheRead":0,"cacheWrite":0,"entries":1,"unknownCost":0},
+ "providers":[]},
+{"kind":"pending","label":"Not attributed yet","sessions":2,
+ "today":{"cost":0,"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"entries":0,"unknownCost":0},
+ "days7":{"cost":0,"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"entries":0,"unknownCost":0},
+ "providers":[]}
+]}}`
+
+func TestAgentCostDecode(t *testing.T) {
+	d := decodeMeterDashboard(t, agentCostFixture)
+	v := d.Agents
+	if v == nil || v.At != 1763089000000 || !v.Partial || v.Pending != 2 || len(v.Rows) != 4 {
+		t.Fatalf("agents = %+v", v)
+	}
+	r := v.Rows[0]
+	today, days7 := r.Today, r.Days7
+	if r.Kind != "agent" || r.Agent != "sheeana" || r.Label != "Sheeana" || r.Sessions != 4 {
+		t.Errorf("row = %+v", r)
+	}
+	if today.Cost != 12.5 || today.Input != 1000 || today.Output != 200 || today.CacheRead != 5000 ||
+		today.CacheWrite != 300 || today.Entries != 9 || today.UnknownCost != 0 {
+		t.Errorf("today = %+v", today)
+	}
+	if days7.Cost != 80.25 || days7.Input != 9000 || days7.Output != 1500 || days7.CacheRead != 40000 ||
+		days7.CacheWrite != 2000 || days7.Entries != 60 || days7.UnknownCost != 1 {
+		t.Errorf("days7 = %+v", days7)
+	}
+	if len(r.Providers) != 2 || r.Providers[0].Provider != "anthropic" || r.Providers[1].Days7.Cost != 10.25 {
+		t.Fatalf("providers = %+v", r.Providers)
+	}
+	m := r.Providers[0].Models
+	if len(m) != 1 || m[0].Model != "claude-opus-5-5" || m[0].Today.Cost != 9.44 || m[0].Days7.Entries != 50 {
+		t.Errorf("models = %+v", m)
+	}
+	if u := v.Rows[2]; u.Kind != "unattributed" || u.Agent != "" || u.Sessions != 1 || u.Days7.Cost != 0.5 {
+		t.Errorf("unattributed = %+v", u)
+	}
+	if p := v.Rows[3]; p.Kind != "pending" || p.Label != "Not attributed yet" || p.Sessions != 2 || len(p.Providers) != 0 {
+		t.Errorf("pending = %+v", p)
+	}
+}
+
+func TestAgentCostRows(t *testing.T) {
+	rows := agentCostRows(decodeMeterDashboard(t, agentCostFixture).Agents)
+	if len(rows) != 4 {
+		t.Fatalf("rows = %d", len(rows))
+	}
+	type want struct{ label, today, days7, tokens, providers, models string }
+	wants := []want{
+		{"Sheeana", "today $12.50", "7 days $80.25", "51k in / 2k out",
+			"anthropic $70.00 · openai $10.25", "claude-opus-5-5 $70.00 · gpt-6.1 $10.25"},
+		{"Odrade", "today $0.40", "7 days $1,235", "2.5M in / 300k out",
+			"anthropic $1,235", "claude-opus-5-5 $1,235"},
+		{"Unattributed", "today $0.00", "7 days $0.50", "100 in / 20 out", "", ""},
+		{"Not attributed yet", "today $0.00", "7 days $0.00", "0 in / 0 out", "", ""},
+	}
+	for i, w := range wants {
+		r := rows[i]
+		got := want{r.Label, r.Today, r.Days7, r.Tokens, r.Providers, r.Models}
+		if got != w {
+			t.Errorf("%d:\n got %q\nwant %q", i, got, w)
+		}
+	}
+	// The server's order is kept, never sorted here.
+	if rows[0].Label != "Sheeana" || rows[1].Label != "Odrade" {
+		t.Error("rows reordered")
+	}
+	if agentCostRows(nil) != nil {
+		t.Error("rows without agents")
+	}
+}
+
+func TestAgentMoney(t *testing.T) {
+	for _, tt := range []struct {
+		usd  float64
+		want string
+	}{{0, "$0.00"}, {0.4, "$0.40"}, {99.994, "$99.99"}, {100, "$100"}, {1234.5, "$1,235"}, {1234567.4, "$1,234,567"}} {
+		if got := agentMoney(tt.usd); got != tt.want {
+			t.Errorf("%v = %q, want %q", tt.usd, got, tt.want)
+		}
+	}
+}
+
+func TestNumbersWithoutAgentsHasNoCard(t *testing.T) {
+	a, _ := teamApp(t)
+	a.desk.dash = decodeMeterDashboard(t, meterFixture)
+	if a.desk.dash.Agents != nil {
+		t.Fatal("agents without a field")
+	}
+	tt := ui.NewTesterWith(func(c *ui.Context) { frostui.Adapt(c); a.numbersPane(c) }, 1100, 950, ui.TesterOptions{})
+	tt.Frame()
+	if tt.HasText("Cost by agent") {
+		t.Fatal("card without agents")
+	}
+}
+
+func TestNumbersAgentCostSnapshot(t *testing.T) {
+	a, _ := teamApp(t)
+	a.desk.dashShown = pocket.DashboardQuery{From: "2026-10-14", To: "2026-11-12"}
+	a.desk.dash.Agents = decodeMeterDashboard(t, agentCostFixture).Agents
+	tt := ui.NewTesterWith(func(c *ui.Context) { frostui.Adapt(c); a.numbersPane(c) }, 1100, 1200, ui.TesterOptions{})
+	tt.Frame()
+	for _, text := range []string{"Cost by agent", "Sheeana", "today $12.50", "7 days $80.25", "51k in / 2k out",
+		"anthropic $70.00 · openai $10.25", "claude-opus-5-5 $70.00 · gpt-6.1 $10.25", "Unattributed",
+		"Not attributed yet", "2 conversations not attributed yet.", agentCostNote} {
+		if !tt.HasText(text) {
+			t.Errorf("missing %q", text)
+		}
+	}
+	if tt.HasText("Subscriptions") {
+		t.Error("a card without a meter")
+	}
+	writePNG(t, tt, "numbers-agent-cost")
+}
+
+// TestAgentCostCardEmptyRows checks the card's empty list and its absence:
+// a dashboard with agents but no row still draws the card.
+func TestAgentCostCardEmptyRows(t *testing.T) {
+	a, _ := teamApp(t)
+	a.desk.dash.Agents = &pocket.AgentCost{At: 1763089000000}
+	tt := ui.NewTesterWith(func(c *ui.Context) { frostui.Adapt(c); a.numbersPane(c) }, 1100, 950, ui.TesterOptions{})
+	tt.Frame()
+	if !tt.HasText("No model use in the last 7 days.") || !tt.HasText("Cost by agent") {
+		t.Fatal("empty card missing")
+	}
+}
