@@ -594,8 +594,9 @@ func (a *App) startAgentTask(source int, p *pocket.Persona, task, repository, co
 }
 
 // approvalsDock shows what waits for the person in the session shown:
-// tool calls to allow and questions to answer, above the field, so they
-// never scroll away.
+// tool calls to allow and questions to answer, above the field. It scrolls
+// past half the pane's height, so a long question never pushes the field or
+// its own Answer button out of the window.
 func (a *App) approvalsDock(c *ui.Context) {
 	approvals := a.view.Approvals
 	s := a.byID[a.current]
@@ -603,17 +604,29 @@ func (a *App) approvalsDock(c *ui.Context) {
 	if len(approvals) == 0 && !sub {
 		return
 	}
-	ui.Column(c).AlignItems(ui.Center).Padding(frostui.SpaceS, frostui.SpaceXL, frostui.SpaceS, frostui.SpaceXL).Children(func() {
-		ui.Column(c).MaxWidth(860).FillWidth().AlignItems(ui.Stretch).Gap(frostui.SpaceS).Children(func() {
-			for i := range approvals {
-				a.approvalCard(c.Key(approvals[i].ID), &approvals[i])
-			}
-			if sub {
-				a.subagentWaits(c, s.Approval)
-			}
+	ui.Column(c).AlignItems(ui.Center).MaxHeightPercent(approvalsDockShare).Padding(frostui.SpaceS, frostui.SpaceXL, frostui.SpaceS, frostui.SpaceXL).Children(func() {
+		ui.Column(c).MaxWidth(860).FillWidth().MinHeight(0).AlignItems(ui.Stretch).Gap(frostui.SpaceS).Children(func() {
+			ui.Scroll(c).Children(func() {
+				ui.Column(c).AlignItems(ui.Stretch).Gap(frostui.SpaceS).Children(func() {
+					for i := range approvals {
+						a.approvalCard(c.Key(approvals[i].ID), &approvals[i])
+					}
+					if sub {
+						a.subagentWaits(c, s.Approval)
+					}
+				})
+			})
 		})
 	})
 }
+
+// approvalsDockShare is the tallest the dock draws, in percent of the pane
+// it sits in, before it scrolls: a short card takes its own height, a tall
+// one scrolls inside its share, and the field stays whole with its Answer
+// button 1 scroll away. Its content column lets go of its height
+// (MinHeight(0)), so that the cards shrink into the share the dock takes
+// rather than past it.
+const approvalsDockShare = 50
 
 func (a *App) subagentWaits(c *ui.Context, ap *pocket.SessionApproval) {
 	t := c.Theme()
