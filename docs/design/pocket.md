@@ -515,13 +515,14 @@ panes less room.
   reads the PR's own head, never the queue entry's `headCommit`: that is the
   merge group's commit once GitHub builds the group, and GitHub removes a PR
   from the queue when its head moves. A queued PR that is open and out of
-  the queue gets 1 more read, `PocketQueueExit` (the last 2 merge queue
+  the queue at the shown head gets 1 more read, `PocketQueueExit` (the last 2 merge queue
   events: the owner's enqueue, then the removal's reason and actor), which
   gives the result's `QueueExit` in words: "merge conflict", "failed
   checks", "merged", with "; removed by <login>" when a person removed it.
   An exit reason of exactly "merged" keeps the attempt queued and reads it
   again, so a removal the queue made before GitHub says MERGED ends as
-  merged, not as "left the merge queue".
+  merged, not as "left the merge queue". A failed `PocketQueueExit` read
+  gives unknown with its error, so the attempt stays queued.
   Its recorded GitHub answers are in `internal/github/testdata/`.
   - **Sign-in** (`internal/github/app.go`, `tokensource.go`; ADR-0010):
     the device flow with the App's client ID and no client secret.

@@ -224,6 +224,9 @@ func TestSettleQueueExit(t *testing.T) {
 		name                         string
 		set                          func(*fake)
 		kind, method, exit, contains string
+		// wantErr: the result carries the read's error; noExit: the
+		// queue-exit query is never sent.
+		wantErr, noExit bool
 	}{
 		{name: "a merge conflict", set: func(f *fake) { f.exitAnswer = load(t, "frostyard-core/queue-exit-209.json") },
 			kind: "approved", exit: "merge conflict"},
@@ -235,8 +238,16 @@ func TestSettleQueueExit(t *testing.T) {
 		{name: "another login enqueued it", set: func(f *fake) {
 			f.exitAnswer = queueExitEvents("someone-else", "failed_checks", "bketelsen")
 		}, kind: "approved"},
+		// A failed exit read proves nothing (the removal may say merged): the
+		// result is unknown with the error, so a queued attempt stays queued.
 		{name: "the exit read fails", set: func(f *fake) { f.exitFail = 502 },
-			kind: "approved"},
+			kind: "unknown", contains: "could not read why the PR left the merge queue", wantErr: true},
+		// The PR moved to another head: the last exit is another enqueue's,
+		// never this attempt's, so it is not read and never claims queued.
+		{name: "the head moved", set: func(f *fake) {
+			f.setHead(newHead)
+			f.exitAnswer = load(t, "frostyard-core/queue-exit-260.json")
+		}, kind: "approved", contains: "approved, not merged", noExit: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f, c, in := base(t)
@@ -248,8 +259,15 @@ func TestSettleQueueExit(t *testing.T) {
 			if tc.contains != "" && !strings.Contains(r.Reason, tc.contains) {
 				t.Errorf("reason %q, want %q", r.Reason, tc.contains)
 			}
-			if f.exitReads != 1 {
-				t.Errorf("exit reads %d", f.exitReads)
+			if (r.Err != nil) != tc.wantErr {
+				t.Errorf("err %v, want an error %v", r.Err, tc.wantErr)
+			}
+			want := 1
+			if tc.noExit {
+				want = 0
+			}
+			if f.exitReads != want {
+				t.Errorf("exit reads %d, want %d", f.exitReads, want)
 			}
 			if len(f.mutations) != 0 {
 				t.Errorf("mutations %v", f.mutations)

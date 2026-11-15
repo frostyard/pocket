@@ -315,12 +315,20 @@ func (c *Client) settle(ctx context.Context, in Intent, wait bool) Result {
 	// A PR that is open and out of the queue without a merge says why: the
 	// removal's reason. A removal by the queue that says it merged, while
 	// GitHub does not say MERGED yet, keeps the attempt queued: the queue
-	// merges the group 1 or 2 minutes after its removal.
+	// merges the group 1 or 2 minutes after its removal. Only at the shown
+	// head: an exit at another head is another enqueue's, never this
+	// attempt's.
 	var exit string
 	exitOK := false
-	if in.Preview.Queue && last != nil && last.State == "OPEN" && !last.IsInMergeQueue {
-		// A read that fails proves nothing: the exit stays unknown.
-		exit, exitOK, _ = c.queueExit(ctx, ref)
+	if in.Preview.Queue && last != nil && last.State == "OPEN" && !last.IsInMergeQueue && last.HeadRefOid == in.Preview.Head {
+		var exitErr error
+		exit, exitOK, exitErr = c.queueExit(ctx, ref)
+		if exitErr != nil {
+			// The removal may say merged: an error proves nothing, so the
+			// result is unknown with the error, and a queued attempt stays
+			// queued and is read again.
+			return Result{Kind: "unknown", Step: "settle", Reason: "could not read why the PR left the merge queue", Err: exitErr}
+		}
 	}
 	if exitOK && exit == queueExitMerged {
 		return Result{Kind: "queued", Step: "settle", Method: "queue", Reason: "the merge queue merged it; GitHub does not say MERGED yet"}

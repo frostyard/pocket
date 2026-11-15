@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-15",
+  "scope": "approve-merge",
+  "correction": "A queue-exit read must run only at the shown head, and its failure must give unknown with the error, so that a queued attempt stays queued and never ends on an exit it did not prove.",
+  "evidence": "frostyard/pocket#106, cross-review by openai/gpt-6.1-sol of bbc995ac27d4a89f84dc6ca3c30eb10b2da7cd09 (findings 1 and 2)",
+  "promoted_to": "internal/github/reads_test.go TestSettleQueueExit; internal/app/merge_test.go TestQueuedStaysQueuedWhenTheExitReadFails"
+}

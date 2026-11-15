@@ -977,6 +977,36 @@ func TestQueuedLeavesWithTheExitReason(t *testing.T) {
 	}
 }
 
+// TestQueuedStaysQueuedWhenTheExitReadFails: a failed read of why the PR left
+// the queue proves nothing (the removal may say merged), so the attempt stays
+// queued and a later read records the merge.
+func TestQueuedStaysQueuedWhenTheExitReadFails(t *testing.T) {
+	ref := "frostyard/core#3"
+	a, loop, gh, _ := mergeApp(t, ref)
+	gh.act = func(github.Intent, string, func(string) error) github.Result {
+		return github.Result{Kind: "queued", Step: "merge", Method: "queue"}
+	}
+	startMerge(t, a, loop)
+	runDialog(t, a, loop, false, ref)
+	a.closeMergeDialog()
+	gh.settle = func(github.Intent, bool) github.Result {
+		return github.Result{Kind: "unknown", Step: "settle", Reason: "could not read why the PR left the merge queue", Err: errors.New("HTTP 502")}
+	}
+	a.githubDeskRead()
+	loop.RunUntil(t, func() bool { return len(a.gh.busy) == 0 && a.gh.inflight == 0 })
+	if o := a.gh.j.latest(ref); o.Result != "queued" {
+		t.Fatalf("after a failed exit read: op %+v", o)
+	}
+	gh.settle = func(github.Intent, bool) github.Result {
+		return github.Result{Kind: "merged", Step: "settle", Method: "squash"}
+	}
+	a.githubDeskRead()
+	loop.RunUntil(t, func() bool { return len(a.gh.busy) == 0 && a.gh.inflight == 0 })
+	if o := a.gh.j.latest(ref); o.Result != "merged" || o.Method != "squash" {
+		t.Errorf("after the merge: op %+v", o)
+	}
+}
+
 func writeJournal(t *testing.T, dir string, ops ...*mergeOp) {
 	t.Helper()
 	data, err := json.Marshal(journalFile{Version: journalVersion, Ops: ops})
