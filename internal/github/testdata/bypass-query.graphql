@@ -1,0 +1,45 @@
+query PocketBypass($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(states: OPEN, first: 100) {
+      pageInfo {
+        hasNextPage
+      }
+      nodes {
+        number
+        headRefOid
+      }
+    }
+    pullRequest(number: $number) {
+      headRefOid
+      headRefName
+      isCrossRepository
+      author {
+        __typename
+        login
+      }
+      reviewThreads(first: 100) {
+        pageInfo {
+          hasNextPage
+        }
+        nodes {
+          isResolved
+        }
+      }
+      latestOpinionatedReviews(first: 100) {
+        pageInfo {
+          hasNextPage
+        }
+        nodes {
+          state
+          authorCanPushToRepository
+          author {
+            login
+          }
+          commit {
+            oid
+          }
+        }
+      }
+    }
+  }
+}

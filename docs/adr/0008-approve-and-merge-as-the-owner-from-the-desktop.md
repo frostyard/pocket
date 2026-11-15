@@ -3,7 +3,9 @@
 - **Status:** Accepted; the PR query's permissions are corrected by
   [ADR-0009](0009-read-check-runs-only-with-a-token-that-can.md); identity
   and tokens superseded by
-  [ADR-0010](0010-act-as-the-owner-through-a-github-app-user-token.md)
+  [ADR-0010](0010-act-as-the-owner-through-a-github-app-user-token.md);
+  the no-bypass rule amended by
+  [ADR-0011](0011-act-where-the-owner-can-bypass-only-on-rules-pocket-proves.md)
 - **Date:** 2026-11-14
 
 ## Context

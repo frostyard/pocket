@@ -81,8 +81,13 @@ func TestPreflight(t *testing.T) {
 	}
 	f.rulesets["25664287"].(map[string]any)["current_user_can_bypass"] = "always"
 	row = f.client().Preflight(context.Background(), f.ref)
-	if !row.Readable || row.Bypass != "always" || !strings.Contains(row.Reason, "bypass") {
+	if !row.Readable || row.Bypass != "always" || row.Reason != "" {
 		t.Errorf("bypass row %+v", row)
+	}
+	f.rulesets["25664287"].(map[string]any)["current_user_can_bypass"] = "exempt"
+	row = f.client().Preflight(context.Background(), f.ref)
+	if !row.Readable || row.Bypass != "exempt" || !strings.Contains(row.Reason, "bypass") {
+		t.Errorf("exempt row %+v", row)
 	}
 	obj(f.data, "viewer")["login"] = "frostyard-machines"
 	if row := f.client().Preflight(context.Background(), f.ref); !strings.Contains(row.Reason, "frostyard-machines") {

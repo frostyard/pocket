@@ -1,6 +1,8 @@
 # 0010 — Act as the owner through a GitHub App user token
 
-- **Status:** Accepted
+- **Status:** Accepted; "Never on a ruleset's bypass list" and the
+  `never`-only bypass read amended by
+  [ADR-0011](0011-act-where-the-owner-can-bypass-only-on-rules-pocket-proves.md)
 - **Date:** 2026-11-14
 
 ## Context

@@ -6,7 +6,8 @@ Living document. Rationale: [ADR-0004](../adr/0004-build-a-native-client-of-pi-p
 [ADR-0007](../adr/0007-render-terminal-history-before-attaching.md),
 [ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md),
 [ADR-0009](../adr/0009-read-check-runs-only-with-a-token-that-can.md),
-[ADR-0010](../adr/0010-act-as-the-owner-through-a-github-app-user-token.md).
+[ADR-0010](../adr/0010-act-as-the-owner-through-a-github-app-user-token.md),
+[ADR-0011](../adr/0011-act-where-the-owner-can-bypass-only-on-rules-pocket-proves.md).
 Contracts: none of its own; Pocket speaks Pi Pocket's protocol (below).
 Built in: [roadmap](../plans/roadmap.md).
 
@@ -462,11 +463,22 @@ panes less room.
   access token of the GitHub App "Pocket for bketelsen" (`github.AppName`)
   from the desktop keyring, never through the server, under
   [ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md),
-  [ADR-0009](../adr/0009-read-check-runs-only-with-a-token-that-can.md)
-  and [ADR-0010](../adr/0010-act-as-the-owner-through-a-github-app-user-token.md).
+  [ADR-0009](../adr/0009-read-check-runs-only-with-a-token-that-can.md),
+  [ADR-0010](../adr/0010-act-as-the-owner-through-a-github-app-user-token.md)
+  and [ADR-0011](../adr/0011-act-where-the-owner-can-bypass-only-on-rules-pocket-proves.md).
   GitHub shows each approval and merge as `bketelsen` with the App's badge.
   `internal/github` holds the client: `Preview` reads the PR query, the
-  rules, rulesets and branch protection of its base, and runs the gates;
+  rules, rulesets and branch protection of its base, and runs the gates.
+  Where a ruleset says the owner can bypass it (`always` or
+  `pull_requests_only`; `exempt` or any other value refuses), Pocket
+  proves each rule of that ruleset itself (gate 11, ADR-0011): it reads the
+  `PocketBypass` query (review threads, latest reviews with write access,
+  author type, head branch, other open PRs at the head commit), the head branch's newest push
+  (`GET .../activity`) for `require_last_push_approval`, and
+  `GET .../compare/` for a strict policy with no merge queue; a rule type
+  or parameter it does not model refuses by name, and the card shows "you
+  can bypass a rule here: Pocket checks every rule itself". Where every
+  ruleset says `never`, none of these reads happen;
   `Act` re-reads before each of its 3 allowed mutations (approve at the
   shown head, then merge or enqueue), checks the frozen intent, and
   reconciles by 3 reads a mutation whose answer does not prove a refusal
@@ -489,7 +501,8 @@ panes less room.
   `github-authentication-token-expiration`), `CheckApp` (`GET /user` and
   every page of `GET /user/installations`: for each owner, the App
   installed, not suspended, with the permissions it needs), `CheckRepo`, `Preflight`
-  (the full read of 1 ready PR, gates 1 and 2), `State` (1 PR query) and
+  (the full read of 1 ready PR, gates 1 and 2, with a rule that Pocket
+  does not check on a base the owner can bypass), `State` (1 PR query) and
   `Settle` (1 read, or 4 with waits: merged or queued by the owner at the
   shown head, a merge by another actor refused and never claimed, the
   owner's approval "approved, not merged", else unknown).
@@ -684,6 +697,6 @@ Desk list, so older closures and their reports remain readable in the inspector.
 
 ## References
 
-- Rationale: [ADR-0004](../adr/0004-build-a-native-client-of-pi-pockets-own-api.md), [ADR-0005](../adr/0005-organize-the-window-around-what-needs-the-owner.md), [ADR-0006](../adr/0006-filter-notifications-in-the-client.md), [ADR-0007](../adr/0007-render-terminal-history-before-attaching.md), [ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md), [ADR-0009](../adr/0009-read-check-runs-only-with-a-token-that-can.md), [ADR-0010](../adr/0010-act-as-the-owner-through-a-github-app-user-token.md)
+- Rationale: [ADR-0004](../adr/0004-build-a-native-client-of-pi-pockets-own-api.md), [ADR-0005](../adr/0005-organize-the-window-around-what-needs-the-owner.md), [ADR-0006](../adr/0006-filter-notifications-in-the-client.md), [ADR-0007](../adr/0007-render-terminal-history-before-attaching.md), [ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md), [ADR-0009](../adr/0009-read-check-runs-only-with-a-token-that-can.md), [ADR-0010](../adr/0010-act-as-the-owner-through-a-github-app-user-token.md), [ADR-0011](../adr/0011-act-where-the-owner-can-bypass-only-on-rules-pocket-proves.md)
 - Repository structure: [agent-ready repository](agent-ready-repository.md)
 - Built in: [roadmap](../plans/roadmap.md)

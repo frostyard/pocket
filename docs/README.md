@@ -23,6 +23,7 @@ Docs are split by the question they answer:
 - [0008 — Approve and merge as the owner from the desktop](adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md)
 - [0009 — Read check runs only with a token that can](adr/0009-read-check-runs-only-with-a-token-that-can.md)
 - [0010 — Act as the owner through a GitHub App user token](adr/0010-act-as-the-owner-through-a-github-app-user-token.md)
+- [0011 — Act where the owner can bypass, only on rules Pocket proves](adr/0011-act-where-the-owner-can-bypass-only-on-rules-pocket-proves.md)
 
 ### Org-wide decisions
 

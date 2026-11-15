@@ -1341,6 +1341,31 @@ func TestBatchesOffHidesTheBatchControls(t *testing.T) {
 	}
 }
 
+// TestBypassNoteOnTheCard: an eligible card on a base where the owner can
+// bypass a ruleset says Pocket checks every rule itself (ADR-0011); a card
+// with no note, or a refused card, does not.
+func TestBypassNoteOnTheCard(t *testing.T) {
+	a, loop, gh, _ := mergeApp(t, "frostyard/core#1")
+	p := gh.previews["frostyard/core#1"]
+	p.Note = github.PreviewNote
+	gh.previews["frostyard/core#1"] = p
+	startMerge(t, a, loop)
+	tt := inboxTester(t, a, loop)
+	if !tt.HasText(github.PreviewNote) || !tt.HasText("Approve + merge") {
+		t.Fatalf("eligible with the note: %q", tt.Texts())
+	}
+
+	a, loop, gh, _ = mergeApp(t, "frostyard/core#1")
+	p = gh.previews["frostyard/core#1"]
+	p.Note, p.Eligible, p.Reason = github.PreviewNote, false, "1 review thread is not resolved"
+	gh.previews["frostyard/core#1"] = p
+	startMerge(t, a, loop)
+	tt = inboxTester(t, a, loop)
+	if tt.HasText(github.PreviewNote) || !tt.HasText("1 review thread is not resolved") {
+		t.Fatalf("refused: %q", tt.Texts())
+	}
+}
+
 func TestNoKeyringMeansNoButton(t *testing.T) {
 	a, loop, _, _ := mergeApp(t, "frostyard/core#1")
 	a.opts.GitHubAuth = nil
@@ -1443,7 +1468,7 @@ func TestPreflightTurnsAnOwnerReady(t *testing.T) {
 
 func TestPreflightFailureBlocksTheRepository(t *testing.T) {
 	a, loop, gh, _ := mergeApp(t, "frostyard/core#1", "frostyard/pocket#2")
-	gh.rows = map[string]github.PreflightRow{"frostyard/core": {Repo: "frostyard/core", Readable: true, Bypass: "always", Reason: "you can bypass a rule here (always): Pocket refuses to merge"}}
+	gh.rows = map[string]github.PreflightRow{"frostyard/core": {Repo: "frostyard/core", Readable: true, Bypass: "exempt", Reason: "you can bypass a rule here (exempt): Pocket refuses to merge"}}
 	startMerge(t, a, loop)
 	a.githubPreflight()
 	loop.RunUntil(t, func() bool { return !a.preflightBusy() })

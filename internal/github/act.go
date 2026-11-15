@@ -65,7 +65,7 @@ func (c *Client) act(ctx context.Context, in Intent, step func(string) error) Re
 		return Result{Kind: "refused", Step: "read", Reason: "not eligible at the preview"}
 	}
 
-	// Read 1: gates 1 to 10 and the intent.
+	// Read 1: gates 1 to 11 and the intent.
 	f, r, err := c.read(ctx, ref)
 	if err != nil {
 		return Result{Kind: "failed", Step: "read", Reason: Redact(err, c.Token).Error(), Err: err}
@@ -99,7 +99,7 @@ func (c *Client) act(ctx context.Context, in Intent, step func(string) error) Re
 		}
 	}
 
-	// Read 2: gates 1 to 8 and 10, the approval, and the intent.
+	// Read 2: gates 1 to 8, 10 and 11, the approval, and the intent.
 	f, r, err = c.read(ctx, ref)
 	if err != nil {
 		return Result{Kind: "approved", Step: "read 2", Reason: "could not read the PR", Err: err}

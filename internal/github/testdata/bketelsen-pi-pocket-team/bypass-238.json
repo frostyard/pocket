@@ -1,0 +1,44 @@
+{
+  "data": {
+    "repository": {
+      "pullRequests": {
+        "pageInfo": {
+          "hasNextPage": false
+        },
+        "nodes": []
+      },
+      "pullRequest": {
+        "headRefOid": "3721d27e51c1d046da5d955c6354bb6f1ce0e5f5",
+        "headRefName": "sheeana/t1759-t1-merge-receipts",
+        "isCrossRepository": false,
+        "author": {
+          "__typename": "User",
+          "login": "frostyard-machines"
+        },
+        "reviewThreads": {
+          "pageInfo": {
+            "hasNextPage": false
+          },
+          "nodes": []
+        },
+        "latestOpinionatedReviews": {
+          "pageInfo": {
+            "hasNextPage": false
+          },
+          "nodes": [
+            {
+              "state": "APPROVED",
+              "authorCanPushToRepository": true,
+              "author": {
+                "login": "bketelsen"
+              },
+              "commit": {
+                "oid": "3721d27e51c1d046da5d955c6354bb6f1ce0e5f5"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

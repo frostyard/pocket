@@ -652,6 +652,11 @@ func (a *App) mergeControls(c *ui.Context, p *pocket.ReadyPR) {
 	if mc.newHead && mc.prev != nil {
 		frostui.Caption(c, "new commit since the Desk read: GitHub's head is "+short(mc.prev.Head)).Wrap()
 	}
+	// A base the owner can bypass: the card says Pocket proves each rule
+	// itself (ADR-0011).
+	if mc.prev != nil && mc.prev.Eligible && mc.prev.Note != "" && mc.blocked == "" && !mc.locked {
+		frostui.Caption(c, mc.prev.Note).Wrap()
+	}
 	ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
 		switch {
 		case a.inRunningDialog(ref):

@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-14",
+  "scope": "approve-merge",
+  "correction": "On a base the owner can bypass, Pocket must refuse what it cannot prove: another open PR at the same head commit, an unknown parameter that is on for any rule type, and a missing required parameter of pull_request or required_status_checks.",
+  "evidence": "frostyard/pocket#103, cross-review by openai/gpt-6.1-sol of frostyard/pocket 8b0438e (same-head PR, parameters of the rule types with no proof, missing required parameters)",
+  "promoted_to": "internal/github/bypass_test.go TestBypassSameHead, TestBypassRuleParameters, TestBypassMissingParameters"
+}
