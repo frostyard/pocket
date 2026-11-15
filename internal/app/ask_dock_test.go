@@ -35,16 +35,31 @@ func longQuestion() pocket.Approval {
 	}}
 }
 
-// longAskTester draws the conversation pane with 1 long question waiting.
-func longAskTester(t *testing.T) (*ui.Tester, *App) {
+// longAskTester draws the conversation pane with 1 long question waiting,
+// and what setUp adds to the session's view.
+func longAskTester(t *testing.T, setUp func(a *App)) *ui.Tester {
 	t.Helper()
 	a, _ := teamApp(t)
 	a.current = 7
 	a.view = pocket.NewView()
 	a.view.Approvals = []pocket.Approval{longQuestion()}
+	if setUp != nil {
+		setUp(a)
+	}
 	tt := ui.NewTesterWith(func(c *ui.Context) { frostui.Adapt(c); a.conversationPane(c) }, 900, 420, ui.TesterOptions{})
 	tt.Frame()
-	return tt, a
+	return tt
+}
+
+// fullQueue fills the queue dock as a busy session with 8 waiting messages
+// and 1 held one does, as TestQueueDockKeepsComposerVisible draws it.
+func fullQueue(a *App) {
+	a.view.Live.Busy = true
+	long := strings.Repeat("A long waiting message. ", 13)
+	for i := range 8 {
+		a.view.Inbox = append(a.view.Inbox, pocket.QueueRow{ID: 40 + i, By: "u1", Mode: "followUp", Text: "[from: Brian] " + long})
+	}
+	a.view.Held = []pocket.HeldMessage{{Key: "h1", By: "u1", Text: strings.Repeat("held ", 400)}}
 }
 
 // whole reports whether r is drawn inside a window of height h.
@@ -69,7 +84,7 @@ func askDockScrollsToTheAnswer(t *testing.T, tt *ui.Tester, field ui.Rect, heigh
 // A question taller than the window scrolls in the dock: the person reaches
 // its Answer button with the wheel, and the composer stays whole.
 func TestAskDockScrollsToTheAnswer(t *testing.T) {
-	tt, _ := longAskTester(t)
+	tt := longAskTester(t, nil)
 	writePNG(t, tt, "ask-dock-long")
 	const height float32 = 420
 	field, ok := tt.Find("Message")
@@ -96,7 +111,7 @@ func TestAskDockScrollsToTheAnswer(t *testing.T) {
 // 1 Tab first leaves the message field, which takes End as its own key; with
 // the field focused, the dock keeps the wheel and Tab and not the arrows.
 func TestAskDockKeysScrollToTheAnswer(t *testing.T) {
-	tt, _ := longAskTester(t)
+	tt := longAskTester(t, nil)
 	const height float32 = 420
 	field, ok := tt.Find("Message")
 	if !ok || !whole(field, height) {
@@ -112,4 +127,40 @@ func TestAskDockKeysScrollToTheAnswer(t *testing.T) {
 	tt.Key(0, ui.KeyEnd)
 	tt.Frame()
 	askDockScrollsToTheAnswer(t, tt, field, height)
+}
+
+// A long question beside a full queue dock never pushes the composer out:
+// the approvals dock gives way to the queue and to the field, and the wheel
+// still reaches its Answer button.
+func TestAskDockShrinksBesideAFullQueue(t *testing.T) {
+	tt := longAskTester(t, fullQueue)
+	writePNG(t, tt, "ask-dock-with-queue")
+	const height float32 = 420
+	field, ok := tt.Find("Message")
+	if !ok || !whole(field, height) {
+		t.Fatalf("the composer field is out of the window: %+v (%v): %q", field, ok, tt.Texts())
+	}
+	send, ok := tt.Find("Send (Enter)")
+	if !ok || !whole(send, height) {
+		t.Fatalf("the send button is out of the window: %+v (%v)", send, ok)
+	}
+	title, ok := tt.Find(askTitle)
+	if !ok {
+		t.Fatalf("the card title is not drawn: %q", tt.Texts())
+	}
+	x, y := title.X+title.W/2, title.Y+title.H/2
+	tt.Move(x, y)
+	for range 20 {
+		tt.Wheel(x, y, 0, 120)
+	}
+	tt.Advance(time.Second)
+	tt.Frame()
+	askDockScrollsToTheAnswer(t, tt, field, height)
+	// The queue dock sits between the question and the field: the Answer
+	// button shows above it, not under it.
+	answer, _ := tt.Find("Answer")
+	queue, ok := tt.Find("8 messages waiting for Pi")
+	if !ok || answer.Y+answer.H > queue.Y {
+		t.Errorf("the queue dock covers the answer button: button %+v, queue %+v (%v)", answer, queue, ok)
+	}
 }

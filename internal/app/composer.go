@@ -604,7 +604,7 @@ func (a *App) approvalsDock(c *ui.Context) {
 	if len(approvals) == 0 && !sub {
 		return
 	}
-	ui.Column(c).AlignItems(ui.Center).MaxHeightPercent(approvalsDockShare).Padding(frostui.SpaceS, frostui.SpaceXL, frostui.SpaceS, frostui.SpaceXL).Children(func() {
+	ui.Column(c).AlignItems(ui.Center).MaxHeightPercent(approvalsDockShare).MinHeight(0).Padding(frostui.SpaceS, frostui.SpaceXL, frostui.SpaceS, frostui.SpaceXL).Children(func() {
 		ui.Column(c).MaxWidth(860).FillWidth().MinHeight(0).AlignItems(ui.Stretch).Gap(frostui.SpaceS).Children(func() {
 			ui.Scroll(c).Children(func() {
 				ui.Column(c).AlignItems(ui.Stretch).Gap(frostui.SpaceS).Children(func() {
@@ -623,9 +623,10 @@ func (a *App) approvalsDock(c *ui.Context) {
 // approvalsDockShare is the tallest the dock draws, in percent of the pane
 // it sits in, before it scrolls: a short card takes its own height, a tall
 // one scrolls inside its share, and the field stays whole with its Answer
-// button 1 scroll away. Its content column lets go of its height
-// (MinHeight(0)), so that the cards shrink into the share the dock takes
-// rather than past it.
+// button 1 scroll away. The dock and its content column let go of their
+// height (MinHeight(0)): the cards shrink into the share the dock takes
+// rather than past it, and the dock gives way to the docks under it, the
+// queue and the field, when all of them together are taller than the pane.
 const approvalsDockShare = 50
 
 func (a *App) subagentWaits(c *ui.Context, ap *pocket.SessionApproval) {
