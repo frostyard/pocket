@@ -54,7 +54,7 @@ them rather than improvising, whichever agent you are. Start a new one from
   `mergeView`). `internal/app` is the window: `app.go` (state, events),
   `derived.go` (cached Inbox, session states and thread matches),
   `conn.go` (the link), `frame.go` (frame, commands, palette), `sidebar.go`,
-  `inbox.go`, `board_actions.go` (board details and actions), `core_memory.go` (Pi Pocket lessons), `motion.go` (In motion, Shift board, Numbers), `meter.go` (the Numbers Subscriptions card), `numbers.go` (filters and records), `merge.go` (Approve + merge: cards,
+  `inbox.go`, `board_actions.go` (board details and actions), `core_memory.go` (Pi Pocket lessons), `motion.go` (In motion, Shift board, Numbers), `meter.go` (the Numbers Subscriptions card), `agent_cost.go` (the Numbers Cost by agent card), `numbers.go` (filters and records), `merge.go` (Approve + merge: cards,
   dialog, results, receipts and Settings > GitHub), `merge_journal.go`
   (`operations.json`), `desk.go`,
   `desk_actions.go` (owner thread actions), `plans.go` (plan decisions and scope controls), `new_plan.go` (plan creation), `desk_extras.go` (supplementary lists),

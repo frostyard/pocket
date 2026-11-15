@@ -358,6 +358,61 @@ type Dashboard struct {
 	// Meter is the Desk's subscription meter (pi-pocket-team's `MeterView`);
 	// nil when the server sends none.
 	Meter *MeterView `json:"meter,omitempty"`
+	// Agents is the list price of model use by named agent (pi-pocket-team's
+	// `AgentCostView`); nil when the server sends none.
+	Agents *AgentCost `json:"agents,omitempty"`
+}
+
+// AgentCost is the Desk's list price of model use, rolled up by named agent,
+// today and over the last 7 days, split by provider and model. The server
+// sorts the rows, the providers and the models by 7-day cost, highest first.
+type AgentCost struct {
+	At      Millis         `json:"at"`
+	Partial bool           `json:"partial"` // the ledger does not cover 7 days yet
+	Pending int            `json:"pending"` // conversations not attributed yet
+	Rows    []AgentCostRow `json:"rows"`
+}
+
+// AgentCostRow is 1 agent's use, or the use the Desk could not attribute
+// (kind "unattributed") or has not attributed yet (kind "pending"). Agent is
+// the roster id, present only for kind "agent"; Label is always there to
+// show. Sessions counts the distinct sessions with use in 7 days (for a
+// pending row, the conversations).
+type AgentCostRow struct {
+	Kind      string              `json:"kind"` // agent, unattributed, pending
+	Agent     string              `json:"agent,omitempty"`
+	Label     string              `json:"label"`
+	Sessions  int                 `json:"sessions"`
+	Today     AgentCostTotals     `json:"today"`
+	Days7     AgentCostTotals     `json:"days7"`
+	Providers []AgentCostProvider `json:"providers"`
+}
+
+// AgentCostTotals is 1 span's use: its cost in US dollars at list price, its
+// token counts, and how many answers it counts (with those that have no cost).
+type AgentCostTotals struct {
+	Cost        float64 `json:"cost"`
+	Input       float64 `json:"input"`
+	Output      float64 `json:"output"`
+	CacheRead   float64 `json:"cacheRead"`
+	CacheWrite  float64 `json:"cacheWrite"`
+	Entries     int     `json:"entries"`
+	UnknownCost int     `json:"unknownCost"`
+}
+
+// AgentCostProvider is 1 provider's part of a row's use, with its models'.
+type AgentCostProvider struct {
+	Provider string           `json:"provider"`
+	Today    AgentCostTotals  `json:"today"`
+	Days7    AgentCostTotals  `json:"days7"`
+	Models   []AgentCostModel `json:"models"`
+}
+
+// AgentCostModel is 1 model's part of a provider's use.
+type AgentCostModel struct {
+	Model string          `json:"model"`
+	Today AgentCostTotals `json:"today"`
+	Days7 AgentCostTotals `json:"days7"`
 }
 
 // MeterView is the Desk's subscription meter: 1 row for each provider, as

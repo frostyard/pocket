@@ -553,6 +553,9 @@ func (a *App) numbersPane(c *ui.Context) {
 				if d.Meter != nil {
 					a.meterCard(c, d.Meter)
 				}
+				if d.Agents != nil {
+					a.agentCostCard(c, d.Agents)
+				}
 				a.numberFilters(c, d)
 				m := d.Totals
 				ui.Grid(c).Columns(4).Gap(frostui.SpaceM).Children(func() {

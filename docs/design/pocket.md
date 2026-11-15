@@ -115,6 +115,12 @@ internal/icons ── the icons Pocket draws itself
   `meter` field (pi-pocket-team's Desk meter); with no field, there is no card.
   Each provider row is fresh (a gauge), stale, awaiting a report, or none; its
   texts come from the server, and Pocket computes no projection.
+  A Cost by agent card follows it when the dashboard has the optional `agents`
+  field (pi-pocket-team's cost by agent, from the same meter's ledger); with no
+  field, there is no card. Each row is 1 agent (or the unattributed answers, or
+  those not attributed yet), in the server's order: today's and the last 7
+  days' list price, the 7-day tokens in and out, and the 7-day split by
+  provider and by model. Pocket sums and sorts nothing itself.
 - **Wiki** (⌘6) — the homewiki module's pages, read-only, rendered natively;
   links between pages stay in the wiki, and it reads again as pages change.
   A read that fails stays an error in the pane with Try again; until then a
