@@ -1159,6 +1159,33 @@ func mergeTotals(d *mergeDialog) string {
 	return strings.Join(parts, " · ")
 }
 
+// mergeSuccess is the toast of a dialog whose every PR merged or went
+// into the merge queue, with its result saved in the journal; ok is false
+// for any other end (a refusal, a failure, an unknown outcome, an
+// approval without a merge, a PR not started, or a failed journal write).
+func (a *App) mergeSuccess(d *mergeDialog) (string, bool) {
+	if len(d.items) == 0 {
+		return "", false
+	}
+	for _, it := range d.items {
+		if it.state != "done" || (it.res.Kind != "merged" && it.res.Kind != "queued") {
+			return "", false
+		}
+		if o := a.gh.j.find(it.op); o == nil || o.unsaved || o.Result != it.res.Kind {
+			return "", false
+		}
+	}
+	if len(d.items) > 1 {
+		return "Approve + merge: " + mergeTotals(d), true
+	}
+	it := d.items[0]
+	if it.res.Kind == "queued" {
+		return "Queued " + it.pr.Ref + " in the merge queue", true
+	}
+	o := a.gh.j.find(it.op)
+	return "Merged " + it.pr.Ref + " (" + firstNonEmpty(o.Method, "merge") + ")", true
+}
+
 // newOpID is a random UUID v4, lowercase.
 func newOpID() string {
 	var b [16]byte
@@ -1218,6 +1245,14 @@ func (a *App) mergeNext() {
 		d.done = true
 		totals := mergeTotals(d)
 		a.console.Add(frostui.LevelInfo, "github", "Approve + merge: "+totals)
+		// A dialog where every PR merged or queued has nothing left to
+		// read: it closes, and a toast says the result. Any other end
+		// keeps it open, with each PR's line and its Close button.
+		if msg, ok := a.mergeSuccess(d); ok {
+			a.toast(msg)
+			a.closeMergeDialog()
+			return
+		}
 		a.toast(totals)
 		return
 	}

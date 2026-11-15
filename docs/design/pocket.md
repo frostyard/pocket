@@ -564,7 +564,13 @@ panes less room.
     401 marks the leased token spent (the next lease refreshes) and stops
     every PR not started, of both owners, a rate limit stops
     the batch ("not started: rate limit until HH:MM"), and **Stop** starts
-    no other PR. The end shows each result and a toast with the totals.
+    no other PR. When every PR merged or went into the merge queue, with
+    each result saved in the journal, the dialog closes at once and a toast
+    says the result ("Merged frostyard/core#1 (squash)", "Queued … in the
+    merge queue", or the totals of a batch). Any other end (a refusal, a
+    failure, an unknown outcome, an approval without a merge, a PR not
+    started, a failed journal write) keeps the dialog open with each
+    result and **Close**, and a toast with the totals.
   - **Batches:** Settings > GitHub > Batches (off by default,
     `githubBatches` in the settings) adds check boxes, **Select all
     eligible** (the first 25) and **Approve + merge N**. `risk:high` is
