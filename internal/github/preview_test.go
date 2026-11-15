@@ -62,6 +62,7 @@ type previewCase struct {
 	change func(*fake)
 	reason string // "" is eligible
 	method string
+	note   string // the card's note, for a base the owner can bypass
 }
 
 func TestPreviewGates(t *testing.T) {
@@ -75,10 +76,13 @@ func TestPreviewGates(t *testing.T) {
 		// 1
 		{name: "1 login is the machine account", base: direct, change: func(f *fake) { obj(f.data, "viewer")["login"] = "frostyard-machines" }, reason: "this token is for frostyard-machines"},
 		// 2
-		{name: "2 bypass always", base: direct, change: func(f *fake) { f.rulesets["25664287"].(map[string]any)["current_user_can_bypass"] = "always" }, reason: "you can bypass a rule here (always)"},
-		{name: "2 bypass pull_requests_only", base: queue, change: func(f *fake) {
+		{name: "2 bypass always, every rule proven", base: direct, method: "merge", note: PreviewNote, change: func(f *fake) {
+			bypassAll(f, "always")
+		}},
+		{name: "2 bypass pull_requests_only, every rule proven", base: queue, method: "queue", note: PreviewNote, change: func(f *fake) {
 			f.rulesets["24434288"].(map[string]any)["current_user_can_bypass"] = "pull_requests_only"
-		}, reason: "you can bypass a rule here (pull_requests_only)"},
+		}},
+		{name: "2 bypass exempt", base: direct, change: func(f *fake) { f.rulesets["25664287"].(map[string]any)["current_user_can_bypass"] = "exempt" }, reason: "you can bypass a rule here (exempt)"},
 		{name: "2 bypass missing", base: direct, change: func(f *fake) { delete(f.rulesets["26867289"].(map[string]any), "current_user_can_bypass") }, reason: "you can bypass a rule here (unknown)"},
 		{name: "2 classic protection on", base: direct, change: func(f *fake) { obj(f.branch, "protection")["enabled"] = true }, reason: "classic branch protection"},
 		{name: "2 protected but no classic protection", base: direct, method: "merge", change: func(f *fake) { f.branch["protected"] = true }},
@@ -177,6 +181,9 @@ func TestPreviewGates(t *testing.T) {
 			}
 			if tc.reason == "" && (p.Method != tc.method || p.Reason != "") {
 				t.Fatalf("method %q, reason %q", p.Method, p.Reason)
+			}
+			if p.Note != tc.note {
+				t.Fatalf("note %q, want %q", p.Note, tc.note)
 			}
 			if len(f.mutations) != 0 {
 				t.Fatalf("a preview sent %v", f.mutations)
@@ -357,18 +364,18 @@ func TestRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := RepoRules{Required: []RequiredCheck{{"docs-gate", 15368}, {"fleet-conventions", 15368}, {"scaffold-e2e", 15368}}, Queue: true, Bypass: "never", queueMethod: "squash"}
+	want := RepoRules{Required: []RequiredCheck{{"docs-gate", 15368}, {"fleet-conventions", 15368}, {"scaffold-e2e", 15368}}, Queue: true, Bypass: "never", queueMethod: "squash", baseTip: "17ea42dde5615dce7fb8d1846fb024ef96fbdd07"}
 	if !reflect.DeepEqual(r, want) {
 		t.Fatalf("%+v", r)
 	}
 	// pi-pocket-team lists Test twice: once is enough.
 	f = direct(t)
-	if r, err = f.client().Rules(context.Background(), f.ref, "main"); err != nil || !reflect.DeepEqual(r, RepoRules{Required: []RequiredCheck{{"Test", 15368}}, Bypass: "never"}) {
+	if r, err = f.client().Rules(context.Background(), f.ref, "main"); err != nil || !reflect.DeepEqual(r, RepoRules{Required: []RequiredCheck{{"Test", 15368}}, Bypass: "never", baseTip: "6b189e0e2f432ca2a74a330a135e643f3b280dc7"}) {
 		t.Fatalf("%+v %v", r, err)
 	}
 	// No ruleset at all (pi-pocket-config): never, no checks.
 	f = newFake(t, Ref{"bketelsen", "pi-pocket-config", 55}, "bketelsen-pi-pocket-config", "pr-55-merged.json")
-	if r, err = f.client().Rules(context.Background(), f.ref, "main"); err != nil || !reflect.DeepEqual(r, RepoRules{Bypass: "never"}) {
+	if r, err = f.client().Rules(context.Background(), f.ref, "main"); err != nil || !reflect.DeepEqual(r, RepoRules{Bypass: "never", baseTip: "b729a160a331a6124a02ea08f052f3aa36dbf5fe"}) {
 		t.Fatalf("%+v %v", r, err)
 	}
 }

@@ -6,6 +6,10 @@
 #   ./record.sh OWNER/NAME BASE PR[:LABEL] [PR[:LABEL] ...]
 #   ./record.sh --schema    (writes schema.json: the 3 mutation inputs and
 #                            the enums the gates read, by introspection)
+#   ./record.sh --bypass OWNER/NAME BASE PR [PR ...]
+#                           (writes only the reads of a base that the owner
+#                            can bypass, ADR-0011: bypass-<PR>.json,
+#                            activity-<PR>.json and compare-<PR>.json)
 # Writes OWNER-NAME/*.json. LABEL names the answer (for example 253:merged
 # writes pr-253-merged.json); without it the PR's state names it.
 #
@@ -30,6 +34,31 @@ if [ "${1:-}" = "--schema" ]; then
 				--jq '.data.__type | {name, values: [.enumValues[] | select(.isDeprecated | not) | .name], deprecated: [.enumValues[] | select(.isDeprecated) | .name]}'
 		done
 	} | jq -s '.' >"$here/schema.json"
+	exit 0
+fi
+
+if [ "${1:-}" = "--bypass" ]; then
+	repo="$2"
+	base="$3"
+	shift 3
+	owner="${repo%/*}"
+	name="${repo#*/}"
+	dir="${owner}-${name}"
+	mkdir -p "$here/$dir"
+	tip="$(gh api "repos/$repo/branches/$base" --jq '.commit.sha')"
+	for number in "$@"; do
+		gh api graphql -F owner="$owner" -F name="$name" -F number="$number" \
+			-F query=@"$here/bypass-query.graphql" | jq '.' >"$here/$dir/bypass-$number.json"
+		head="$(jq -r '.data.repository.pullRequest.headRefOid' "$here/$dir/bypass-$number.json")"
+		ref="refs/heads/$(jq -r '.data.repository.pullRequest.headRefName' "$here/$dir/bypass-$number.json")"
+		# Only the fields Pocket reads: no avatar, no URL.
+		gh api -X GET "repos/$repo/activity" -f ref="$ref" -f per_page=5 \
+			| jq '[.[] | {ref, before, after, activity_type, actor: {login: .actor.login}}]' \
+				>"$here/$dir/activity-$number.json"
+		# Only the counts: the commits and files carry names and email addresses.
+		gh api "repos/$repo/compare/$tip...$head" \
+			| jq '{status, ahead_by, behind_by}' >"$here/$dir/compare-$number.json"
+	done
 	exit 0
 fi
 

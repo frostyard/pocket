@@ -154,6 +154,10 @@ type PRFacts struct {
 	MergeCommit string // "" when null
 	MergedAt    string // "" when null
 	QueueEntry  *QueueEntry
+
+	// Bypass is what the owner can bypass here, read by bypassFacts; nil when
+	// the rules need no proof (ADR-0011).
+	Bypass *BypassFacts
 }
 
 // Review is a review's state, author and commit.

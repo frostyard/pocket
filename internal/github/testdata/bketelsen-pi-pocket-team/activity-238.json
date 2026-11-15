@@ -1,0 +1,20 @@
+[
+  {
+    "ref": "refs/heads/sheeana/t1759-t1-merge-receipts",
+    "before": "3721d27e51c1d046da5d955c6354bb6f1ce0e5f5",
+    "after": "0000000000000000000000000000000000000000",
+    "activity_type": "branch_deletion",
+    "actor": {
+      "login": "bketelsen"
+    }
+  },
+  {
+    "ref": "refs/heads/sheeana/t1759-t1-merge-receipts",
+    "before": "0000000000000000000000000000000000000000",
+    "after": "3721d27e51c1d046da5d955c6354bb6f1ce0e5f5",
+    "activity_type": "branch_creation",
+    "actor": {
+      "login": "frostyard-machines"
+    }
+  }
+]

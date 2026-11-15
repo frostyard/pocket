@@ -392,7 +392,11 @@ func mergeSnapshotApp(t *testing.T) (*App, *frostuitest.Loop, *fakeGH) {
 		gh.previews[refs[i]] = p
 	}
 	a.settings.GitHubBatches = true
-	p := gh.previews[refs[1]]
+	// core: a base where the owner can bypass a ruleset (ADR-0011).
+	p := gh.previews[refs[0]]
+	p.Note = github.PreviewNote
+	gh.previews[refs[0]] = p
+	p = gh.previews[refs[1]]
 	p.RiskHigh = true
 	gh.previews[refs[1]] = p
 	a.desk.view.Ready[1].Level = "L1"
@@ -464,7 +468,7 @@ func TestMergeSnapshots(t *testing.T) {
 
 	// Settings > GitHub after a sign-in and a preflight.
 	gh.rows = map[string]github.PreflightRow{
-		"frostyard/nsl":  {Repo: "frostyard/nsl", Readable: true, Bypass: "always", Reason: "you can bypass a rule here (always): Pocket refuses to merge"},
+		"frostyard/nsl":  {Repo: "frostyard/nsl", Readable: true, Bypass: "exempt", Reason: "you can bypass a rule here (exempt): Pocket refuses to merge"},
 		"frostyard/snow": {Repo: "frostyard/snow", Missing: "pull_requests=read", Reason: "the Pocket App needs Pull requests: read on frostyard"},
 	}
 	a.githubPreflight()

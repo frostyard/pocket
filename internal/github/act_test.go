@@ -66,8 +66,8 @@ func TestAct(t *testing.T) {
 			kind: "refused", step: "read", reason: "no ready-for-human label"},
 		{name: "read 1: login is the machine account: refused", base: direct, change: func(f *fake) { obj(f.data, "viewer")["login"] = "frostyard-machines" },
 			kind: "refused", step: "read", reason: "this token is for frostyard-machines"},
-		{name: "read 1: bypass now: refused", base: direct, change: func(f *fake) { f.rulesets["25664287"].(map[string]any)["current_user_can_bypass"] = "always" },
-			kind: "refused", step: "read", reason: "you can bypass a rule here"},
+		{name: "read 1: bypass exempt: refused", base: direct, change: func(f *fake) { f.rulesets["25664287"].(map[string]any)["current_user_can_bypass"] = "exempt" },
+			kind: "refused", step: "read", reason: "you can bypass a rule here (exempt)"},
 		{name: "read 1: 401: failed", base: direct, change: func(f *fake) {
 			f.prFail = func(int) (int, string, http.Header) { return 401, `{"message":"Bad credentials"}`, nil }
 		}, kind: "failed", step: "read", reason: "Bad credentials", check: func(t *testing.T, _ *fake, r Result) {

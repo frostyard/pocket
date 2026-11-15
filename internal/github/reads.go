@@ -221,7 +221,8 @@ type PreflightRow struct {
 }
 
 // Preflight runs the full read of ref (the PR query, rules, rulesets and
-// branch) and gates 1 and 2 on it. It sends no mutation.
+// branch) and gates 1 and 2 on it: a rule of a bypassed ruleset that Pocket
+// does not check itself is gate 2's reason. It sends no mutation.
 func (c *Client) Preflight(ctx context.Context, ref Ref) PreflightRow {
 	row := PreflightRow{Repo: ref.Owner + "/" + ref.Name}
 	f, r, err := c.read(ctx, ref)

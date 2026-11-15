@@ -9,9 +9,9 @@ import (
 type Stage int
 
 const (
-	// AtPreview is gates 1 to 10: a card's button, and read 1 at the click.
+	// AtPreview is gates 1 to 11: a card's button, and read 1 at the click.
 	AtPreview Stage = iota
-	// AfterApproval is gates 1 to 8 and 10, the owner's approval at the
+	// AfterApproval is gates 1 to 8, 10 and 11, the owner's approval at the
 	// head, the review decision, and a merge state that merges.
 	AfterApproval
 )
@@ -24,26 +24,106 @@ const (
 // queued says the base merges through a merge queue.
 func queued(f PRFacts, r RepoRules) bool { return r.Queue || f.IsMergeQueueEnabled }
 
-// repoGate is gates 1 and 2: the owner's token, then no bypass and no
-// classic protection. The preflight of a repository runs it too.
+// repoGate is gates 1 and 2: the owner's token, then a bypass Pocket does
+// not handle, classic protection, and a rule of a bypassed ruleset that
+// Pocket does not check itself. The preflight of a repository runs it too.
 func repoGate(f PRFacts, r RepoRules) string {
 	if f.Viewer != Login {
 		return fmt.Sprintf("this token is for %s, not %s", f.Viewer, Login)
 	}
-	if r.Bypass != "never" {
+	switch r.Bypass {
+	case "never", "always", "pull_requests_only":
+		// Handled: no bypass, or a bypass Pocket proves rule by rule.
+	default:
 		return fmt.Sprintf("you can bypass a rule here (%s): Pocket refuses to merge", r.Bypass)
 	}
 	if r.Classic {
 		return "classic branch protection: not supported"
 	}
+	if r.Bypass != "never" && r.Proof.Unchecked != "" {
+		return "you can bypass rule " + r.Proof.Unchecked + " here, and Pocket does not check it itself: Pocket refuses to merge"
+	}
 	return ""
 }
 
-// Check runs the gates of ADR-0008 on 1 read, and gives the first that
-// fails with a short reason.
+// bypassGate is gate 11: every rule of every ruleset the owner can bypass,
+// proven by Pocket's own reads (ADR-0011). It says nothing on a base with
+// no bypass, and it proves the most refusals first.
+func bypassGate(f PRFacts, r RepoRules, stage Stage) string {
+	if r.Bypass == "never" {
+		return ""
+	}
+	b := f.Bypass
+	if b == nil || b.Head != f.HeadRefOid {
+		return "Pocket could not read what the rules you can bypass need"
+	}
+	// The method the merge will use: the queue's on a queue base.
+	m, _ := mergeMethod(f, r)
+	if m == "queue" {
+		m = r.queueMethod
+	}
+	if r.Proof.Linear && m == "merge" {
+		return "the rules need a linear history: no merge commit"
+	}
+	if r.Proof.MethodsSet && !has(r.Proof.Methods, m) {
+		return "the rules do not allow the " + m + " method"
+	}
+	if r.Proof.Threads && b.Unresolved > 0 {
+		if b.Unresolved == 1 {
+			return "1 review thread is not resolved"
+		}
+		return fmt.Sprintf("%d review threads are not resolved", b.Unresolved)
+	}
+	if r.Proof.Strict && !queued(f, r) && b.Behind != 0 {
+		return "the PR is behind its base"
+	}
+	if r.Proof.LastPush {
+		switch b.LastPusher {
+		case "":
+			return "Pocket cannot prove who pushed last"
+		case f.Viewer:
+			return "you pushed last, so your approval does not count"
+		}
+	}
+	if r.Proof.Approvals > 0 {
+		need := r.Proof.Approvals
+		if r.Proof.ExtraUnattributed && b.AuthorType != "User" {
+			need++
+		}
+		have := 0
+		for _, a := range b.Approvers {
+			if a != f.Viewer {
+				have++
+			}
+		}
+		// At the preview the owner's approval comes before the merge; after
+		// it, it counts only when GitHub shows it at the head.
+		if stage == AtPreview || has(b.Approvers, f.Viewer) {
+			have++
+		}
+		if have < need {
+			return fmt.Sprintf("the rules need %d approvals at the head; Pocket counts %d", need, have)
+		}
+	}
+	return ""
+}
+
+// has says the list holds want.
+func has(list []string, want string) bool {
+	for _, s := range list {
+		if s == want {
+			return true
+		}
+	}
+	return false
+}
+
+// Check runs the gates of ADR-0008 on 1 read, and gate 11 of ADR-0011, and
+// gives the first that fails with a short reason.
 func Check(f PRFacts, r RepoRules, stage Stage) (ok bool, reason string) {
 	for _, gate := range []func() string{
-		// 1. The owner's token, and 2. no bypass and no classic protection.
+		// 1. The owner's token, and 2. the bypass, the classic protection,
+		// and a bypassed rule Pocket does not check itself.
 		func() string { return repoGate(f, r) },
 		// 3. Open, not a draft, not the viewer's, its head is its last commit.
 		func() string {
@@ -143,6 +223,9 @@ func Check(f PRFacts, r RepoRules, stage Stage) (ok bool, reason string) {
 			_, why := mergeMethod(f, r)
 			return why
 		},
+		// 11. Every rule of every ruleset the owner can bypass, proven by
+		// Pocket's own reads.
+		func() string { return bypassGate(f, r, stage) },
 		// After the approval: the owner's approval at the head, the review
 		// decision, and a merge state that merges.
 		func() string {

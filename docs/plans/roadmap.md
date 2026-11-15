@@ -73,7 +73,10 @@ server that surpasses its web app at a desk. Phases 1 to 4 shipped on
   2026-11-14), so the owner signs in through the GitHub App "Pocket for
   bketelsen" with the device flow: GitHub App sign-in, ADR-0010
   ([ADR-0010](../adr/0010-act-as-the-owner-through-a-github-app-user-token.md),
-  [design](../design/pocket.md#the-protocol)). Done when the owner's
+  [design](../design/pocket.md#the-protocol)). On a base where the owner
+  can bypass a ruleset, Pocket proves each of its rules itself
+  ([ADR-0011](../adr/0011-act-where-the-owner-can-bypass-only-on-rules-pocket-proves.md),
+  2026-11-14). Done when the owner's
   first direct merge from Pocket shows `bketelsen` with the App's badge.
 - **Done when:** the owner uses Pocket for a full working day without opening
   the web app.

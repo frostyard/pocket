@@ -1,0 +1,20 @@
+[
+  {
+    "ref": "refs/heads/lucilla/risk-paths-supply-chain",
+    "before": "35be957c8a8c373b84e0ef1c035698a7cedb6179",
+    "after": "0000000000000000000000000000000000000000",
+    "activity_type": "branch_deletion",
+    "actor": {
+      "login": "bketelsen"
+    }
+  },
+  {
+    "ref": "refs/heads/lucilla/risk-paths-supply-chain",
+    "before": "0000000000000000000000000000000000000000",
+    "after": "35be957c8a8c373b84e0ef1c035698a7cedb6179",
+    "activity_type": "branch_creation",
+    "actor": {
+      "login": "frostyard-machines"
+    }
+  }
+]

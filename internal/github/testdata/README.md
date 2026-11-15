@@ -15,6 +15,11 @@ test that needs the owner's view sets those fields itself.
 - `pr-query.graphql`: the PR query (`PocketPR`). The client's
   `internal/github/query.go` sends the same text; a test holds it to this
   file.
+- `bypass-query.graphql`: the query `PocketBypass` of
+  [ADR-0011](../../../docs/adr/0011-act-where-the-owner-can-bypass-only-on-rules-pocket-proves.md),
+  read only on a base where the owner can bypass a ruleset. The client's
+  `internal/github/bypass.go` sends the same text; a test holds it to this
+  file.
 - `record.sh`: the recorder. Every call is a REST GET or a GraphQL query.
 - `schema.json`: by introspection, the inputs of `addPullRequestReview`,
   `mergePullRequest` and `enqueuePullRequest`, and the enums the gates read
@@ -25,6 +30,14 @@ test that needs the owner's view sets those fields itself.
     `ruleset_id` above, with `current_user_can_bypass`.
   - `branches-main.json`: `GET /repos/{o}/{r}/branches/main`.
   - `pr-<number>-<state>.json`: the PR query's answer.
+  - `bypass-<number>.json`, `activity-<number>.json`,
+    `compare-<number>.json` (ADR-0011): the `PocketBypass` answer, the
+    head branch's activity (`ref`, `before`, `after`, `activity_type`,
+    `actor.login` only) and the compare of the base's tip with the head
+    (`status`, `ahead_by`, `behind_by` only). Recorded on 2026-11-14 after
+    those PRs merged: the reviews show the owner's approval, the newest
+    activity is the branch's deletion, and the base has moved on. The tests
+    set the open state themselves.
 
 | Repository | Base | Answers |
 | --- | --- | --- |
@@ -53,6 +66,8 @@ From this folder, with a read-only `gh` sign-in:
 ./record.sh bketelsen/pi-pocket-team main 237:merged 999999 238:open
 ./record.sh bketelsen/pi-pocket-config main 55:merged
 ./record.sh --schema
+./record.sh --bypass frostyard/core main 256
+./record.sh --bypass bketelsen/pi-pocket-team main 238
 ```
 
 Then check the diff, and run `make verify`.

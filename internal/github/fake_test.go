@@ -69,8 +69,19 @@ type fake struct {
 	pages    [][]any        // check contexts by page; nil: as in data
 	pageHead map[int]string // headRefOid on a later page
 
-	reads  int // PR queries served
-	onRead func(n int, pr map[string]any)
+	// bypassPR is the recorded bypass answer (testdata/<dir>/bypass-<n>.json),
+	// with the owner's reviews emptied: the view before the approval. It is
+	// nil when the repository has no recorded bypass read.
+	bypassPR map[string]any
+	onBypass func(pr map[string]any)
+	// activityRaw is a whole activity page to serve instead of the default 1
+	// push by frostyard-machines; behind is the compare's behind_by.
+	activityRaw string
+	behind      int
+
+	reads       int // PR queries served
+	bypassReads int // bypass queries served
+	onRead      func(n int, pr map[string]any)
 	// prFail and restFail answer a request with an error status (0: none).
 	prFail   func(n int) (int, string, http.Header)
 	restFail func(path string) (int, string, http.Header)
@@ -198,6 +209,17 @@ func newFake(t *testing.T, ref Ref, dir, prFile string) *fake {
 		f.rulesets[id] = load(t, filepath.Join(dir, "ruleset-"+id+".json"))
 	}
 	f.branch = load(t, filepath.Join(dir, "branches-main.json"))
+	// A base the owner can bypass has its recorded bypass answer. Its reviews
+	// start empty: the owner has not approved yet.
+	bypassFile := filepath.Join(dir, "bypass-"+strconv.Itoa(ref.Number)+".json")
+	if b, err := os.ReadFile(filepath.Join("testdata", bypassFile)); err == nil {
+		var m map[string]any
+		if jerr := json.Unmarshal(b, &m); jerr != nil {
+			t.Fatal(jerr)
+		}
+		f.bypassPR = m
+		obj(f.bypassPR, "data", "repository", "pullRequest", "latestOpinionatedReviews")["nodes"] = []any{}
+	}
 	obj(f.data, "viewer")["login"] = Login
 	pr := f.pr()
 	pr["viewerDidAuthor"] = false
@@ -268,7 +290,23 @@ func (f *fake) client() *Client {
 func (f *fake) reset() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.reads, f.requests, f.mutations, f.inputs, f.waits = 0, 0, nil, nil, nil
+	f.reads, f.bypassReads, f.requests, f.mutations, f.inputs, f.waits = 0, 0, 0, nil, nil, nil
+}
+
+// bypassAll sets every ruleset's current_user_can_bypass.
+func bypassAll(f *fake, mode string) {
+	for _, rs := range f.rulesets {
+		rs.(map[string]any)["current_user_can_bypass"] = mode
+	}
+}
+
+// headRefName is the head branch of the recorded bypass answer.
+func (f *fake) headRefName() string {
+	if f.bypassPR == nil {
+		return ""
+	}
+	name, _ := obj(f.bypassPR, "data", "repository", "pullRequest")["headRefName"].(string)
+	return name
 }
 
 func (f *fake) write(w http.ResponseWriter, status int, body string, h http.Header) {
@@ -375,6 +413,26 @@ func (f *fake) serve(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(rest, "branches/"):
 		b, _ := json.Marshal(f.branch)
 		f.write(w, 200, string(b), nil)
+	case rest == "activity":
+		q := r.URL.Query()
+		if q.Get("per_page") != "1" {
+			t.Errorf("activity without per_page=1: %s", r.URL)
+		}
+		if want := "refs/heads/" + f.headRefName(); q.Get("ref") != want {
+			t.Errorf("activity ref %q, want %q", q.Get("ref"), want)
+		}
+		if f.activityRaw != "" {
+			f.write(w, 200, f.activityRaw, nil)
+			return
+		}
+		b, _ := json.Marshal([]any{map[string]any{
+			"ref": "refs/heads/" + f.headRefName(), "after": f.head(),
+			"activity_type": "push", "actor": map[string]any{"login": "frostyard-machines"},
+		}})
+		f.write(w, 200, string(b), nil)
+	case strings.HasPrefix(rest, "compare/"):
+		b, _ := json.Marshal(map[string]any{"status": "ahead", "ahead_by": 1, "behind_by": f.behind})
+		f.write(w, 200, string(b), nil)
 	default:
 		t.Errorf("REST path %s", r.URL.Path)
 		f.write(w, 404, `{"message":"Not Found"}`, nil)
@@ -395,9 +453,13 @@ func (f *fake) graphql(w http.ResponseWriter, r *http.Request) {
 		f.query(w, body.Variables)
 		return
 	}
+	if body.Query == bypassQueryFile(t) {
+		f.bypass(w, body.Variables)
+		return
+	}
 	m := mutationField.FindStringSubmatch(body.Query)
 	if m == nil {
-		t.Errorf("GraphQL text is neither the PR query nor a mutation: %q", body.Query)
+		t.Errorf("GraphQL text is neither the PR query, the bypass query nor a mutation: %q", body.Query)
 		return
 	}
 	field := m[1]
@@ -553,4 +615,67 @@ func prQueryFile(t *testing.T) string {
 		prQueryText = string(b)
 	})
 	return prQueryText
+}
+
+// bypass answers the bypass query: the recorded answer, at the PR's head,
+// with the owner's approval when the PR shows 1.
+func (f *fake) bypass(w http.ResponseWriter, vars map[string]any) {
+	t := f.t
+	if vars["owner"] != f.ref.Owner || vars["name"] != f.ref.Name || vars["number"] != float64(f.ref.Number) || len(vars) != 3 {
+		t.Errorf("bypass query vars %v", vars)
+	}
+	f.bypassReads++
+	if f.bypassPR == nil {
+		t.Errorf("%s has no recorded bypass answer", f.ref)
+		f.write(w, 200, `{"data":{"repository":{"pullRequest":null}}}`, nil)
+		return
+	}
+	// Only a recorded answer with a pull request is 1 the client can read: a
+	// test that drops it reads a null pull request.
+	data, _ := f.bypassPR["data"].(map[string]any)
+	repo, _ := data["repository"].(map[string]any)
+	pr, ok := repo["pullRequest"].(map[string]any)
+	if !ok {
+		f.write(w, 200, `{"data":{"repository":{"pullRequest":null}}}`, nil)
+		return
+	}
+	pr = copyJSON(pr)
+	pr["headRefOid"] = f.head()
+	// The owner's approval, when the PR has 1 at a commit: the answer of a
+	// read after the approval.
+	if v, ok := f.pr()["viewerLatestReview"].(map[string]any); ok {
+		state, _ := v["state"].(string)
+		commit, _ := v["commit"].(map[string]any)
+		oid, _ := commit["oid"].(string)
+		if state == "APPROVED" && oid != "" {
+			reviews := obj(pr, "latestOpinionatedReviews")
+			reviews["nodes"] = append(reviews["nodes"].([]any), map[string]any{
+				"state": "APPROVED", "authorCanPushToRepository": true,
+				"author": map[string]any{"login": Login}, "commit": map[string]any{"oid": oid},
+			})
+		}
+	}
+	if f.onBypass != nil {
+		f.onBypass(pr)
+	}
+	b, _ := json.Marshal(map[string]any{"data": map[string]any{"repository": map[string]any{"pullRequest": pr}}})
+	f.write(w, 200, string(b), nil)
+}
+
+var (
+	bypassQueryOnce sync.Once
+	bypassText      string
+)
+
+// bypassQueryFile is testdata/bypass-query.graphql, the text the fake
+// accepts as the bypass query.
+func bypassQueryFile(t *testing.T) string {
+	bypassQueryOnce.Do(func() {
+		b, err := os.ReadFile(filepath.Join("testdata", "bypass-query.graphql"))
+		if err != nil {
+			t.Error(err)
+		}
+		bypassText = string(b)
+	})
+	return bypassText
 }
