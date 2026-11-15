@@ -506,15 +506,52 @@ func TestTokenSourceRefreshAnotherBuild(t *testing.T) {
 	}
 }
 
-// waitForDelete waits until the ended sign-in's entry is deleted: the waiting
-// Lease returns when memory is cleared, and the delete follows under the
-// write mutex, which wakes the waiters again.
+// waitForDelete waits until the ended sign-in's delete has finished: the
+// waiting Lease returns when memory is cleared, and the delete follows under
+// the write mutex. The refresh worker clears refreshing (and wakes the
+// waiters) only after that delete returned; the store counts a delete when
+// it starts, so the count alone is not enough.
 func waitForDelete(t *testing.T, s *source) {
 	t.Helper()
-	waitFor(t, s.ts, "the delete of the entry", func() bool {
-		_, deletes, _ := s.st.counts()
-		return deletes > 0
+	waitFor(t, s.ts, "the delete of the entry", func() bool { return deleteDone(s) })
+}
+
+// deleteDone says the ended sign-in's delete has returned. The caller holds
+// s.ts.mu.
+func deleteDone(s *source) bool {
+	_, deletes, _ := s.st.counts()
+	return deletes > 0 && !s.ts.refreshing
+}
+
+// TestWaitForDeleteWaitsForTheEnd: waitForDelete does not return while the
+// delete of an ended sign-in is held after the store counted it.
+func TestWaitForDeleteWaitsForTheEnd(t *testing.T) {
+	s := newSource(t)
+	s.load(s.pair(oldAccess, time.Minute))
+	s.sign.answer(nil, func(w http.ResponseWriter, n int) {
+		writeAnswer(w, 200, `{"error":"bad_refresh_token"}`)
 	})
+	release, entered := s.st.hold(t, "forget")
+	if _, _, _, err := s.ts.Lease(context.Background()); !errors.Is(err, ErrSignIn) {
+		t.Fatalf("lease: %v", err)
+	}
+	<-entered
+	// The store counted the delete, and still holds the entry: the helper's
+	// condition must not hold yet.
+	if _, deletes, _ := s.st.counts(); deletes != 1 {
+		t.Fatalf("deletes %d", deletes)
+	}
+	s.ts.mu.Lock()
+	done := deleteDone(s)
+	s.ts.mu.Unlock()
+	if done {
+		t.Fatal("waitForDelete's condition holds while the delete is held")
+	}
+	release()
+	waitForDelete(t, s)
+	if _, ok := s.st.get(); ok {
+		t.Error("the entry was kept")
+	}
 }
 
 // TestRefreshEndsTheSignIn: a spent, refused or malformed refresh clears
