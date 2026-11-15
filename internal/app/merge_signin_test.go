@@ -231,6 +231,14 @@ func TestTheCodeOpensPocketsURL(t *testing.T) {
 	a, loop, _, auth := mergeApp(t, "frostyard/core#1")
 	auth.set(github.AppToken{}, false)
 	auth.code.DeviceCode = "device-code-not-real"
+	// The poll waits until the test ends: an answer at once can end the
+	// code's phase in the same flush, before RunUntil sees it (#108).
+	hold := make(chan struct{})
+	t.Cleanup(func() { close(hold) })
+	auth.setPollFn(func(context.Context) (github.AppToken, error) {
+		<-hold
+		return github.AppToken{}, context.Canceled
+	})
 	var mu sync.Mutex
 	var opened []string
 	a.opts.OpenURL = func(u string) error {
