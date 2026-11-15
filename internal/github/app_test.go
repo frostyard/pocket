@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -437,6 +438,175 @@ func TestPollCancel(t *testing.T) {
 	}
 	if got := f.tokenRequests(); got != 2 {
 		t.Errorf("token requests %d", got)
+	}
+}
+
+// expiringCtx is a context whose deadline a test ends: Err is
+// context.DeadlineExceeded after expire, with no wall clock.
+type expiringCtx struct {
+	context.Context
+	once sync.Once
+	done chan struct{}
+	mu   sync.Mutex
+	err  error
+}
+
+func newExpiringCtx() *expiringCtx {
+	return &expiringCtx{Context: context.Background(), done: make(chan struct{})}
+}
+
+func (c *expiringCtx) Done() <-chan struct{} { return c.done }
+
+func (c *expiringCtx) Err() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.err
+}
+
+func (c *expiringCtx) expire() {
+	c.once.Do(func() {
+		c.mu.Lock()
+		c.err = context.DeadlineExceeded
+		c.mu.Unlock()
+		close(c.done)
+	})
+}
+
+// TestPollDeadlineContext: the end of the deadline the app gives the poll
+// (the code's expiry) is ErrCodeExpired, never context.DeadlineExceeded.
+func TestPollDeadlineContext(t *testing.T) {
+	pending := func(w http.ResponseWriter, n int) { writeAnswer(w, 200, `{"error":"authorization_pending"}`) }
+	check := func(t *testing.T, err error) {
+		t.Helper()
+		if !errors.Is(err, ErrCodeExpired) {
+			t.Fatalf("err %v, want ErrCodeExpired", err)
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("err %v still says the deadline", err)
+		}
+		if !strings.Contains(err.Error(), "the sign-in code expired: sign in again") {
+			t.Errorf("err text %q", err)
+		}
+	}
+	t.Run("a deadline that passed, real timer", func(t *testing.T) {
+		f := newSignIn(t)
+		c := newClock()
+		f.token = pending
+		o := f.oauth(c)
+		o.sleep = nil // the real wait, as the app runs it
+		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+		defer cancel()
+		dc := DeviceCode{DeviceCode: testDevice, Expires: c.now().Add(15 * time.Minute), Interval: 5 * time.Second}
+		_, err := o.Poll(ctx, dc)
+		check(t, err)
+		if got := f.tokenRequests(); got != 0 {
+			t.Errorf("token requests %d", got)
+		}
+	})
+	t.Run("the deadline ends in a wait", func(t *testing.T) {
+		f := newSignIn(t)
+		c := newClock()
+		f.token = pending
+		ctx := newExpiringCtx()
+		waits := 0
+		o := f.oauth(c)
+		o.sleep = func(ctx context.Context, d time.Duration) error {
+			waits++
+			if waits == 3 {
+				ctx.(*expiringCtx).expire()
+			}
+			return ctx.Err()
+		}
+		dc := DeviceCode{DeviceCode: testDevice, Expires: c.now().Add(15 * time.Minute), Interval: 5 * time.Second}
+		_, err := o.Poll(ctx, dc)
+		check(t, err)
+		if got := f.tokenRequests(); got != 2 {
+			t.Errorf("token requests %d", got)
+		}
+	})
+	t.Run("the deadline ends in a request", func(t *testing.T) {
+		f := newSignIn(t)
+		c := newClock()
+		ctx := newExpiringCtx()
+		f.token = func(w http.ResponseWriter, n int) {
+			if n == 2 {
+				ctx.expire()
+			}
+			pending(w, n)
+		}
+		dc := DeviceCode{DeviceCode: testDevice, Expires: c.now().Add(15 * time.Minute), Interval: 5 * time.Second}
+		_, err := f.oauth(c).Poll(ctx, dc)
+		check(t, err)
+		if got := f.tokenRequests(); got != 2 {
+			t.Errorf("token requests %d", got)
+		}
+	})
+}
+
+// timeoutOnce is a transport whose first request ends as the HTTP client's
+// timeout ends it; the next ones go to the fake server.
+type timeoutOnce struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (tr *timeoutOnce) RoundTrip(r *http.Request) (*http.Response, error) {
+	tr.mu.Lock()
+	tr.calls++
+	first := tr.calls == 1
+	tr.mu.Unlock()
+	if first {
+		return nil, fmt.Errorf("%w (Client.Timeout exceeded while awaiting headers)", context.DeadlineExceeded)
+	}
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+// TestPollTimeout: 1 sign-in request may take 30 seconds; a request that
+// times out lets the poll go on, and is not the code's expiry.
+func TestPollTimeout(t *testing.T) {
+	if got := NewOAuth().HTTP.Timeout; got != oauthTimeout || oauthTimeout != 30*time.Second {
+		t.Errorf("timeout %v, want 30s", got)
+	}
+	f := newSignIn(t)
+	c := newClock()
+	o := f.oauth(c)
+	tr := &timeoutOnce{}
+	o.HTTP = &http.Client{Timeout: oauthTimeout, Transport: tr}
+	dc := DeviceCode{DeviceCode: testDevice, Expires: c.now().Add(15 * time.Minute), Interval: 5 * time.Second}
+	tok, err := o.Poll(context.Background(), dc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tok.Access != "ghu_ACCESS0000" {
+		t.Errorf("token %+v", tok)
+	}
+	if tr.calls != 2 || f.tokenRequests() != 1 {
+		t.Errorf("transport calls %d, token requests %d", tr.calls, f.tokenRequests())
+	}
+}
+
+// TestPollExpiryFromTheSendTime: the clock moves while GitHub answers; the
+// pair's expiries count from the time the request was sent.
+func TestPollExpiryFromTheSendTime(t *testing.T) {
+	f := newSignIn(t)
+	c := newClock()
+	o := f.oauth(c)
+	start := c.now()
+	f.token = func(w http.ResponseWriter, n int) {
+		c.add(20 * time.Second)
+		writeAnswer(w, 200, goodPairAnswer())
+	}
+	dc := DeviceCode{DeviceCode: testDevice, Expires: start.Add(15 * time.Minute), Interval: 5 * time.Second}
+	tok, err := o.Poll(context.Background(), dc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sent := start.Add(5 * time.Second) // 1 wait, then the request
+	if !tok.AccessExpires.Equal(sent.Add(8 * time.Hour)) {
+		t.Errorf("access expires %v, want %v", tok.AccessExpires, sent.Add(8*time.Hour))
+	}
+	if !tok.RefreshExpires.Equal(sent.Add(184 * 24 * time.Hour)) {
+		t.Errorf("refresh expires %v, want %v", tok.RefreshExpires, sent.Add(184*24*time.Hour))
 	}
 }
 

@@ -172,7 +172,7 @@ func githubAuthOptions() (func(ctx context.Context, owner string) (*github.Clien
 	}
 	auth := newGitHubAuth()
 	lease := func(ctx context.Context, _ string) (*github.Client, int, func(), error) {
-		tok, gen, release, err := auth.src.Lease(ctx)
+		tok, gen, release, err := auth.Lease(ctx)
 		if err != nil {
 			return nil, 0, nil, err
 		}

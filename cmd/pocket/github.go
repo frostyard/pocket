@@ -71,6 +71,12 @@ func (g *githubAuth) Invalidate(tokenGen int) { g.src.Invalidate(tokenGen) }
 // Forget is Sign out.
 func (g *githubAuth) Forget() error { return g.src.Forget() }
 
+// Lease gives an access token, its token generation and its release: 1
+// per GitHub job, released with defer.
+func (g *githubAuth) Lease(ctx context.Context) (string, int, func(), error) {
+	return g.src.Lease(ctx)
+}
+
 // Status is the sign-in's state: no token, so it never leaks 1.
 func (g *githubAuth) Status() github.AppStatus { return g.src.Status() }
 

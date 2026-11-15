@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-14",
+  "scope": "approve-merge",
+  "correction": "The end of the deadline context that the app gives the device poll (the code expiry) must give ErrCodeExpired, not context.DeadlineExceeded; an explicit cancel keeps its context error.",
+  "evidence": "frostyard/pocket#102, whole-plan verification of frostyard/pocket cd7e1d5 (internal/github/app.go Poll returned the context error at the code expiry that internal/app/merge.go pollSignIn sets)",
+  "promoted_to": "internal/github/app_test.go TestPollDeadlineContext"
+}
