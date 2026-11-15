@@ -58,7 +58,7 @@ them rather than improvising, whichever agent you are. Start a new one from
   dialog, results, receipts and Settings > GitHub), `merge_journal.go`
   (`operations.json`), `desk.go`,
   `desk_actions.go` (owner thread actions), `plans.go` (plan decisions and scope controls), `new_plan.go` (plan creation), `desk_extras.go` (supplementary lists),
-  `transcript.go`, `session_tools.go` (find, fork, export and new context), `session_files.go` (native diffs, previews and confirmed reverts), `new_session.go` (server directory prompt), `composer.go`, `attachments.go` (file chips and queue controls), `upload_file_*.go` (platform file opens), `pages.go`, `session_details.go` (session
+  `transcript.go`, `session_tools.go` (find, fork, export and new context), `session_files.go` (native diffs, previews and confirmed reverts), `new_session.go` (server directory prompt), `composer.go`, `subagents_pin.go` (the subagents bar and the way back to the parent, above the composer), `attachments.go` (file chips and queue controls), `upload_file_*.go` (platform file opens), `pages.go`, `session_details.go` (session
   identity and shift goal), `notify.go`, `settings.go`,
   `terminals.go` (the Terminal place, over `pocket.TermConn`),
   `terminal_replay.go` (isolated history rendering), `arrakis.go` (the

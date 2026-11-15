@@ -453,21 +453,13 @@ func (a *App) loadDashboard(days int) {
 }
 
 // watchPeeks asks the server for live summaries of the sessions that
-// matter now: those that wait or work, newest first, at most 20.
+// matter now: those that wait or work, newest first, and the subagents that
+// work in the session shown, at most 20.
 func (a *App) watchPeeks() {
 	if a.link.streamID == "" || a.hello == nil || !a.hello.Server.Peeks {
 		return
 	}
-	var ids []int
-	for i := range a.sessions {
-		switch a.stateOf(&a.sessions[i]) {
-		case stateWaiting, stateWorking:
-			ids = append(ids, a.sessions[i].ID)
-		}
-		if len(ids) == 20 {
-			break
-		}
-	}
+	ids := a.peekTargets()
 	slices.Sort(ids)
 	if slices.Equal(ids, a.peekIDs) {
 		return
@@ -479,6 +471,35 @@ func (a *App) watchPeeks() {
 	a.request("Watching sessions", func(ctx context.Context, c *pocket.Client) error {
 		return c.Peeks(ctx, conn, ids, seq)
 	}, func(error) {})
+}
+
+// peekTargets is the sessions whose peeks the window follows: those that
+// wait or work, newest first, then the subagents that work in the session
+// shown, at most 20 in all.
+func (a *App) peekTargets() []int {
+	var ids []int
+	for i := range a.sessions {
+		switch a.stateOf(&a.sessions[i]) {
+		case stateWaiting, stateWorking:
+			ids = append(ids, a.sessions[i].ID)
+		}
+		if len(ids) == 20 {
+			break
+		}
+	}
+	if a.current == 0 || a.view == nil {
+		return ids
+	}
+	for _, sa := range a.view.Subagents {
+		if !sa.Busy || slices.Contains(ids, sa.ConversationID) {
+			continue
+		}
+		if len(ids) == 20 {
+			break
+		}
+		ids = append(ids, sa.ConversationID)
+	}
+	return ids
 }
 
 // lastStep says what a session did last, from its peek.
