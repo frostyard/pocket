@@ -641,6 +641,29 @@ func (f *fake) bypass(w http.ResponseWriter, vars map[string]any) {
 	}
 	pr = copyJSON(pr)
 	pr["headRefOid"] = f.head()
+	// The head commit, and the PR's own entry among the PRs at it: GitHub
+	// says this PR is open, and Pocket reads it at the recorded head.
+	if commits, ok := pr["commits"].(map[string]any); ok {
+		if nodes, ok := commits["nodes"].([]any); ok {
+			for _, n := range nodes {
+				c, _ := n.(map[string]any)["commit"].(map[string]any)
+				if c == nil {
+					continue
+				}
+				c["oid"] = f.head()
+				aps, _ := c["associatedPullRequests"].(map[string]any)
+				list, _ := aps["nodes"].([]any)
+				for _, a := range list {
+					entry, _ := a.(map[string]any)
+					number, _ := entry["number"].(float64)
+					if entry == nil || int(number) != f.ref.Number {
+						continue
+					}
+					entry["state"], entry["headRefOid"] = "OPEN", f.head()
+				}
+			}
+		}
+	}
 	// The owner's approval, when the PR has 1 at a commit: the answer of a
 	// read after the approval.
 	if v, ok := f.pr()["viewerLatestReview"].(map[string]any); ok {

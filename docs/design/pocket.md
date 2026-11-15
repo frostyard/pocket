@@ -473,7 +473,7 @@ panes less room.
   `pull_requests_only`; `exempt` or any other value refuses), Pocket
   proves each rule of that ruleset itself (gate 11, ADR-0011): it reads the
   `PocketBypass` query (review threads, latest reviews with write access,
-  author type, head branch), the head branch's newest push
+  author type, head branch, other open PRs at the head commit), the head branch's newest push
   (`GET .../activity`) for `require_last_push_approval`, and
   `GET .../compare/` for a strict policy with no merge queue; a rule type
   or parameter it does not model refuses by name, and the card shows "you

@@ -56,7 +56,11 @@ Facts (read on 2026-11-14):
 - `require_extra_approval_for_unattributed_changes`: a PR that Copilot
   opens under its own App identity, not for a person, needs 1 approval more
   than the count (same page, "Additional approval for unattributed Copilot
-  pull requests").
+  pull requests"). GitHub turns it on by default.
+- GitHub also blocks a merge, after every required approval, while another
+  open PR whose head is the same commit has a pending or rejected review
+  (same page, "Require a pull request before merging"). A commit's
+  `associatedPullRequests` lists the PRs of that commit.
 - `require_last_push_approval`: an approval counts only from someone other
   than the last person who pushed to the head branch. GraphQL has no field
   for the last pusher.
@@ -120,7 +124,7 @@ rules.
 | `required_linear_history` | The method is squash or rebase (for a merge queue, the queue's method). |
 | `required_status_checks` | Gates 6 and 7 (every required check present, from its app, complete and green). `strict_required_status_checks_policy`: on a base with no merge queue, `behind_by` of base tip...head is 0. `do_not_enforce_on_create` applies only to a new branch. |
 | `merge_queue` | Pocket enqueues, as before, and never sends `mergePullRequest` on a queue base. |
-| `pull_request` | `required_approving_review_count`: the distinct approvers whose latest review approves the current head and who can push, with the owner's own approval, reach the count (at the preview the owner's coming approval counts; after it, it must be there). Only approvals at the head count, so `dismiss_stale_reviews_on_push` holds. `require_extra_approval_for_unattributed_changes`: 1 more approval when the PR's author is not a `User`. `require_last_push_approval`: the newest activity of the head branch is a push to the head SHA by an actor that is not the owner; a head branch in a fork, or an entry that does not prove it, refuses. `required_review_thread_resolution`: no review thread is unresolved. `allowed_merge_methods`: the method is in the list. `require_code_owner_review` true or a non-empty `required_reviewers` refuses (Pocket does not read CODEOWNERS or team approvals). `dismissal_restriction` and `automatic_copilot_code_review_enabled` set no merge requirement. |
+| `pull_request` | `required_approving_review_count`: the distinct approvers whose latest review approves the current head and who can push, with the owner's own approval, reach the count (at the preview the owner's coming approval counts; after it, it must be there). Only approvals at the head count, so `dismiss_stale_reviews_on_push` holds. `require_extra_approval_for_unattributed_changes`: 1 more approval when the PR's author is not a `User`. `require_last_push_approval`: the newest activity of the head branch is a push to the head SHA by an actor that is not the owner; a head branch in a fork, or an entry that does not prove it, refuses. `required_review_thread_resolution`: no review thread is unresolved. `allowed_merge_methods`: the method is in the list. `require_code_owner_review` true or a non-empty `required_reviewers` refuses (Pocket does not read CODEOWNERS or team approvals). Another open PR at the same head commit refuses (Pocket does not read its reviews). `dismissal_restriction` and `automatic_copilot_code_review_enabled` set no merge requirement. |
 
 **Fail closed.** Any other rule type (for example `update`,
 `required_deployments`, `required_signatures`, `code_scanning`,
@@ -129,7 +133,17 @@ owner can bypass refuses, and the reason names it: "you can bypass rule
 <type> here, and Pocket does not check it itself: Pocket refuses to merge".
 A parameter that Pocket does not know refuses the same way (named
 `<type>.<parameter>`), unless its value is off (null, false, 0, "", [] or
-{}). A known parameter with an unexpected shape refuses. A null or
+{}); this holds for every rule type, also the types that need no proof. A
+known parameter with an unexpected shape refuses. A parameter that the
+[rules API](https://docs.github.com/en/rest/repos/rules) marks as required
+(for `pull_request`: `required_approving_review_count`,
+`dismiss_stale_reviews_on_push`, `require_code_owner_review`,
+`require_last_push_approval`, `required_review_thread_resolution`; for
+`required_status_checks`: the list and
+`strict_required_status_checks_policy`) refuses when it is missing: a
+missing value is no proof that a requirement is off. A missing
+`require_extra_approval_for_unattributed_changes` counts as on, its
+default. A null or
 truncated field in these reads (more than 100 review threads or reviews, a
 null activity page, a null `behind_by`), or a head that changed between
 the reads, fails the read, as the Nulls rule of ADR-0008 says.
@@ -137,8 +151,9 @@ the reads, fails the read, as the Nulls rule of ADR-0008 says.
 **The reads.** Only where a ruleset says `always` or `pull_requests_only`
 and no rule is unchecked: 1 GraphQL query `PocketBypass` (the text is
 [`internal/github/testdata/bypass-query.graphql`](../../internal/github/testdata/bypass-query.graphql):
-head, head branch, cross-repository flag, author type, review threads and
-latest reviews with `authorCanPushToRepository`); `GET .../activity`
+head, head branch, cross-repository flag, the head commit's associated
+PRs, author type, review threads and latest reviews with
+`authorCanPushToRepository`); `GET .../activity`
 (`per_page=1`) only for `require_last_push_approval`; `GET .../compare/`
 only for a strict policy on a base with no merge queue. All are reads.
 Where every ruleset says `never`, Pocket sends exactly the requests it sent
@@ -167,10 +182,8 @@ value and, when a rule is unchecked, its name as the reason.
 - Approvals are counted at the head only, which is stricter than GitHub
   when `dismiss_stale_reviews_on_push` is false: a PR that needs 2 or more
   approvals can refuse where GitHub would merge.
-- Residual risk: GitHub also blocks a merge while another open PR with the
-  same head commit has a pending or rejected review (same docs page,
-  "Require a pull request before merging"). Pocket does not read other PRs;
-  its gate 8 sees only this PR's reviews.
+- A PR whose head commit is also the head of another open PR refuses on a
+  base the owner can bypass, even when the other PR has no review.
 - Residual risk: the reads are sequential, not 1 snapshot, as in ADR-0008.
   A push between the reads changes the head, which the expected-head inputs
   of the mutations refuse.

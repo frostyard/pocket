@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/url"
@@ -53,6 +54,7 @@ type BypassRules struct {
 	Strict            bool     // strict_required_status_checks_policy
 	Methods           []string // allowed_merge_methods, lower case, intersected over the rules
 	MethodsSet        bool     // Methods applies (some rule had allowed_merge_methods)
+	PullRequest       bool     // a pull_request rule is 1 of them
 }
 
 // queueMethods maps a merge_queue rule's merge_method to a receipt's method.
@@ -239,19 +241,52 @@ func (p *BypassRules) unchecked(name string) {
 	}
 }
 
+// queueParameterKeys are the parameters of a merge_queue rule: they only
+// shape the queue, so Pocket accepts them whatever their value.
+var queueParameterKeys = map[string]bool{
+	"merge_method":                      true,
+	"max_entries_to_build":              true,
+	"min_entries_to_merge":              true,
+	"max_entries_to_merge":              true,
+	"min_entries_to_merge_wait_minutes": true,
+	"grouping_strategy":                 true,
+	"check_response_timeout_minutes":    true,
+}
+
+// What GitHub always sends with a rule: a rule that leaves 1 out proves
+// nothing, so Pocket refuses it (ADR-0011, fail closed). The lists are
+// sorted, so the first missing key is the same on every read.
+var (
+	pullRequestKeys = []string{
+		"dismiss_stale_reviews_on_push",
+		"require_code_owner_review",
+		"require_last_push_approval",
+		"required_approving_review_count",
+		"required_review_thread_resolution",
+	}
+	statusCheckKeys = []string{
+		"required_status_checks",
+		"strict_required_status_checks_policy",
+	}
+)
+
 // rule add 1 rule of a ruleset the owner can bypass. A type or a parameter
 // Pocket does not check refuses, and names itself (ADR-0011).
 func (p *BypassRules) rule(typ string, params json.RawMessage) {
 	switch typ {
-	case "deletion", "non_fast_forward", "creation":
+	case "deletion", "creation", "non_fast_forward":
 		// A merge moves an existing branch to a descendant commit: it never
-		// deletes, creates or force-pushes the branch. Parameters ignored.
-		return
-	case "merge_queue":
-		// Pocket enqueues; the queue's parameters only shape the queue.
+		// deletes, creates or force-pushes the branch. These rules take no
+		// parameter.
+		p.onlyKeys(typ, params, nil)
 		return
 	case "required_linear_history":
 		p.Linear = true
+		p.onlyKeys(typ, params, nil)
+		return
+	case "merge_queue":
+		// Pocket enqueues, and the queue's own parameters only shape it.
+		p.onlyKeys(typ, params, queueParameterKeys)
 		return
 	case "required_status_checks":
 		p.statusChecks(params)
@@ -271,21 +306,35 @@ func (p *BypassRules) statusChecks(params json.RawMessage) {
 		p.unchecked("required_status_checks")
 		return
 	}
+	for _, k := range statusCheckKeys {
+		if _, ok := values[k]; !ok {
+			p.unchecked("required_status_checks." + k)
+			return
+		}
+	}
 	for _, k := range keys {
+		name := "required_status_checks." + k
 		switch k {
-		case "required_status_checks", "do_not_enforce_on_create":
-			// The checks are read for gates 6 and 7; the flag only shapes a
-			// branch creation, which a merge is not.
+		case "required_status_checks":
+			// Gates 6 and 7 prove the checks themselves; Rules reads the
+			// shape of the list.
 		case "strict_required_status_checks_policy":
 			v, ok := boolean(values[k])
 			if !ok {
-				p.unchecked("required_status_checks." + k)
+				p.unchecked(name)
 				return
 			}
 			p.Strict = p.Strict || v
+		case "do_not_enforce_on_create":
+			// A boolean at most: it only shapes a branch creation, which a
+			// merge is not.
+			if _, ok := boolean(values[k]); !ok {
+				p.unchecked(name)
+				return
+			}
 		default:
 			if !off(values[k]) {
-				p.unchecked("required_status_checks." + k)
+				p.unchecked(name)
 				return
 			}
 		}
@@ -294,10 +343,17 @@ func (p *BypassRules) statusChecks(params json.RawMessage) {
 
 // pullRequest proves a pull_request rule, key by key.
 func (p *BypassRules) pullRequest(params json.RawMessage) {
+	p.PullRequest = true
 	values, keys, ok := parameters(params)
 	if !ok {
 		p.unchecked("pull_request")
 		return
+	}
+	for _, k := range pullRequestKeys {
+		if _, ok := values[k]; !ok {
+			p.unchecked("pull_request." + k)
+			return
+		}
 	}
 	for _, k := range keys {
 		name := "pull_request." + k
@@ -317,13 +373,10 @@ func (p *BypassRules) pullRequest(params json.RawMessage) {
 				return
 			}
 		case "required_reviewers":
-			var list *[]json.RawMessage
-			if err := json.Unmarshal(values[k], &list); err != nil {
-				p.unchecked(name)
-				return
-			}
-			if list != nil && len(*list) > 0 {
-				// Pocket reads no named reviewers.
+			// Absent and [] name no reviewer; null, a shape Pocket does not
+			// know and a named reviewer refuse.
+			var list []json.RawMessage
+			if err := json.Unmarshal(values[k], &list); err != nil || list == nil || len(list) > 0 {
 				p.unchecked(name)
 				return
 			}
@@ -349,21 +402,57 @@ func (p *BypassRules) pullRequest(params json.RawMessage) {
 			}
 			p.ExtraUnattributed = p.ExtraUnattributed || v
 		case "allowed_merge_methods":
+			// Absent allows any method; null, a shape Pocket does not know
+			// and a list that is not of strings refuse.
 			var list []string
-			if err := json.Unmarshal(values[k], &list); err != nil {
+			if err := json.Unmarshal(values[k], &list); err != nil || list == nil {
 				p.unchecked(name)
 				return
 			}
 			p.methods(list)
-		case "dismiss_stale_reviews_on_push", "dismissal_restriction", "automatic_copilot_code_review_enabled":
-			// No merge requirement: Pocket counts only approvals at the head,
-			// and these shape who may dismiss a review.
+		case "dismiss_stale_reviews_on_push":
+			// No merge requirement, because Pocket counts only approvals at
+			// the head; GitHub always sends it, so it must read.
+			if _, ok := boolean(values[k]); !ok {
+				p.unchecked(name)
+				return
+			}
+		case "dismissal_restriction", "automatic_copilot_code_review_enabled":
+			// No merge requirement: these shape who may dismiss a review.
 		default:
 			// A key Pocket does not know is accepted only when it is off.
 			if !off(values[k]) {
 				p.unchecked(name)
 				return
 			}
+		}
+	}
+	// GitHub turns the extra approval on by default: an absent key is on.
+	if _, ok := values["require_extra_approval_for_unattributed_changes"]; !ok {
+		p.ExtraUnattributed = true
+	}
+}
+
+// onlyKeys refuses a key of a rule whose parameters Pocket ignores, when the
+// key is not 1 it knows and is on. Absent, null and {} parameters hold no
+// key.
+func (p *BypassRules) onlyKeys(typ string, params json.RawMessage, known map[string]bool) {
+	if trimmed := strings.TrimSpace(string(params)); trimmed == "" || trimmed == "null" {
+		return
+	}
+	values, err := parameterValues(params)
+	if err != nil {
+		// No object at all: no parameter Pocket can read.
+		p.unchecked(typ)
+		return
+	}
+	for _, k := range keysOf(values) {
+		if known[k] {
+			continue
+		}
+		if !off(values[k]) {
+			p.unchecked(typ + "." + k)
+			return
 		}
 	}
 }
@@ -398,15 +487,34 @@ func parameters(params json.RawMessage) (values map[string]json.RawMessage, keys
 	if len(params) == 0 {
 		return nil, nil, false
 	}
-	if err := json.Unmarshal(params, &values); err != nil || values == nil {
+	values, err := parameterValues(params)
+	if err != nil {
 		return nil, nil, false
 	}
-	keys = make([]string, 0, len(values))
+	return values, keysOf(values), true
+}
+
+// parameterValues decodes a rule's parameters as an object; an error says
+// they are no object Pocket can read (null, a list, a scalar).
+func parameterValues(params json.RawMessage) (map[string]json.RawMessage, error) {
+	var values map[string]json.RawMessage
+	if err := json.Unmarshal(params, &values); err != nil {
+		return nil, err
+	}
+	if values == nil {
+		return nil, errors.New("no object")
+	}
+	return values, nil
+}
+
+// keysOf is the object's keys in order.
+func keysOf(values map[string]json.RawMessage) []string {
+	keys := make([]string, 0, len(values))
 	for k := range values {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	return values, keys, true
+	return keys
 }
 
 // boolean is a JSON true or false; ok is false for any other value.

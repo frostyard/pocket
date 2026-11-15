@@ -57,6 +57,11 @@ func bypassGate(f PRFacts, r RepoRules, stage Stage) string {
 	if b == nil || b.Head != f.HeadRefOid {
 		return "Pocket could not read what the rules you can bypass need"
 	}
+	// Another open PR at the same commit can block the merge on its reviews,
+	// which Pocket does not read: a pull_request rule needs it proven.
+	if r.Proof.PullRequest && len(b.SameHead) > 0 {
+		return fmt.Sprintf("open PR #%d has the same head, and Pocket does not read its reviews", b.SameHead[0])
+	}
 	// The method the merge will use: the queue's on a queue base.
 	m, _ := mergeMethod(f, r)
 	if m == "queue" {

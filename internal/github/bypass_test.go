@@ -51,6 +51,30 @@ func rule(typ string, params map[string]any) map[string]any {
 	return r
 }
 
+// setCommitOid moves the commit the bypass answer names, and not its head.
+func setCommitOid(pr map[string]any, oid string) {
+	node := obj(pr, "commits")["nodes"].([]any)[0].(map[string]any)
+	obj(node, "commit")["oid"] = oid
+}
+
+// setHeadOid moves the bypass answer's head, and the commit it names.
+func setHeadOid(pr map[string]any, oid string) {
+	pr["headRefOid"] = oid
+	setCommitOid(pr, oid)
+}
+
+// addAssociated adds another PR at the head commit of the recorded bypass
+// answer, in state, at oid.
+func addAssociated(f *fake, number int, state, oid string) {
+	f.onBypass = func(pr map[string]any) {
+		node := obj(pr, "commits")["nodes"].([]any)[0].(map[string]any)
+		aps := obj(node, "commit", "associatedPullRequests")
+		aps["nodes"] = append(aps["nodes"].([]any), map[string]any{
+			"number": number, "state": state, "headRefOid": oid,
+		})
+	}
+}
+
 // addBypassReview adds an opinionated review to the recorded bypass answer,
 // for the reads after this 1.
 func (f *fake) addBypassReview(state, login, oid string, canPush bool) {
@@ -595,8 +619,97 @@ func TestBypassFactsFailClosed(t *testing.T) {
 			}}
 		}, text: "a review is null"},
 		{name: "the head changed", change: func(f *fake) {
-			f.onBypass = func(pr map[string]any) { pr["headRefOid"] = newHead }
+			f.onBypass = func(pr map[string]any) { setHeadOid(pr, newHead) }
 		}, text: "the head changed while reading"},
+		{name: "the last commit is not the head", change: func(f *fake) {
+			f.onBypass = func(pr map[string]any) { setCommitOid(pr, newHead) }
+		}, text: "the last commit is not the head"},
+		{name: "null commits", change: func(f *fake) {
+			f.onBypass = func(pr map[string]any) { pr["commits"] = nil }
+		}, text: "commits is null"},
+		{name: "null commit nodes", change: func(f *fake) {
+			f.onBypass = func(pr map[string]any) { obj(pr, "commits")["nodes"] = nil }
+		}, text: "commits is null"},
+		{name: "no commit node", change: func(f *fake) {
+			f.onBypass = func(pr map[string]any) { obj(pr, "commits")["nodes"] = []any{} }
+		}, text: "commits is null"},
+		{name: "2 commit nodes", change: func(f *fake) {
+			f.onBypass = func(pr map[string]any) {
+				nodes := obj(pr, "commits")["nodes"].([]any)
+				obj(pr, "commits")["nodes"] = append(nodes, copyJSON(nodes[0]))
+			}
+		}, text: "commits is null"},
+		{name: "a null commit node", change: func(f *fake) {
+			f.onBypass = func(pr map[string]any) { obj(pr, "commits")["nodes"] = []any{nil} }
+		}, text: "the last commit is null"},
+		{name: "a null commit", change: func(f *fake) {
+			f.onBypass = func(pr map[string]any) {
+				obj(pr, "commits")["nodes"] = []any{map[string]any{"commit": nil}}
+			}
+		}, text: "the last commit is null"},
+		{name: "a null commit oid", change: func(f *fake) {
+			f.onBypass = func(pr map[string]any) {
+				node := obj(pr, "commits")["nodes"].([]any)[0].(map[string]any)
+				obj(node, "commit")["oid"] = nil
+			}
+		}, text: "the last commit is null"},
+		{name: "null associated pull requests", change: func(f *fake) {
+			f.onBypass = func(pr map[string]any) {
+				node := obj(pr, "commits")["nodes"].([]any)[0].(map[string]any)
+				obj(node, "commit")["associatedPullRequests"] = nil
+			}
+		}, text: "associatedPullRequests is null"},
+		{name: "null associated pageInfo", change: func(f *fake) {
+			f.onBypass = func(pr map[string]any) {
+				node := obj(pr, "commits")["nodes"].([]any)[0].(map[string]any)
+				obj(node, "commit", "associatedPullRequests")["pageInfo"] = nil
+			}
+		}, text: "associatedPullRequests is null"},
+		{name: "null associated nodes", change: func(f *fake) {
+			f.onBypass = func(pr map[string]any) {
+				node := obj(pr, "commits")["nodes"].([]any)[0].(map[string]any)
+				obj(node, "commit", "associatedPullRequests")["nodes"] = nil
+			}
+		}, text: "associatedPullRequests is null"},
+		{name: "null associated hasNextPage", change: func(f *fake) {
+			f.onBypass = func(pr map[string]any) {
+				node := obj(pr, "commits")["nodes"].([]any)[0].(map[string]any)
+				obj(node, "commit", "associatedPullRequests", "pageInfo")["hasNextPage"] = nil
+			}
+		}, text: "associatedPullRequests.pageInfo.hasNextPage is null"},
+		{name: "too many associated pull requests", change: func(f *fake) {
+			f.onBypass = func(pr map[string]any) {
+				node := obj(pr, "commits")["nodes"].([]any)[0].(map[string]any)
+				obj(node, "commit", "associatedPullRequests", "pageInfo")["hasNextPage"] = true
+			}
+		}, text: "too many associated pull requests"},
+		{name: "a null associated pull request", change: func(f *fake) {
+			f.onBypass = func(pr map[string]any) {
+				node := obj(pr, "commits")["nodes"].([]any)[0].(map[string]any)
+				obj(node, "commit", "associatedPullRequests")["nodes"] = []any{nil}
+			}
+		}, text: "an associated pull request is null"},
+		{name: "an associated PR with a null number", change: func(f *fake) {
+			f.onBypass = func(pr map[string]any) {
+				node := obj(pr, "commits")["nodes"].([]any)[0].(map[string]any)
+				aps := obj(node, "commit", "associatedPullRequests")
+				aps["nodes"] = []any{map[string]any{"number": nil, "state": "OPEN", "headRefOid": f.head()}}
+			}
+		}, text: "an associated pull request is null"},
+		{name: "an associated PR with a null state", change: func(f *fake) {
+			f.onBypass = func(pr map[string]any) {
+				node := obj(pr, "commits")["nodes"].([]any)[0].(map[string]any)
+				aps := obj(node, "commit", "associatedPullRequests")
+				aps["nodes"] = []any{map[string]any{"number": 999, "state": nil, "headRefOid": f.head()}}
+			}
+		}, text: "an associated pull request is null"},
+		{name: "an associated PR with a null head", change: func(f *fake) {
+			f.onBypass = func(pr map[string]any) {
+				node := obj(pr, "commits")["nodes"].([]any)[0].(map[string]any)
+				aps := obj(node, "commit", "associatedPullRequests")
+				aps["nodes"] = []any{map[string]any{"number": 999, "state": "OPEN", "headRefOid": nil}}
+			}
+		}, text: "an associated pull request is null"},
 		{name: "a null activity page", change: func(f *fake) { f.activityRaw = "null" }, text: "the branch activity is null"},
 		{name: "no base tip", change: func(f *fake) {
 			strictless(f)
@@ -660,6 +773,22 @@ func TestRecordedProofReadsDecode(t *testing.T) {
 			if pr.LatestOpinionatedReviews == nil || pr.LatestOpinionatedReviews.Nodes == nil {
 				t.Fatal("no reviews")
 			}
+			if pr.Commits == nil || pr.Commits.Nodes == nil || len(*pr.Commits.Nodes) != 1 {
+				t.Fatal("no commits")
+			}
+			node := (*pr.Commits.Nodes)[0]
+			if node == nil || node.Commit == nil || node.Commit.Oid == nil {
+				t.Fatal("no commit")
+			}
+			aps := node.Commit.AssociatedPullRequests
+			if aps == nil || aps.PageInfo == nil || aps.PageInfo.HasNextPage == nil || aps.Nodes == nil || len(*aps.Nodes) == 0 {
+				t.Fatal("no associated pull requests")
+			}
+			for _, a := range *aps.Nodes {
+				if a == nil || a.Number == nil || a.State == nil || a.HeadRefOid == nil {
+					t.Fatalf("an associated pull request is null: %+v", a)
+				}
+			}
 
 			var page *[]activityEntry
 			if err := json.Unmarshal(readRecorded(t, tc.dir, "activity-"+tc.file+".json"), &page); err != nil {
@@ -694,4 +823,252 @@ func readRecorded(t *testing.T, dir, file string) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+// TestBypassSameHead: another open PR whose head is the same commit can block
+// the merge on its reviews, which Pocket does not read.
+func TestBypassSameHead(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		base   func(*testing.T) *fake
+		rules  []any
+		number int
+		state  string
+		head   func(*fake) string
+		reason string
+	}{
+		{name: "another open PR at the head", number: 999, state: "OPEN",
+			reason: "open PR #999 has the same head, and Pocket does not read its reviews"},
+		{name: "another open PR at another head", number: 999, state: "OPEN",
+			head: func(*fake) string { return newHead }},
+		{name: "a merged PR at the head", number: 999, state: "MERGED"},
+		{name: "a closed PR at the head", number: 999, state: "CLOSED"},
+		{name: "this PR itself", number: 238, state: "OPEN"},
+		// A base whose bypassed rules include no pull_request rule reads no
+		// reviews, so another PR at the head proves nothing about them.
+		{name: "no pull_request rule", rules: []any{rule("deletion", nil)}, number: 999, state: "OPEN"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base := tc.base
+			if base == nil {
+				base = direct
+			}
+			f := base(t)
+			if tc.rules != nil {
+				f.rules = tc.rules
+			}
+			bypassAll(f, "always")
+			head := f.head()
+			if tc.head != nil {
+				head = tc.head(f)
+			}
+			addAssociated(f, tc.number, tc.state, head)
+			p, err := f.client().Preview(context.Background(), f.ref)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.reason != "" {
+				if p.Eligible || !strings.Contains(p.Reason, tc.reason) {
+					t.Fatalf("eligible %v, reason %q; want %q", p.Eligible, p.Reason, tc.reason)
+				}
+				return
+			}
+			if !p.Eligible || p.Reason != "" {
+				t.Fatalf("eligible %v, reason %q", p.Eligible, p.Reason)
+			}
+		})
+	}
+}
+
+// TestBypassRuleParameters: a rule whose parameters Pocket ignores still
+// refuses a parameter it does not know that is on.
+func TestBypassRuleParameters(t *testing.T) {
+	for _, typ := range []string{"deletion", "non_fast_forward", "creation", "required_linear_history"} {
+		t.Run(typ, func(t *testing.T) {
+			squash := func(f *fake) { f.repo()["viewerDefaultMergeMethod"] = "SQUASH" }
+			for _, tc := range []struct {
+				name   string
+				rules  []any
+				change func(*fake)
+				reason string
+			}{
+				{name: "a parameter Pocket does not know, on",
+					rules:  []any{rule(typ, map[string]any{"some_future_parameter": true})},
+					reason: "you can bypass rule " + typ + ".some_future_parameter here"},
+				{name: "a parameter Pocket does not know, off", change: squash,
+					rules: []any{rule(typ, map[string]any{"some_future_parameter": false, "a_null": nil, "a_count": 0})}},
+				{name: "no parameters", change: squash, rules: []any{rule(typ, nil)}},
+				{name: "empty parameters", change: squash, rules: []any{rule(typ, map[string]any{})}},
+				{name: "parameters that are no object",
+					change: squash,
+					rules:  []any{map[string]any{"type": typ, "ruleset_id": 25664287.0, "parameters": []any{}}},
+					reason: "you can bypass rule " + typ + " here"},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					f := direct(t)
+					f.rules = tc.rules
+					bypassAll(f, "always")
+					if tc.change != nil {
+						tc.change(f)
+					}
+					p, err := f.client().Preview(context.Background(), f.ref)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if tc.reason != "" {
+						if p.Eligible || !strings.Contains(p.Reason, tc.reason) {
+							t.Fatalf("eligible %v, reason %q; want %q", p.Eligible, p.Reason, tc.reason)
+						}
+						return
+					}
+					if !p.Eligible {
+						t.Fatalf("reason %q", p.Reason)
+					}
+				})
+			}
+		})
+	}
+	t.Run("merge_queue", func(t *testing.T) {
+		queueRule := func(extra map[string]any) map[string]any {
+			p := map[string]any{"merge_method": "SQUASH", "max_entries_to_build": 5, "grouping_strategy": "ALLGREEN"}
+			for k, v := range extra {
+				p[k] = v
+			}
+			return p
+		}
+		f := direct(t)
+		f.rules = []any{rule("merge_queue", queueRule(map[string]any{"some_future_parameter": true}))}
+		bypassAll(f, "always")
+		p, err := f.client().Preview(context.Background(), f.ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.Eligible || !strings.Contains(p.Reason, "you can bypass rule merge_queue.some_future_parameter here") {
+			t.Fatalf("eligible %v, reason %q", p.Eligible, p.Reason)
+		}
+		f = direct(t)
+		f.rules = []any{rule("merge_queue", queueRule(map[string]any{"some_future_parameter": false}))}
+		bypassAll(f, "always")
+		if p, err = f.client().Preview(context.Background(), f.ref); err != nil || !p.Eligible {
+			t.Fatalf("%+v, %v", p, err)
+		}
+	})
+}
+
+// TestBypassMissingParameters: a rule that leaves out a parameter GitHub
+// always sends proves nothing, and a shape Pocket does not know refuses.
+func TestBypassMissingParameters(t *testing.T) {
+	name := func(key string) string { return "you can bypass rule pull_request." + key + " here" }
+	for _, tc := range []struct {
+		name    string
+		rules   []any
+		change  func(*fake)
+		reason  string
+		errText string
+	}{
+		{name: "no parameters at all", rules: []any{rule("pull_request", nil)},
+			reason: "you can bypass rule pull_request here"},
+		{name: "empty parameters, the first missing key", rules: []any{rule("pull_request", map[string]any{})},
+			reason: name("dismiss_stale_reviews_on_push")},
+		{name: "a malformed dismiss_stale_reviews_on_push", rules: []any{rule("pull_request", prParams(map[string]any{
+			"dismiss_stale_reviews_on_push": "yes",
+		}))}, reason: name("dismiss_stale_reviews_on_push")},
+		{name: "required_reviewers null", rules: []any{rule("pull_request", prParams(map[string]any{
+			"required_reviewers": nil,
+		}))}, reason: name("required_reviewers")},
+		{name: "required_reviewers not a list", rules: []any{rule("pull_request", prParams(map[string]any{
+			"required_reviewers": "everyone",
+		}))}, reason: name("required_reviewers")},
+		{name: "allowed_merge_methods null", rules: []any{rule("pull_request", prParams(map[string]any{
+			"allowed_merge_methods": nil,
+		}))}, reason: name("allowed_merge_methods")},
+		{name: "allowed_merge_methods that are no strings", rules: []any{rule("pull_request", prParams(map[string]any{
+			"allowed_merge_methods": []any{1, 2},
+		}))}, reason: name("allowed_merge_methods")},
+		{name: "extra approval that is no boolean", rules: []any{rule("pull_request", prParams(map[string]any{
+			"require_extra_approval_for_unattributed_changes": "yes",
+		}))}, reason: name("require_extra_approval_for_unattributed_changes")},
+		// An absent extra approval is on, so a Bot author needs 1 more.
+		{name: "extra approval absent, a Bot author", rules: []any{rule("pull_request", prParams(map[string]any{
+			"required_approving_review_count": 1,
+		}))}, change: func(f *fake) {
+			params := obj(f.rules[0].(map[string]any), "parameters")
+			delete(params, "require_extra_approval_for_unattributed_changes")
+			obj(f.bypassPR, "data", "repository", "pullRequest", "author")["__typename"] = "Bot"
+		}, reason: "the rules need 2 approvals at the head; Pocket counts 1"},
+		// The same, a User: 1 approval is enough.
+		{name: "extra approval absent, a user", rules: []any{rule("pull_request", prParams(map[string]any{
+			"required_approving_review_count": 1,
+		}))}, change: func(f *fake) {
+			params := obj(f.rules[0].(map[string]any), "parameters")
+			delete(params, "require_extra_approval_for_unattributed_changes")
+		}},
+		{name: "a required status checks rule without its strict policy", rules: []any{rule("required_status_checks", map[string]any{
+			"required_status_checks": []any{},
+		})}, reason: "you can bypass rule required_status_checks.strict_required_status_checks_policy here"},
+		{name: "a required status checks rule with no parameters", rules: []any{rule("required_status_checks", nil)},
+			errText: "the required checks rule has no parameters"},
+		{name: "a strict policy that is no boolean", rules: []any{rule("required_status_checks", map[string]any{
+			"required_status_checks":               []any{},
+			"strict_required_status_checks_policy": "yes",
+		})}, reason: "you can bypass rule required_status_checks.strict_required_status_checks_policy here"},
+		{name: "do_not_enforce_on_create that is no boolean", rules: []any{rule("required_status_checks", map[string]any{
+			"required_status_checks":               []any{},
+			"strict_required_status_checks_policy": false,
+			"do_not_enforce_on_create":             "yes",
+		})}, reason: "you can bypass rule required_status_checks.do_not_enforce_on_create here"},
+		{name: "no do_not_enforce_on_create is fine", change: func(f *fake) {
+			params := obj(f.rules[0].(map[string]any), "parameters")
+			delete(params, "do_not_enforce_on_create")
+		}, rules: []any{rule("required_status_checks", map[string]any{
+			"required_status_checks":               []any{},
+			"strict_required_status_checks_policy": false,
+			"do_not_enforce_on_create":             false,
+		})}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := direct(t)
+			f.rules = tc.rules
+			bypassAll(f, "always")
+			if tc.change != nil {
+				tc.change(f)
+			}
+			p, err := f.client().Preview(context.Background(), f.ref)
+			if tc.errText != "" {
+				if !errors.Is(err, ErrIncomplete) || !strings.Contains(err.Error(), tc.errText) {
+					t.Fatalf("err %v, want %q", err, tc.errText)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.reason != "" {
+				if p.Eligible || !strings.Contains(p.Reason, tc.reason) {
+					t.Fatalf("eligible %v, reason %q; want %q", p.Eligible, p.Reason, tc.reason)
+				}
+				return
+			}
+			if !p.Eligible || p.Reason != "" {
+				t.Fatalf("eligible %v, reason %q", p.Eligible, p.Reason)
+			}
+		})
+	}
+	// Every required key of a pull_request rule, 1 at a time.
+	for _, key := range pullRequestKeys {
+		t.Run("pull_request without "+key, func(t *testing.T) {
+			params := prParams(nil)
+			delete(params, key)
+			f := direct(t)
+			f.rules = []any{rule("pull_request", params)}
+			bypassAll(f, "always")
+			p, err := f.client().Preview(context.Background(), f.ref)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if p.Eligible || !strings.Contains(p.Reason, "you can bypass rule pull_request."+key+" here") {
+				t.Fatalf("eligible %v, reason %q", p.Eligible, p.Reason)
+			}
+		})
+	}
 }

@@ -4,6 +4,23 @@ query PocketBypass($owner: String!, $name: String!, $number: Int!) {
       headRefOid
       headRefName
       isCrossRepository
+      commits(last: 1) {
+        nodes {
+          commit {
+            oid
+            associatedPullRequests(first: 20) {
+              pageInfo {
+                hasNextPage
+              }
+              nodes {
+                number
+                state
+                headRefOid
+              }
+            }
+          }
+        }
+      }
       author {
         __typename
         login

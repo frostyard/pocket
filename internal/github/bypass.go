@@ -13,6 +13,23 @@ const bypassQuery = `query PocketBypass($owner: String!, $name: String!, $number
       headRefOid
       headRefName
       isCrossRepository
+      commits(last: 1) {
+        nodes {
+          commit {
+            oid
+            associatedPullRequests(first: 20) {
+              pageInfo {
+                hasNextPage
+              }
+              nodes {
+                number
+                state
+                headRefOid
+              }
+            }
+          }
+        }
+      }
       author {
         __typename
         login
@@ -56,6 +73,9 @@ type BypassFacts struct {
 	Approvers     []string // distinct logins: latest opinionated review APPROVED, at Head, authorCanPushToRepository true
 	LastPusher    string   // actor of the last push to the head branch; "" when not read or not proven
 	Behind        int      // behind_by of base tip...head; -1 when not read
+	// SameHead is the numbers of the other open PRs whose head is Head: their
+	// reviews can block a merge GitHub refuses, and Pocket does not read them.
+	SameHead []int
 }
 
 // The bypass answer: every field is a pointer, so a null shows.
@@ -69,7 +89,22 @@ type (
 		HeadRefOid        *string `json:"headRefOid"`
 		HeadRefName       *string `json:"headRefName"`
 		IsCrossRepository *bool   `json:"isCrossRepository"`
-		Author            *struct {
+		Commits           *struct {
+			Nodes *[]*struct {
+				Commit *struct {
+					Oid                    *string `json:"oid"`
+					AssociatedPullRequests *struct {
+						PageInfo *rawPageInfo `json:"pageInfo"`
+						Nodes    *[]*struct {
+							Number     *int    `json:"number"`
+							State      *string `json:"state"`
+							HeadRefOid *string `json:"headRefOid"`
+						} `json:"nodes"`
+					} `json:"associatedPullRequests"`
+				} `json:"commit"`
+			} `json:"nodes"`
+		} `json:"commits"`
+		Author *struct {
 			Typename *string `json:"__typename"`
 			Login    *string `json:"login"`
 		} `json:"author"`
@@ -125,6 +160,38 @@ func (c *Client) bypassFacts(ctx context.Context, ref Ref, f PRFacts, r RepoRule
 		return BypassFacts{}, incomplete("isCrossRepository is null")
 	}
 	out.Head, out.HeadRef, out.CrossRepo = *pr.HeadRefOid, *pr.HeadRefName, *pr.IsCrossRepository
+
+	// The head commit, and every PR GitHub says has the same head commit: an
+	// open 1 of them can block the merge on a review Pocket does not read.
+	co := pr.Commits
+	if co == nil || co.Nodes == nil || len(*co.Nodes) != 1 {
+		return BypassFacts{}, incomplete("commits is null")
+	}
+	node := (*co.Nodes)[0]
+	if node == nil || node.Commit == nil || node.Commit.Oid == nil {
+		return BypassFacts{}, incomplete("the last commit is null")
+	}
+	if *node.Commit.Oid != out.Head {
+		return BypassFacts{}, incomplete("the last commit is not the head")
+	}
+	aps := node.Commit.AssociatedPullRequests
+	if aps == nil || aps.PageInfo == nil || aps.Nodes == nil {
+		return BypassFacts{}, incomplete("associatedPullRequests is null")
+	}
+	if aps.PageInfo.HasNextPage == nil {
+		return BypassFacts{}, incomplete("associatedPullRequests.pageInfo.hasNextPage is null")
+	}
+	if *aps.PageInfo.HasNextPage {
+		return BypassFacts{}, incomplete("too many associated pull requests")
+	}
+	for _, a := range *aps.Nodes {
+		if a == nil || a.Number == nil || a.State == nil || a.HeadRefOid == nil {
+			return BypassFacts{}, incomplete("an associated pull request is null")
+		}
+		if *a.State == "OPEN" && *a.HeadRefOid == out.Head && *a.Number != ref.Number {
+			out.SameHead = append(out.SameHead, *a.Number)
+		}
+	}
 	// A null author is a PR GitHub attributes to nobody: no type to read.
 	if pr.Author != nil {
 		if pr.Author.Typename == nil {

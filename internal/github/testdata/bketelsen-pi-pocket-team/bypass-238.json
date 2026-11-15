@@ -5,6 +5,27 @@
         "headRefOid": "3721d27e51c1d046da5d955c6354bb6f1ce0e5f5",
         "headRefName": "sheeana/t1759-t1-merge-receipts",
         "isCrossRepository": false,
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "oid": "3721d27e51c1d046da5d955c6354bb6f1ce0e5f5",
+                "associatedPullRequests": {
+                  "pageInfo": {
+                    "hasNextPage": false
+                  },
+                  "nodes": [
+                    {
+                      "number": 238,
+                      "state": "MERGED",
+                      "headRefOid": "3721d27e51c1d046da5d955c6354bb6f1ce0e5f5"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
         "author": {
           "__typename": "User",
           "login": "frostyard-machines"
