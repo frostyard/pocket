@@ -5,7 +5,8 @@ Living document. Rationale: [ADR-0004](../adr/0004-build-a-native-client-of-pi-p
 [ADR-0006](../adr/0006-filter-notifications-in-the-client.md),
 [ADR-0007](../adr/0007-render-terminal-history-before-attaching.md),
 [ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md),
-[ADR-0009](../adr/0009-read-check-runs-only-with-a-token-that-can.md).
+[ADR-0009](../adr/0009-read-check-runs-only-with-a-token-that-can.md),
+[ADR-0010](../adr/0010-act-as-the-owner-through-a-github-app-user-token.md).
 Contracts: none of its own; Pocket speaks Pi Pocket's protocol (below).
 Built in: [roadmap](../plans/roadmap.md).
 
@@ -37,7 +38,7 @@ the owner, what is in motion, the team, the shift board and the numbers.
 cmd/pocket ── main: the window, keyring, notifications, badge
 internal/pocket ── HTTP client, event stream, view merging (goroutines) ─┐
 internal/app ── state (UI thread) + views (frostui / MyGo)  ◄── post(fn) ─┘
-internal/config ── settings file; the token in the desktop keyring
+internal/config ── settings file; the token and the GitHub sign-in in the keyring
 internal/icons ── the icons Pocket draws itself
 ```
 
@@ -406,7 +407,7 @@ kind turned off or do not disturb begun in the meantime holds it. Sign-out drops
 it, and a click never opens another sign-in's session. Approval notification
 tags expire after a day and clear on sign-out. The Settings dialog
 (`internal/app/settings.go`, ⌘,) holds those choices, the theme, the zoom,
-the server's facts and GitHub (the tokens, the preflight and Batches of
+the server's facts and GitHub (the App sign-in, the preflight and Batches of
 Approve + merge). The status bar shows do not disturb while it holds.
 
 The zoom scales the whole window, text, icons and spacing together, as a
@@ -457,10 +458,13 @@ panes less room.
   by title. A session's agent comes from its folder: an agent's home, or a
   delegation's worktree `<checkout>--<agent>-<slug>`.
 - **GitHub (Approve + merge):** the owner approves and merges a ready PR
-  as `bketelsen` from the Inbox, calling `api.github.com` with his own
-  tokens from the desktop keyring, never through the server, under
-  [ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md)
-  and [ADR-0009](../adr/0009-read-check-runs-only-with-a-token-that-can.md).
+  as `bketelsen` from the Inbox, calling `api.github.com` with a user
+  access token of the GitHub App "Pocket for bketelsen" (`github.AppName`)
+  from the desktop keyring, never through the server, under
+  [ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md),
+  [ADR-0009](../adr/0009-read-check-runs-only-with-a-token-that-can.md)
+  and [ADR-0010](../adr/0010-act-as-the-owner-through-a-github-app-user-token.md).
+  GitHub shows each approval and merge as `bketelsen` with the App's badge.
   `internal/github` holds the client: `Preview` reads the PR query, the
   rules, rulesets and branch protection of its base, and runs the gates;
   `Act` re-reads before each of its 3 allowed mutations (approve at the
@@ -470,26 +474,60 @@ panes less room.
   then null the result); only a 4xx is a refusal, and its 1 read only
   upgrades it when the effect is there. Every read fails closed: a null
   that the Nulls rule does not allow, a null rules page or an unknown merge
-  state refuses. A fine-grained token cannot read check runs (GitHub has no
-  Checks permission for it): a PR query whose `errors` refuse a node under
-  `statusCheckRollup` fails with `ErrChecksUnreadable`, so a PR with check
-  runs gets no button with such a token, and no gate reads around it
-  (ADR-0009). It follows no redirect and redacts the token from every
-  error. Each error names its call (`GET <path>` without the query string,
+  state refuses. A PR query whose `errors` refuse a node under
+  `statusCheckRollup` fails with `ErrChecksUnreadable` ("this sign-in cannot
+  read the PR's check runs: the Pocket App needs Checks: read on <owner>"),
+  so that PR gets no button, and no gate reads around it (ADR-0009 found it
+  with a fine-grained token, which has no Checks permission). It follows no
+  redirect and redacts the access token, the refresh token and the device
+  code from every error. Each error names its call (`GET <path>` without the query string,
   or `GraphQL <operation>`) and, for a GraphQL `errors` list, the type and
   path of each entry (3 at most, then a count); a 403 or 404 keeps GitHub's
   `X-Accepted-GitHub-Permissions` as the missing permission and adds it to
   the text. The reads of Settings and of an earlier attempt send
   no mutation: `Whoami` (`GET /user`, the login and the header
-  `github-authentication-token-expiration`), `CheckRepo`, `Preflight`
+  `github-authentication-token-expiration`), `CheckApp` (`GET /user` and
+  every page of `GET /user/installations`: for each owner, the App
+  installed, not suspended, with the permissions it needs), `CheckRepo`, `Preflight`
   (the full read of 1 ready PR, gates 1 and 2), `State` (1 PR query) and
   `Settle` (1 read, or 4 with waits: merged or queued by the owner at the
   shown head, a merge by another actor refused and never claimed, the
   owner's approval "approved, not merged", else unknown).
-  `config.GitHubTokens` keeps the tokens in the keyring with no file
-  fallback. Its recorded GitHub answers are in `internal/github/testdata/`.
+  Its recorded GitHub answers are in `internal/github/testdata/`.
+  - **Sign-in** (`internal/github/app.go`, `tokensource.go`; ADR-0010):
+    the device flow with the App's client ID and no client secret.
+    `OAuth.Start` posts to `https://github.com/login/device/code` (with
+    `scope=offline_access`, so the token expires), and Settings shows the
+    user code, **Copy code**, **Open github.com/login/device** (Pocket's own
+    constant URL, never the answer's), the time left and **Cancel**.
+    `OAuth.Poll` runs on its own goroutine until the code expires. Before
+    the save, `CheckApp` must name `bketelsen`; then `TokenSource.Adopt`
+    saves the pair, only for the current sign-in generation (a Cancel, a
+    Sign out or a newer sign-in makes an older result save nothing), and
+    Pocket deletes the 2 token keys of ADR-0008. The pair is 1 keyring
+    entry, `github:app` in the service `org.frostyard.Pocket` (JSON with the
+    client ID, the login, both tokens and their expiries), kept by
+    `config.GitHubApp` with no file fallback; an entry that is not a
+    sign-in (`config.BadSignIn`) shows why, and a new sign-in overwrites
+    it. Each GitHub job (a preview, a Settings read, the preflight, 1 PR's
+    attempt with its reconciliation) takes 1 lease of `TokenSource` and
+    releases it when it ends; a lease needs 10 minutes of validity. When
+    the 8-hour access token nears its end, or after a 401, no new lease
+    starts, and 1 refresh runs once every lease ended, so a refresh never
+    cuts a running job. A refused refresh ends the sign-in (the entry
+    goes: "Sign in to GitHub again"); no answer keeps the entry and tries
+    at the next lease; a new pair the keyring did not keep gives no lease
+    (**Save again**). The sign-in lock
+    (`<os.UserConfigDir()>/org.frostyard.Pocket/github-signin.lock`, an
+    operating-system lock that `POCKET_CONFIG_DIR` does not move, separate
+    from the journal's lock) keeps 1 Pocket per desktop user on the
+    sign-in: a second Pocket loads no sign-in and reads nothing on GitHub
+    ("another Pocket holds the GitHub sign-in"). It goes with the process,
+    and no button releases it. At exit Pocket waits at most 35 seconds for
+    a refresh or a keyring write.
   - **Cards** (`internal/app/merge.go`): each ready card whose `ref` parses
-    and whose owner (`bketelsen`, `frostyard`) has a kept token gets a
+    and whose owner (`bketelsen`, `frostyard`) is ready (the App installed
+    there, not suspended, with its permissions) gets a
     preview, read on entering the Inbox, after each Desk read and when a
     dialog opens, 4 at a time, kept 60 seconds, never in a frame's draw.
     An eligible card gets **Approve + merge**; a failed gate shows its
@@ -510,7 +548,8 @@ panes less room.
     another account the dialog does not start ("signed in to another
     account: close and open again"). Pocket works
     the list 1 PR at a time in Inbox order: a refusal stops only that PR, a
-    401 stops that owner's PRs and marks the token bad, a rate limit stops
+    401 marks the leased token spent (the next lease refreshes) and stops
+    every PR not started, of both owners, a rate limit stops
     the batch ("not started: rate limit until HH:MM"), and **Stop** starts
     no other PR. The end shows each result and a toast with the totals.
   - **Batches:** Settings > GitHub > Batches (off by default,
@@ -577,16 +616,22 @@ panes less room.
     own and never replaces another's. A receipt that waits shows "not
     recorded on the Desk" and goes again with the same `op` at start and at
     each Desk read for 24 hours, then gives up; a 400 or 409 is rejected. A receipt never hides or undoes the GitHub result.
-  - **Settings > GitHub:** a masked field per owner with **Check** (the
-    token must sign in as `bketelsen` and read a ready repository of that
-    owner; only then is it saved, so with no ready PR of that owner a typed
-    token is not kept, and a kept one shows only its login and expiry) and
-    **Forget**; the login, expiry and
-    missing permission; the read-only preflight table (repository,
-    readable, bypass, classic protection, missing permission or reason),
-    whose failed repositories get no button; and Batches. Without a
-    keyring (or with `POCKET_NO_KEYRING`) it says "Approve + merge needs the
-    desktop keyring" and no card gets a button.
+  - **Settings > GitHub:** **Sign in with GitHub** (with a note while the
+    2 token keys of ADR-0008 remain: sign in, then delete those tokens on
+    GitHub); the device code while a sign-in waits; once signed in, "Signed
+    in as bketelsen through Pocket for bketelsen", each owner's readiness
+    (unknown, ready, or the reason, such as "the App is not installed on
+    frostyard"; a missing Merge queues permission is only a note), the date
+    to sign in again by (the refresh token's expiry), **Run preflight**
+    and **Sign out** (which forgets the sign-in on this desktop and names
+    where to revoke it on GitHub). Owners are unknown, with no button,
+    until `CheckApp` runs: at start, after a sign-in and at **Run
+    preflight**. A pair the keyring did not keep shows **Save again**, and
+    a delete that failed shows **Delete again**. The read-only preflight
+    table (repository, readable, bypass, classic protection, missing
+    permission or reason) keeps its failed repositories without a button;
+    and Batches. Without a keyring (or with `POCKET_NO_KEYRING`) it says
+    "Approve + merge needs the desktop keyring" and no card gets a button.
 - **Threads:** the client's goroutines never touch UI state; they post
   functions to the window (`Window.Update`).
 
@@ -639,7 +684,6 @@ Desk list, so older closures and their reports remain readable in the inspector.
 
 ## References
 
-- Rationale: [ADR-0004](../adr/0004-build-a-native-client-of-pi-pockets-own-api.md), [ADR-0005](../adr/0005-organize-the-window-around-what-needs-the-owner.md), [ADR-0006](../adr/0006-filter-notifications-in-the-client.md), [ADR-0007](../adr/0007-render-terminal-history-before-attaching.md), [ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md), [ADR-0009](../adr/0009-read-check-runs-only-with-a-token-that-can.md)
-- Owner's GitHub sign-in (to come): [ADR-0010](../adr/0010-act-as-the-owner-through-a-github-app-user-token.md)
+- Rationale: [ADR-0004](../adr/0004-build-a-native-client-of-pi-pockets-own-api.md), [ADR-0005](../adr/0005-organize-the-window-around-what-needs-the-owner.md), [ADR-0006](../adr/0006-filter-notifications-in-the-client.md), [ADR-0007](../adr/0007-render-terminal-history-before-attaching.md), [ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md), [ADR-0009](../adr/0009-read-check-runs-only-with-a-token-that-can.md), [ADR-0010](../adr/0010-act-as-the-owner-through-a-github-app-user-token.md)
 - Repository structure: [agent-ready repository](agent-ready-repository.md)
 - Built in: [roadmap](../plans/roadmap.md)

@@ -55,11 +55,12 @@ type Options struct {
 	Now func() time.Time
 	// TimeZone gives the device's IANA zone, or empty when it is unknown.
 	TimeZone func() string
-	// GitHub gives a GitHub client with the owner's kept token for a
-	// resource owner, and GitHubTokens keeps those tokens (ADR-0008). Both
-	// nil turn Approve + merge off.
-	GitHub       func(owner string) (*github.Client, error)
-	GitHubTokens TokenStore
+	// GitHub gives a client on a token leased for a resource owner, the
+	// token's generation and the release the job calls with defer;
+	// GitHubAuth is the Pocket App's sign-in (ADR-0010). Both nil turn
+	// Approve + merge off.
+	GitHub     func(ctx context.Context, owner string) (*github.Client, int, func(), error)
+	GitHubAuth GitHubAuth
 }
 
 // App is the window's state.

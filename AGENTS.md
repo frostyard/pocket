@@ -72,10 +72,17 @@ them rather than improvising, whichever agent you are. Start a new one from
   and `webpane.go` (`ArtifactWeb`: the web view's sign-in, sign-out and native
   calls, in order, over the `WebNative` that `cmd/pocket` gives it).
   `internal/config` holds settings and credentials (`github.go`: the
-  owner's GitHub tokens, in the keyring only); `internal/github` is the
-  GitHub client that approves and merges a PR as the owner (ADR-0008): its
-  reads, gates, intent check and `Act`, with no UI; `internal/icons` the
-  icons Pocket draws.
+  owner's GitHub App sign-in, 1 keyring entry and no file;
+  `signin_lock*.go`: the operating-system lock that keeps 1 Pocket on that
+  sign-in); `internal/github` is the GitHub client that approves and merges
+  a PR as the owner (ADR-0008, ADR-0010): its reads, gates, intent check and
+  `Act`, the App's device-flow sign-in (`app.go`) and the leases and refresh
+  of its token (`tokensource.go`), with no UI; `cmd/pocket/github.go` joins
+  them for the app; `internal/icons` the icons Pocket draws.
+- **GitHub token leases.** A GitHub job takes 1 lease of the App token at
+  its start (`a.gh.api(ctx, owner)`) and calls its release with `defer`;
+  it never takes a second one. A refresh waits until every lease ends, so
+  a job that holds 2 leases, or never releases 1, stops every refresh.
 - **UI thread.** `App` and everything in it belong to the UI thread. Work
   that waits on the network runs on a goroutine and hands its result back
   with `a.request(what, fn, done)` (or `a.requestWithin` for a slow route),
