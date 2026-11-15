@@ -86,6 +86,13 @@ type fake struct {
 
 	// user is the login GET /user answers; expiry its expiry header.
 	user, expiry string
+	// installs are the installations of GET /user/installations, in order.
+	installs []map[string]any
+	// installTotal is the total_count the pages give; nil is the number of
+	// installations.
+	installTotal *int
+	// installPage fails 1 page (from 1) with a status and a body.
+	installPage func(page int) (int, string)
 	// gets are the REST paths read, in order.
 	gets []string
 
@@ -149,6 +156,27 @@ func checkRun(name, status, conclusion string, app any) map[string]any {
 
 func statusCtx(context, state string) map[string]any {
 	return map[string]any{"__typename": "StatusContext", "context": context, "state": state}
+}
+
+// readyPerms are the repository permissions the Pocket App needs on an
+// owner: every required 1, and Merge queues.
+func readyPerms() map[string]string {
+	return map[string]string{
+		"checks": "read", "statuses": "read", "contents": "write", "metadata": "read",
+		"pull_requests": "write", "workflows": "write", "merge_queues": "write",
+	}
+}
+
+// install is 1 installation of the App in GET /user/installations.
+func install(appSlug, owner string, perms map[string]string, suspended bool) map[string]any {
+	var at any
+	if suspended {
+		at = "2026-11-01T00:00:00Z"
+	}
+	return map[string]any{
+		"id": 1, "app_slug": appSlug, "account": map[string]any{"login": owner},
+		"permissions": perms, "suspended_at": at,
+	}
 }
 
 func labels(names ...string) map[string]any {
@@ -293,6 +321,27 @@ func (f *fake) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	case "/repos/" + f.ref.Owner + "/" + f.ref.Name:
 		f.write(w, 200, `{"full_name":"`+f.ref.Owner+"/"+f.ref.Name+`"}`, nil)
+		return
+	case "/user/installations":
+		q := r.URL.Query()
+		if q.Get("per_page") != strconv.Itoa(installationsPerPage) {
+			t.Errorf("installations without per_page=%d: %s", installationsPerPage, r.URL)
+		}
+		page, _ := strconv.Atoi(q.Get("page"))
+		lo, hi := (page-1)*installationsPerPage, page*installationsPerPage
+		lo, hi = min(max(lo, 0), len(f.installs)), min(max(hi, 0), len(f.installs))
+		total := len(f.installs)
+		if f.installTotal != nil {
+			total = *f.installTotal
+		}
+		if f.installPage != nil {
+			if status, body := f.installPage(page); status != 0 {
+				f.write(w, status, body, nil)
+				return
+			}
+		}
+		b, _ := json.Marshal(map[string]any{"total_count": total, "installations": f.installs[lo:hi]})
+		f.write(w, 200, string(b), nil)
 		return
 	}
 	prefix := "/repos/" + f.ref.Owner + "/" + f.ref.Name + "/"

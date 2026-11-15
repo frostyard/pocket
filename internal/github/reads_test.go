@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -237,5 +238,271 @@ func TestSettleQueueClaimsNothingWithoutTheQueueMethod(t *testing.T) {
 				t.Errorf("mutations %v", f.mutations)
 			}
 		})
+	}
+}
+
+// TestCheckApp: the sign-in's login, and whether the App is ready on each
+// owner.
+func TestCheckApp(t *testing.T) {
+	owners := []string{"bketelsen", "frostyard"}
+	ready := func(t *testing.T) *fake {
+		f := direct(t)
+		f.installs = []map[string]any{
+			install(AppSlug, "bketelsen", readyPerms(), false),
+			install(AppSlug, "frostyard", readyPerms(), false),
+		}
+		return f
+	}
+	t.Run("ready", func(t *testing.T) {
+		f := ready(t)
+		check, err := f.client().CheckApp(context.Background(), owners)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if check.Login != Login {
+			t.Errorf("login %q", check.Login)
+		}
+		for _, owner := range owners {
+			if reason, ok := check.Owners[owner]; !ok || reason != "" {
+				t.Errorf("%s: %q", owner, reason)
+			}
+		}
+		if len(check.Notes) != 0 {
+			t.Errorf("notes %v", check.Notes)
+		}
+	})
+	t.Run("another login", func(t *testing.T) {
+		f := ready(t)
+		f.user = "frostyard-machines"
+		check, err := f.client().CheckApp(context.Background(), owners)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if check.Login != "frostyard-machines" {
+			t.Errorf("login %q", check.Login)
+		}
+	})
+	t.Run("not installed", func(t *testing.T) {
+		f := ready(t)
+		f.installs = f.installs[:1]
+		check, err := f.client().CheckApp(context.Background(), owners)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := check.Owners["frostyard"]; got != "the App is not installed on frostyard" {
+			t.Errorf("reason %q", got)
+		}
+		if got := check.Owners["bketelsen"]; got != "" {
+			t.Errorf("bketelsen: %q", got)
+		}
+	})
+	t.Run("another app", func(t *testing.T) {
+		f := ready(t)
+		f.installs = []map[string]any{install("another-app", "frostyard", readyPerms(), false)}
+		check, err := f.client().CheckApp(context.Background(), owners)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := check.Owners["frostyard"]; got != "the App is not installed on frostyard" {
+			t.Errorf("reason %q", got)
+		}
+	})
+	t.Run("no checks", func(t *testing.T) {
+		f := ready(t)
+		perms := readyPerms()
+		delete(perms, "checks")
+		f.installs[1] = install(AppSlug, "frostyard", perms, false)
+		check, err := f.client().CheckApp(context.Background(), owners)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := check.Owners["frostyard"]; got != "the App lacks checks: read on frostyard" {
+			t.Errorf("reason %q", got)
+		}
+	})
+	t.Run("write meets read", func(t *testing.T) {
+		f := ready(t)
+		perms := readyPerms()
+		perms["checks"] = "write"
+		f.installs[1] = install(AppSlug, "frostyard", perms, false)
+		check, err := f.client().CheckApp(context.Background(), owners)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := check.Owners["frostyard"]; got != "" {
+			t.Errorf("reason %q", got)
+		}
+	})
+	t.Run("contents read", func(t *testing.T) {
+		f := ready(t)
+		perms := readyPerms()
+		perms["contents"] = "read"
+		f.installs[1] = install(AppSlug, "frostyard", perms, false)
+		check, err := f.client().CheckApp(context.Background(), owners)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := check.Owners["frostyard"]; got != "the App lacks contents: write on frostyard" {
+			t.Errorf("reason %q", got)
+		}
+	})
+	t.Run("suspended", func(t *testing.T) {
+		f := ready(t)
+		f.installs[1] = install(AppSlug, "frostyard", readyPerms(), true)
+		check, err := f.client().CheckApp(context.Background(), owners)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := check.Owners["frostyard"]; got != "the App is suspended on frostyard" {
+			t.Errorf("reason %q", got)
+		}
+	})
+	t.Run("no merge queues", func(t *testing.T) {
+		f := ready(t)
+		perms := readyPerms()
+		delete(perms, "merge_queues")
+		f.installs[1] = install(AppSlug, "frostyard", perms, false)
+		check, err := f.client().CheckApp(context.Background(), owners)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := check.Owners["frostyard"]; got != "" {
+			t.Errorf("reason %q", got)
+		}
+		if note := check.Notes["frostyard"]; !strings.Contains(note, "an enqueue may fail") {
+			t.Errorf("note %q", note)
+		}
+	})
+	t.Run("2 pages", func(t *testing.T) {
+		f := ready(t)
+		f.installs = nil
+		for range installationsPerPage {
+			f.installs = append(f.installs, install("another-app", "someone", readyPerms(), false))
+		}
+		f.installs = append(f.installs, install(AppSlug, "frostyard", readyPerms(), false))
+		check, err := f.client().CheckApp(context.Background(), []string{"frostyard"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := check.Owners["frostyard"]; got != "" {
+			t.Errorf("reason %q", got)
+		}
+		if len(f.gets) != 3 { // GET /user and 2 pages
+			t.Errorf("reads %v", f.gets)
+		}
+	})
+	t.Run("a failed page", func(t *testing.T) {
+		f := ready(t)
+		f.restFail = func(path string) (int, string, http.Header) {
+			if path == "/user/installations" {
+				return 502, `{"message":"Server Error"}`, nil
+			}
+			return 0, "", nil
+		}
+		if _, err := f.client().CheckApp(context.Background(), owners); !errors.Is(err, ErrNoAnswer) {
+			t.Errorf("err %v", err)
+		}
+	})
+	t.Run("a refused read", func(t *testing.T) {
+		f := ready(t)
+		f.restFail = func(path string) (int, string, http.Header) {
+			if path == "/user" {
+				return 401, `{"message":"Bad credentials"}`, nil
+			}
+			return 0, "", nil
+		}
+		_, err := f.client().CheckApp(context.Background(), owners)
+		var api *APIError
+		if !errors.As(err, &api) || api.Status != 401 {
+			t.Errorf("err %v", err)
+		}
+		if !strings.HasPrefix(err.Error(), "GET /user: ") {
+			t.Errorf("the error names no call: %v", err)
+		}
+	})
+}
+
+// TestInstallationsHoldTheTotalCount: a page that is shorter than the
+// total_count, or longer than it, proves nothing.
+func TestInstallationsHoldTheTotalCount(t *testing.T) {
+	installs := func(n int) []map[string]any {
+		out := make([]map[string]any, 0, n)
+		for i := range n {
+			out = append(out, install("another-app", fmt.Sprintf("owner%d", i), readyPerms(), false))
+		}
+		return out
+	}
+	t.Run("a short page", func(t *testing.T) {
+		f := direct(t)
+		f.installs = installs(2)
+		total := 101
+		f.installTotal = &total
+		_, err := f.client().CheckApp(context.Background(), []string{Login})
+		if !errors.Is(err, ErrIncomplete) {
+			t.Fatalf("err %v", err)
+		}
+	})
+	t.Run("no total_count", func(t *testing.T) {
+		f := direct(t)
+		f.installs = nil
+		var more = -1
+		f.installTotal = &more
+		if _, err := f.client().CheckApp(context.Background(), []string{Login}); !errors.Is(err, ErrIncomplete) {
+			t.Fatalf("err %v", err)
+		}
+	})
+	t.Run("page 2 fails", func(t *testing.T) {
+		f := direct(t)
+		f.installs = installs(installationsPerPage + 1)
+		f.installPage = func(page int) (int, string) {
+			if page == 2 {
+				return 502, `{"message":"Server Error"}`
+			}
+			return 0, ""
+		}
+		check, err := f.client().CheckApp(context.Background(), []string{Login})
+		if !errors.Is(err, ErrNoAnswer) {
+			t.Fatalf("err %v", err)
+		}
+		if len(check.Owners) != 0 || check.Login != "" {
+			t.Errorf("a failed read kept %+v", check)
+		}
+	})
+	t.Run("exactly 100", func(t *testing.T) {
+		f := direct(t)
+		f.installs = append(installs(installationsPerPage), install(AppSlug, Login, readyPerms(), false))
+		f.installs = f.installs[:installationsPerPage]
+		check, err := f.client().CheckApp(context.Background(), []string{Login})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := check.Owners[Login]; got != "the App is not installed on bketelsen" {
+			t.Errorf("reason %q", got)
+		}
+		if len(f.gets) != 2 { // GET /user and 1 page
+			t.Errorf("reads %v", f.gets)
+		}
+	})
+}
+
+// TestPreflightCarriesTheError: a read that fails gives the row its redacted
+// error, so a caller tells a refused sign-in from a repository that has no
+// button.
+func TestPreflightCarriesTheError(t *testing.T) {
+	f := direct(t)
+	row := f.client().Preflight(context.Background(), f.ref)
+	if row.Err != nil || row.Reason != "" {
+		t.Fatalf("row %+v", row)
+	}
+	f.restFail = func(string) (int, string, http.Header) {
+		return 401, `{"message":"Bad credentials for ` + testToken + `"}`, nil
+	}
+	row = f.client().Preflight(context.Background(), f.ref)
+	var api *APIError
+	if !errors.As(row.Err, &api) || api.Status != 401 {
+		t.Fatalf("row %+v", row)
+	}
+	if row.Readable || row.Reason == "" || strings.Contains(row.Err.Error(), testToken) {
+		t.Errorf("row %+v", row)
 	}
 }

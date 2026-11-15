@@ -511,7 +511,7 @@ func (c *Client) pr(ctx context.Context, ref Ref) (PRFacts, error) {
 		}
 		var a rawPRAnswer
 		if err := c.GraphQL(ctx, prQuery, vars, &a); err != nil {
-			return PRFacts{}, refusedChecks(err)
+			return PRFacts{}, refusedChecks(err, ref.Owner)
 		}
 		f, next, err := a.facts()
 		if err != nil {
@@ -546,13 +546,21 @@ func shortSHA(oid string) string {
 	return oid
 }
 
-// checksRefused is a token GitHub refuses the PR's check runs to. It is
+// checksRefused is a sign-in GitHub refuses the PR's check runs to. It is
 // ErrChecksUnreadable, and ErrIncomplete too, with GitHub's own words: a
-// refusal, so again no mutation is sent.
-type checksRefused struct{ err error }
+// refusal, so again no mutation is sent. It names the owner the App's
+// Checks permission is missing on.
+type checksRefused struct {
+	owner string
+	err   error
+}
 
 func (e *checksRefused) Error() string {
-	return ErrChecksUnreadable.Error() + ", so Pocket cannot check the required checks: " + e.err.Error()
+	msg := ErrChecksUnreadable.Error()
+	if e.owner != "" {
+		msg += " on " + e.owner
+	}
+	return msg + ", so Pocket cannot check the required checks: " + e.err.Error()
 }
 
 func (e *checksRefused) Is(target error) bool { return target == ErrChecksUnreadable }
@@ -562,7 +570,7 @@ func (e *checksRefused) Unwrap() error        { return e.err }
 // runs of the PR's rollup, under ADR-0009
 // (docs/adr/0009-read-check-runs-only-with-a-token-that-can.md). Any other
 // error comes back as it is.
-func refusedChecks(err error) error {
+func refusedChecks(err error, owner string) error {
 	var g *gqlErrors
 	if !errors.As(err, &g) {
 		return err
@@ -571,7 +579,7 @@ func refusedChecks(err error) error {
 		if !refusesCheckRuns(e) {
 			continue
 		}
-		return &checksRefused{err: err}
+		return &checksRefused{owner: owner, err: err}
 	}
 	return err
 }

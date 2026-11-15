@@ -64,15 +64,17 @@ server that surpasses its web app at a desk. Phases 1 to 4 shipped on
   Arrakis extension ([design](../design/pocket.md#places); implemented
   2026-11-13). Harvesters, carryalls, ornithopters, the storm and a Vision
   of a made-up order followed the same day.
-- Approve + merge as the owner on the Inbox's ready cards, with his own
-  GitHub tokens from the desktop keyring: protocol and recorded GitHub
-  answers decided 2026-11-14
+- Approve + merge as the owner on the Inbox's ready cards: protocol and
+  recorded GitHub answers decided 2026-11-14
   ([ADR-0008](../adr/0008-approve-and-merge-as-the-owner-from-the-desktop.md),
-  [design](../design/pocket.md#the-protocol)); the client and the Inbox
-  controls follow. A fine-grained token cannot read check runs: such a PR
-  gets a named refusal until a later decision picks the token
+  [design](../design/pocket.md#the-protocol)), the client and the Inbox
+  controls. A fine-grained token cannot read check runs
   ([ADR-0009](../adr/0009-read-check-runs-only-with-a-token-that-can.md),
-  2026-11-14).
+  2026-11-14), so the owner signs in through the GitHub App "Pocket for
+  bketelsen" with the device flow: GitHub App sign-in, ADR-0010
+  ([ADR-0010](../adr/0010-act-as-the-owner-through-a-github-app-user-token.md),
+  [design](../design/pocket.md#the-protocol)). Done when the owner's
+  first direct merge from Pocket shows `bketelsen` with the App's badge.
 - **Done when:** the owner uses Pocket for a full working day without opening
   the web app.
 

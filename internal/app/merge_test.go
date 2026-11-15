@@ -35,11 +35,20 @@ type fakeGH struct {
 	states map[string]github.PRState
 	login  string
 	rows   map[string]github.PreflightRow
-	// whoamiErr is what Whoami fails with; nil signs in as login.
-	whoamiErr error
+	// app is what CheckApp answers; nil is both owners ready, as login.
+	app      *github.AppCheck
+	appErr   error
+	appReads int
+	// appGate holds CheckApp call appGateAt until it is closed, and
+	// appEntered closes when that call enters.
+	appGate    chan struct{}
+	appGateAt  int
+	appEntered chan struct{}
+	leaseErr   error
+	taken      int
+	released   int
 
 	acts, settles, stateReads, previewReads []string
-	repoChecks                              []string
 }
 
 func newFakeGH() *fakeGH {
@@ -99,21 +108,106 @@ func (f *fakeGH) State(_ context.Context, r github.Ref) (github.PRState, error) 
 	return f.states[r.String()], nil
 }
 
-func (f *fakeGH) Whoami(context.Context) (github.Identity, error) {
-	if f.whoamiErr != nil {
-		return github.Identity{}, f.whoamiErr
+// CheckApp answers with app, or both owners ready, as login.
+func (f *fakeGH) CheckApp(_ context.Context, owners []string) (github.AppCheck, error) {
+	f.mu.Lock()
+	f.appReads++
+	n := f.appReads
+	gate, entered := f.appGate, f.appEntered
+	wait := gate != nil && f.appGateAt == n
+	// The answer is the 1 there is when the call enters, not after a wait: a
+	// new sign-in that changes it must not change this call's answer.
+	check, err := f.appAnswerLocked(owners)
+	f.mu.Unlock()
+	if wait {
+		if entered != nil {
+			close(entered)
+		}
+		<-gate
 	}
-	return github.Identity{Login: f.login, Expires: time.Date(2026, 12, 14, 10, 0, 0, 0, time.UTC)}, nil
+	return check, err
 }
 
-func (f *fakeGH) CheckRepo(_ context.Context, owner, name string) error {
+// appAnswerLocked is 1 call's answer, taken under the lock.
+func (f *fakeGH) appAnswerLocked(owners []string) (github.AppCheck, error) {
+	if f.appErr != nil {
+		return github.AppCheck{}, f.appErr
+	}
+	if f.app != nil {
+		return *f.app, nil
+	}
+	check := github.AppCheck{Login: f.login, Owners: map[string]string{}, Notes: map[string]string{}}
+	for _, owner := range owners {
+		check.Owners[owner] = ""
+	}
+	return check, nil
+}
+
+// holdCheck makes the next CheckApp call wait, and gives its release and the
+// channel that closes when that call enters.
+func (f *fakeGH) holdCheck(t *testing.T) (release func(), entered chan struct{}) {
+	t.Helper()
+	f.mu.Lock()
+	n := f.appReads + 1
+	f.mu.Unlock()
+	return f.holdCheckAt(t, n)
+}
+
+// holdCheckAt makes CheckApp call n wait until the release is called, and
+// gives the channel that closes when that call enters. The call's answer is
+// the 1 there is when it enters, so a test may change the answer for the
+// calls after it.
+func (f *fakeGH) holdCheckAt(t *testing.T, n int) (release func(), entered chan struct{}) {
+	t.Helper()
+	gate, entered := make(chan struct{}), make(chan struct{})
+	f.mu.Lock()
+	f.appGate, f.appGateAt, f.appEntered = gate, n, entered
+	f.mu.Unlock()
+	var once sync.Once
+	release = func() { once.Do(func() { close(gate) }) }
+	t.Cleanup(release)
+	return release, entered
+}
+
+// setApp is what CheckApp answers next.
+func (f *fakeGH) setApp(check *github.AppCheck) {
+	f.mu.Lock()
+	f.app = check
+	f.mu.Unlock()
+}
+
+// setAppErr is what CheckApp fails with next.
+func (f *fakeGH) setAppErr(err error) {
+	f.mu.Lock()
+	f.appErr = err
+	f.mu.Unlock()
+}
+
+// lease is the app's Options.GitHub: a client, a token generation and the
+// release, counted.
+func (f *fakeGH) lease(_ context.Context, _ string) (ghAPI, int, func(), error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.repoChecks = append(f.repoChecks, owner+"/"+name)
-	if f.errs["repo:"+owner+"/"+name] != nil {
-		return f.errs["repo:"+owner+"/"+name]
+	if f.leaseErr != nil {
+		return nil, 0, nil, f.leaseErr
 	}
-	return nil
+	f.taken++
+	released := false
+	return f, f.taken, func() {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if !released {
+			released = true
+			f.released++
+		}
+	}, nil
+}
+
+// leases are how many leases the jobs took and released.
+func (f *fakeGH) leases() (taken, released int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.taken, f.released
 }
 
 func (f *fakeGH) Preflight(_ context.Context, r github.Ref) github.PreflightRow {
@@ -131,39 +225,386 @@ func (f *fakeGH) actsSoFar() []string {
 	return slices.Clone(f.acts)
 }
 
-// fakeTokens is the keyring as a map.
-type fakeTokens struct {
+// fakeAuth is the App's sign-in in memory: the keyring entry, the device
+// flow and the leases. It counts what the app asks it to do.
+type fakeAuth struct {
 	mu   sync.Mutex
-	m    map[string]string
-	err  error
-	sets int
+	tok  github.AppToken
+	have bool
+	// openErr is what Open fails with; held gives ErrSignInHeld.
+	openErr error
+	// startErr, code and poll answer the device flow.
+	startErr error
+	code     github.DeviceCode
+	poll     github.AppToken
+	pollErr  error
+	// pollFn, when set, answers Poll instead of poll/pollErr.
+	pollFn func(ctx context.Context) (github.AppToken, error)
+	// adoptErr, saveErr, deleteErr and forgetErr refuse those writes.
+	adoptErr, saveErr, deleteErr, forgetErr error
+	// reason is the BadSignIn reason Load would give.
+	reason     string
+	legacy     bool
+	unsaved    bool
+	deleteFail bool
+	// adoptGate holds Adopt until it is closed; openGate holds Open; onClose
+	// runs in Close.
+	adoptGate chan struct{}
+	openGate  chan struct{}
+	onClose   func()
+
+	gen       int
+	starts    int
+	begins    int
+	cancelled []int
+	adopted   []github.AppToken
+	adoptGens []int
+	invalid   []int
+	opens     int
+	closes    int
+	saves     int
+	deletes   int
+	forgets   int
+	legacyOff int
+	statuses  int
 }
 
-func (f *fakeTokens) Get(owner string) (string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.m[owner], f.err
+func newFakeAuth() *fakeAuth {
+	return &fakeAuth{
+		tok:  github.AppToken{ClientID: github.AppClientID, Login: github.Login, Access: testGitHubToken, Refresh: "refresh-not-real", AccessExpires: time.Date(2026, 11, 14, 20, 0, 0, 0, time.UTC), RefreshExpires: time.Date(2027, 5, 13, 12, 0, 0, 0, time.UTC)},
+		have: true,
+		code: github.DeviceCode{DeviceCode: "device-code-not-real", UserCode: "ABCD-1234", Expires: time.Date(2026, 11, 14, 12, 15, 0, 0, time.UTC), Interval: 5 * time.Second},
+		poll: github.AppToken{ClientID: github.AppClientID, Access: testGitHubToken, Refresh: "refresh-not-real",
+			AccessExpires: time.Date(2026, 11, 14, 20, 0, 0, 0, time.UTC), RefreshExpires: time.Date(2027, 5, 13, 12, 0, 0, 0, time.UTC)},
+	}
 }
 
-func (f *fakeTokens) Set(owner, token string) error {
+func (f *fakeAuth) Open() error {
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.sets++
-	f.m[owner] = token
-	return f.err
+	f.opens++
+	gate, err := f.openGate, f.openErr
+	f.mu.Unlock()
+	if gate != nil {
+		<-gate
+	}
+	return err
 }
 
-func (f *fakeTokens) Forget(owner string) error {
+func (f *fakeAuth) Start(context.Context) (github.DeviceCode, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	delete(f.m, owner)
-	return f.err
+	f.starts++
+	if f.startErr != nil {
+		return github.DeviceCode{}, f.startErr
+	}
+	return f.code, nil
 }
 
-func (f *fakeTokens) get(owner string) string {
+func (f *fakeAuth) Poll(ctx context.Context, _ github.DeviceCode) (github.AppToken, error) {
+	f.mu.Lock()
+	fn, tok, err := f.pollFn, f.poll, f.pollErr
+	f.mu.Unlock()
+	if fn != nil {
+		return fn(ctx)
+	}
+	return tok, err
+}
+
+func (f *fakeAuth) BeginSignIn() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.m[owner]
+	f.gen++
+	f.begins++
+	return f.gen
+}
+
+func (f *fakeAuth) CancelSignIn(gen int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cancelled = append(f.cancelled, gen)
+}
+
+func (f *fakeAuth) Adopt(tok github.AppToken, gen int) error {
+	f.mu.Lock()
+	gate := f.adoptGate
+	f.mu.Unlock()
+	if gate != nil {
+		<-gate
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.adoptErr != nil {
+		return f.adoptErr
+	}
+	if gen != f.gen {
+		return github.ErrStale
+	}
+	f.adopted = append(f.adopted, tok)
+	f.adoptGens = append(f.adoptGens, gen)
+	f.tok, f.have, f.unsaved = tok, true, false
+	return nil
+}
+
+func (f *fakeAuth) SaveAgain() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.saves++
+	if f.saveErr != nil {
+		return f.saveErr
+	}
+	f.unsaved = false
+	return nil
+}
+
+func (f *fakeAuth) DeleteAgain() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deletes++
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
+	f.deleteFail = false
+	return nil
+}
+
+func (f *fakeAuth) Invalidate(tokenGen int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.invalid = append(f.invalid, tokenGen)
+}
+
+func (f *fakeAuth) Forget() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.forgets++
+	f.gen++
+	// The pair leaves memory at once, whatever the keyring does.
+	f.tok, f.have, f.unsaved = github.AppToken{}, false, false
+	if f.forgetErr != nil {
+		f.deleteFail = true
+		return f.forgetErr
+	}
+	f.deleteFail = false
+	return nil
+}
+
+func (f *fakeAuth) Status() github.AppStatus {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.statuses++
+	return github.AppStatus{SignedIn: f.have, Login: f.tok.Login, RefreshExpires: f.tok.RefreshExpires,
+		Unsaved: f.unsaved, DeleteFailed: f.deleteFail, Reason: f.reason}
+}
+
+func (f *fakeAuth) Legacy() (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.legacy, nil
+}
+
+func (f *fakeAuth) ForgetLegacy() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.legacyOff++
+	f.legacy = false
+	return nil
+}
+
+func (f *fakeAuth) Close() {
+	f.mu.Lock()
+	onClose := f.onClose
+	f.closes++
+	f.mu.Unlock()
+	if onClose != nil {
+		onClose()
+	}
+}
+
+// holdOpen makes Open wait until the release is called.
+func (f *fakeAuth) holdOpen(t *testing.T) (release func()) {
+	t.Helper()
+	gate := make(chan struct{})
+	f.mu.Lock()
+	f.openGate = gate
+	f.mu.Unlock()
+	var once sync.Once
+	release = func() { once.Do(func() { close(gate) }) }
+	t.Cleanup(release)
+	return release
+}
+
+// signInCounts are BeginSignIn and Start calls, and the generation.
+func (f *fakeAuth) signInCounts() (begins, starts, gen int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.begins, f.starts, f.gen
+}
+
+// holdAdopt makes Adopt wait until the release is called.
+func (f *fakeAuth) holdAdopt(t *testing.T) (release func()) {
+	t.Helper()
+	gate := make(chan struct{})
+	f.mu.Lock()
+	f.adoptGate = gate
+	f.mu.Unlock()
+	var once sync.Once
+	release = func() { once.Do(func() { close(gate) }) }
+	t.Cleanup(release)
+	return release
+}
+
+// setUnsaved makes the sign-in 1 the keyring did not keep.
+func (f *fakeAuth) setUnsaved(on bool) {
+	f.mu.Lock()
+	f.unsaved = on
+	f.mu.Unlock()
+}
+
+// setForgetErr is what Forget fails with.
+func (f *fakeAuth) setForgetErr(err error) {
+	f.mu.Lock()
+	f.forgetErr = err
+	f.mu.Unlock()
+}
+
+// setOpenErr is what Open fails with.
+func (f *fakeAuth) setOpenErr(err error) {
+	f.mu.Lock()
+	f.openErr = err
+	f.mu.Unlock()
+}
+
+// setReason is the BadSignIn reason Load gave.
+func (f *fakeAuth) setReason(reason string) {
+	f.mu.Lock()
+	f.reason = reason
+	f.mu.Unlock()
+}
+
+// setPollErr is what the poll fails with.
+func (f *fakeAuth) setPollErr(err error) {
+	f.mu.Lock()
+	f.pollErr = err
+	f.mu.Unlock()
+}
+
+// setPollFn answers Poll instead of the pair.
+func (f *fakeAuth) setPollFn(fn func(ctx context.Context) (github.AppToken, error)) {
+	f.mu.Lock()
+	f.pollFn = fn
+	f.mu.Unlock()
+}
+
+// opens is how many times the app opened the sign-in.
+func (f *fakeAuth) openCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.opens
+}
+
+// closeCount is how many times the app closed the sign-in.
+func (f *fakeAuth) closeCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.closes
+}
+
+// setOnClose is what Close runs, to see the order of the end.
+func (f *fakeAuth) setOnClose(fn func()) {
+	f.mu.Lock()
+	f.onClose = fn
+	f.mu.Unlock()
+}
+
+// forgetCount is how many Sign outs the app made.
+func (f *fakeAuth) forgetCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.forgets
+}
+
+// appCount is how many times CheckApp answered.
+func (f *fakeGH) appCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.appReads
+}
+
+// cancelCount is how many sign-ins the app cancelled.
+func (f *fakeAuth) cancelCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.cancelled)
+}
+
+// setLegacy says whether 1 of the 2 old token keys is kept.
+func (f *fakeAuth) setLegacy(on bool) {
+	f.mu.Lock()
+	f.legacy = on
+	f.mu.Unlock()
+}
+
+// setCodeExpiry is when the code the device flow gives ends.
+func (f *fakeAuth) setCodeExpiry(at time.Time) {
+	f.mu.Lock()
+	f.code.Expires = at
+	f.mu.Unlock()
+}
+
+// setPoll is the pair the device flow gives next.
+func (f *fakeAuth) setPoll(tok github.AppToken) {
+	f.mu.Lock()
+	f.poll = tok
+	f.mu.Unlock()
+}
+
+// set changes what the sign-in holds, as the keyring would.
+func (f *fakeAuth) set(tok github.AppToken, have bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.tok, f.have = tok, have
+}
+
+// get is the pair the keyring holds, and whether it holds 1.
+func (f *fakeAuth) get() (github.AppToken, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.tok, f.have
+}
+
+// adoptCount is how many pairs the app saved.
+func (f *fakeAuth) adoptCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.adopted)
+}
+
+// adoptedPairs are the pairs the app saved, in order.
+func (f *fakeAuth) adoptedPairs() []github.AppToken {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.adopted)
+}
+
+// adoptGenerations are the generations the app adopted with, in order.
+func (f *fakeAuth) adoptGenerations() []int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.adoptGens)
+}
+
+// legacyOffCount is how many times the app deleted the old keys.
+func (f *fakeAuth) legacyOffCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.legacyOff
+}
+
+// invalidated is every generation the app invalidated.
+func (f *fakeAuth) invalidated() []int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.invalid)
 }
 
 func oid(c byte) string { return strings.Repeat(string(c), 40) }
@@ -183,13 +624,13 @@ func preview(ref, head string) github.Preview {
 
 // mergeApp is teamApp with Approve + merge on, a fake GitHub, and refs
 // ready on the Desk, in Inbox order (each a minute older than the next).
-func mergeApp(t *testing.T, refs ...string) (*App, *frostuitest.Loop, *fakeGH, *fakeTokens) {
+func mergeApp(t *testing.T, refs ...string) (*App, *frostuitest.Loop, *fakeGH, *fakeAuth) {
 	t.Helper()
 	a, loop := teamApp(t)
 	gh := newFakeGH()
-	tokens := &fakeTokens{m: map[string]string{"bketelsen": testGitHubToken, "frostyard": testGitHubToken}}
-	a.opts.GitHubTokens = tokens
-	a.gh.api = func(string) (ghAPI, error) { return gh, nil }
+	auth := newFakeAuth()
+	a.opts.GitHubAuth = auth
+	a.gh.api = func(ctx context.Context, owner string) (ghAPI, int, func(), error) { return gh.lease(ctx, owner) }
 	a.gh.newClient = func(string) ghAPI { return gh }
 	a.desk.view.Ready = nil
 	for i, ref := range refs {
@@ -200,14 +641,16 @@ func mergeApp(t *testing.T, refs ...string) (*App, *frostuitest.Loop, *fakeGH, *
 		gh.previews[ref] = preview(ref, head)
 	}
 	a.invalidateDerived()
-	return a, loop, gh, tokens
+	return a, loop, gh, auth
 }
 
 // startMerge starts the feature and reads the previews.
 func startMerge(t *testing.T, a *App, loop *frostuitest.Loop) {
 	t.Helper()
 	a.startGitHub()
-	loop.RunUntil(t, func() bool { return a.gh.kept["frostyard"] && a.gh.kept["bketelsen"] })
+	loop.RunUntil(t, func() bool {
+		return a.gh.phase == signInSignedIn && a.gh.owners[github.Login].known && a.gh.owners["frostyard"].known
+	})
 	a.githubDeskRead()
 	loop.RunUntil(t, func() bool { return a.gh.inflight == 0 && len(a.gh.queue) == 0 })
 }
@@ -348,9 +791,9 @@ func TestMergeStopStartsNoOtherPR(t *testing.T) {
 	}
 }
 
-func TestMerge401StopsThatOwnersPRs(t *testing.T) {
+func TestMerge401StopsEveryUnstartedPR(t *testing.T) {
 	refs := []string{"bketelsen/pi-pocket-team#1", "frostyard/core#2", "bketelsen/pi-pocket-team#3", "frostyard/core#4"}
-	a, loop, gh, _ := mergeApp(t, refs...)
+	a, loop, gh, auth := mergeApp(t, refs...)
 	gh.act = func(in github.Intent, _ string, _ func(string) error) github.Result {
 		if in.Preview.Ref.Owner == "bketelsen" {
 			err := &github.APIError{Status: 401, Message: "Bad credentials"}
@@ -360,16 +803,21 @@ func TestMerge401StopsThatOwnersPRs(t *testing.T) {
 	}
 	startMerge(t, a, loop)
 	d := runDialog(t, a, loop, true, refs...)
-	want := []string{"bketelsen/pi-pocket-team#1 failed", "frostyard/core#2 merged", "bketelsen/pi-pocket-team#3 not started: token refused", "frostyard/core#4 merged"}
+	want := []string{"bketelsen/pi-pocket-team#1 failed", "frostyard/core#2 not started: GitHub refused the sign-in",
+		"bketelsen/pi-pocket-team#3 not started: GitHub refused the sign-in", "frostyard/core#4 not started: GitHub refused the sign-in"}
 	if got := dialogNotes(d); !slices.Equal(got, want) {
 		t.Errorf("results %v", got)
 	}
-	if a.gh.bad["bketelsen"] == "" || a.gh.bad["frostyard"] != "" {
-		t.Errorf("bad %v", a.gh.bad)
+	// The 401 invalidated that job's generation, and nothing else.
+	if got := auth.invalidated(); len(got) != 1 || got[0] == 0 {
+		t.Errorf("invalidated %v", got)
 	}
-	r, _ := github.ParseRef("bketelsen/pi-pocket-team#3")
-	if !strings.Contains(a.ghBlocked(r), "refused the token") {
-		t.Errorf("blocked %q", a.ghBlocked(r))
+	if taken, released := gh.leases(); taken != released {
+		t.Errorf("leases taken %d, released %d", taken, released)
+	}
+	// The sign-in itself stands: the next lease refreshes it.
+	if st := auth.Status(); !st.SignedIn {
+		t.Errorf("status %+v", st)
 	}
 }
 
@@ -893,9 +1341,10 @@ func TestBatchesOffHidesTheBatchControls(t *testing.T) {
 	}
 }
 
-func TestNoTokenStoreMeansNoButton(t *testing.T) {
+func TestNoKeyringMeansNoButton(t *testing.T) {
 	a, loop, _, _ := mergeApp(t, "frostyard/core#1")
-	a.opts.GitHubTokens = nil
+	a.opts.GitHubAuth = nil
+	a.opts.GitHub = nil
 	a.startGitHub()
 	a.githubDeskRead()
 	loop.Flush()
@@ -910,79 +1359,85 @@ func TestNoTokenStoreMeansNoButton(t *testing.T) {
 		t.Errorf("inbox %q", tt.Texts())
 	}
 	st := settingsTester(t, a)
-	if !st.HasText("Approve + merge needs the desktop keyring.") || st.HasText("Check") {
+	if !st.HasText("Approve + merge needs the desktop keyring.") || st.HasText("Sign in with GitHub") {
 		t.Errorf("settings %q", st.Texts())
 	}
 }
 
-func TestSettingsCheckSavesOnlyTheOwnersToken(t *testing.T) {
-	a, loop, _, tokens := mergeApp(t, "frostyard/core#1")
-	tokens.m = map[string]string{}
-	a.startGitHub()
-	loop.RunUntil(t, func() bool { _, ok := a.gh.kept["frostyard"]; return ok })
-	clients := map[string]*fakeGH{}
-	for tok, login := range map[string]string{"machines-token-not-real": "frostyard-machines", "owner-token-not-real": github.Login, "noread-token-not-real": github.Login} {
-		f := newFakeGH()
-		f.login = login
-		clients[tok] = f
+// TestSignInKeepsOnlyBketelsensSignIn: a pair that acts as another account,
+// or a failed CheckApp, keeps nothing and keeps the stored sign-in.
+func TestSignInKeepsOnlyBketelsensSignIn(t *testing.T) {
+	a, loop, gh, auth := mergeApp(t, "frostyard/core#1")
+	auth.setLegacy(true)
+	startMerge(t, a, loop)
+	old, _ := auth.get()
+	// Another account: the pair is never adopted.
+	gh.setApp(&github.AppCheck{Login: "frostyard-machines", Owners: map[string]string{}})
+	a.githubSignIn()
+	loop.RunUntil(t, func() bool { return !a.busySignIn() })
+	if adopts := auth.adoptCount(); adopts != 0 {
+		t.Fatalf("adopted %d pairs", adopts)
 	}
-	clients["noread-token-not-real"].errs["repo:frostyard/core"] = &github.APIError{Status: 404, Message: "Not Found", Accepted: "metadata=read"}
-	a.gh.newClient = func(tok string) ghAPI { return clients[tok] }
-	check := func(tok string) *tokenForm {
-		f := a.tokenForm("frostyard")
-		f.text = tok
-		a.githubCheck("frostyard")
-		loop.RunUntil(t, func() bool { return !f.busy })
-		return f
+	if !strings.Contains(a.gh.fail, "this sign-in is for frostyard-machines") {
+		t.Errorf("fail %q", a.gh.fail)
 	}
-	if f := check("machines-token-not-real"); f.fail != "this token is for frostyard-machines" || tokens.get("frostyard") != "" {
-		t.Errorf("machines: %+v kept %q", f, tokens.get("frostyard"))
+	if kept, ok := auth.get(); !ok || kept.Access != old.Access {
+		t.Errorf("the stored sign-in changed: %+v", kept)
 	}
-	if f := check("noread-token-not-real"); !strings.Contains(f.fail, "this token cannot read frostyard/core") || f.missing != "metadata=read" || tokens.get("frostyard") != "" {
-		t.Errorf("no read: %+v", f)
+	// A failed CheckApp: nothing kept, with its reason.
+	gh.setApp(nil)
+	gh.setAppErr(&github.APIError{Status: 500, Message: "Server Error"})
+	a.githubSignIn()
+	loop.RunUntil(t, func() bool { return !a.busySignIn() })
+	if auth.adoptCount() != 0 || a.gh.fail == "" {
+		t.Errorf("failed check: adopted %d, fail %q", auth.adoptCount(), a.gh.fail)
 	}
-	if tokens.sets != 0 {
-		t.Fatalf("saved %d times", tokens.sets)
+	// The saved pair is the login CheckApp named, and the owners are read
+	// from the same check.
+	gh.setAppErr(nil)
+	a.githubSignIn()
+	loop.RunUntil(t, func() bool { return !a.busySignIn() })
+	adopted := auth.adoptedPairs()
+	if len(adopted) != 1 || adopted[0].Login != github.Login || adopted[0].ClientID != github.AppClientID {
+		t.Fatalf("adopted %+v", adopted)
 	}
-	f := check("owner-token-not-real")
-	if f.fail != "" || tokens.get("frostyard") != "owner-token-not-real" || f.text != "" || !a.gh.kept["frostyard"] {
-		t.Errorf("owner: %+v", f)
+	if a.gh.phase != signInSignedIn || !a.gh.owners["frostyard"].known {
+		t.Errorf("phase %v owners %+v", a.gh.phase, a.gh.owners)
 	}
-	if got := clients["owner-token-not-real"].repoChecks; !slices.Equal(got, []string{"frostyard/core"}) {
-		t.Errorf("repo checks %v", got)
-	}
-	loop.RunUntil(t, func() bool { return a.gh.preflight["frostyard"] != nil && !a.gh.preflight["frostyard"].busy })
-	tt := settingsTester(t, a)
-	for _, want := range []string{"Signs in as bketelsen", "kept in the keyring", "frostyard/core", "Run preflight", "Batches", "2026-12-14"} {
-		if !tt.HasText(want) {
-			t.Errorf("settings lack %q: %q", want, tt.Texts())
-		}
-	}
-	if tt.HasText("owner-token-not-real") {
-		t.Error("the token shows")
-	}
-	// Forget drops the token and the owner's previews.
-	a.githubForget("frostyard")
-	loop.RunUntil(t, func() bool { return !a.tokenForm("frostyard").busy })
-	if tokens.get("frostyard") != "" || a.gh.kept["frostyard"] || a.gh.previews["frostyard/core#1"] != nil {
-		t.Error("forget")
-	}
+	loop.RunUntil(t, func() bool { return auth.legacyOffCount() == 1 })
+}
 
-	// No ready PR of the owner: no repository read proves the token, so a
-	// typed token is not kept, even with the owner's login.
-	a.desk.view.Ready = nil
-	a.invalidateDerived()
-	sets := tokens.sets
-	f = check("owner-token-not-real")
-	if f.fail != "no ready PR of frostyard to check the token with: try again when 1 is ready" || tokens.get("frostyard") != "" ||
-		tokens.sets != sets || a.gh.kept["frostyard"] || f.login != github.Login {
-		t.Errorf("no ready PR: %+v kept %q sets %d", f, tokens.get("frostyard"), tokens.sets)
+// TestPreflightTurnsAnOwnerReady: Run preflight reads the installations
+// first, so an owner fixed on GitHub is ready after it.
+func TestPreflightTurnsAnOwnerReady(t *testing.T) {
+	a, loop, gh, _ := mergeApp(t, "frostyard/core#1", "bketelsen/pi-pocket-team#2")
+	gh.setApp(&github.AppCheck{Login: github.Login, Owners: map[string]string{
+		github.Login: "", "frostyard": "the App is not installed on frostyard"}})
+	startMerge(t, a, loop)
+	r, _ := github.ParseRef("frostyard/core#1")
+	rb, _ := github.ParseRef("bketelsen/pi-pocket-team#2")
+	if got := a.ghBlocked(r); got != "the App is not installed on frostyard" {
+		t.Errorf("frostyard blocked %q", got)
 	}
-	// A kept token with no ready repository still shows its login and expiry.
-	tokens.m["frostyard"] = "owner-token-not-real"
-	f = check("")
-	if f.fail != "" || f.login != github.Login || f.expires.IsZero() || !strings.Contains(f.result, "no ready PR of frostyard to check") || tokens.sets != sets {
-		t.Errorf("kept, no ready PR: %+v sets %d", f, tokens.sets)
+	if got := a.ghBlocked(rb); got != "" {
+		t.Fatalf("bketelsen blocked %q", got)
+	}
+	// The owner fixes it on GitHub: 1 more preflight makes it ready.
+	gh.setApp(nil)
+	a.githubPreflight()
+	loop.RunUntil(t, func() bool { return !a.preflightBusy() })
+	if got := a.ghBlocked(r); got != "" {
+		t.Errorf("after the fix: %q", got)
+	}
+	if pf := a.gh.preflight["frostyard"]; pf == nil || len(pf.rows) != 1 || pf.rows[0].Repo != "frostyard/core" {
+		t.Errorf("frostyard's rows %+v", pf)
+	}
+	if pf := a.gh.preflight[github.Login]; pf == nil || len(pf.rows) != 1 {
+		t.Errorf("bketelsen's rows %+v", pf)
+	}
+	// 1 job, 1 lease.
+	if taken, released := gh.leases(); taken != released || taken == 0 {
+		t.Errorf("leases taken %d, released %d", taken, released)
 	}
 }
 
@@ -990,8 +1445,8 @@ func TestPreflightFailureBlocksTheRepository(t *testing.T) {
 	a, loop, gh, _ := mergeApp(t, "frostyard/core#1", "frostyard/pocket#2")
 	gh.rows = map[string]github.PreflightRow{"frostyard/core": {Repo: "frostyard/core", Readable: true, Bypass: "always", Reason: "you can bypass a rule here (always): Pocket refuses to merge"}}
 	startMerge(t, a, loop)
-	a.githubPreflight("frostyard")
-	loop.RunUntil(t, func() bool { return !a.gh.preflight["frostyard"].busy })
+	a.githubPreflight()
+	loop.RunUntil(t, func() bool { return !a.preflightBusy() })
 	if mc, _ := a.mergeCardOf(&a.desk.view.Ready[0]); !strings.Contains(mc.blocked, "bypass") || mc.eligible {
 		t.Errorf("core %+v", mc)
 	}
@@ -1043,13 +1498,12 @@ func TestTryAgainAndCheckAgain(t *testing.T) {
 }
 
 // TestTheTokenNeverLeaksFromEchoedErrors gives GitHub errors whose text
-// echoes the token: a preview and an attempt (passed through github.Redact,
-// as the real client does), and a Settings Check whose Whoami error holds
-// the typed token raw. The journal, Activity, toasts and the views never
-// hold the token.
+// echoes the token (passed through github.Redact, as the real client does),
+// and a sign-in whose CheckApp meets the same: the journal, Activity, the
+// toasts and the views never hold the token.
 func TestTheTokenNeverLeaksFromEchoedErrors(t *testing.T) {
 	refs := []string{"frostyard/core#1", "frostyard/core#2"}
-	a, loop, gh, _ := mergeApp(t, refs...)
+	a, loop, gh, auth := mergeApp(t, refs...)
 	echo := func(status int) error {
 		return github.Redact(&github.APIError{Status: status, Message: "Bad credentials for " + testGitHubToken}, testGitHubToken)
 	}
@@ -1067,18 +1521,16 @@ func TestTheTokenNeverLeaksFromEchoedErrors(t *testing.T) {
 		t.Fatalf("result %+v", r)
 	}
 	a.closeMergeDialog()
-	// Settings > Check with a typed token whose Whoami error echoes it.
-	bad := newFakeGH()
-	bad.whoamiErr = &github.APIError{Status: 401, Message: "Bad credentials for " + testGitHubToken}
-	a.gh.newClient = func(string) ghAPI { return bad }
-	f := a.tokenForm("frostyard")
-	f.text = testGitHubToken
-	a.githubCheck("frostyard")
-	loop.RunUntil(t, func() bool { return !f.busy })
-	if f.fail == "" {
-		t.Fatal("the check did not fail")
+	// A sign-in whose CheckApp fails with the echoed token.
+	gh.setAppErr(echo(401))
+	a.githubSignIn()
+	loop.RunUntil(t, func() bool { return !a.busySignIn() })
+	if a.gh.fail == "" {
+		t.Fatal("the sign-in did not fail")
 	}
-	f.text = "" // the masked field is the only place the token may be
+	if auth.adoptCount() != 0 {
+		t.Errorf("a failed check adopted %d pairs", auth.adoptCount())
+	}
 	toasts := strings.Join(a.pendingToasts, "\n")
 	inbox := strings.Join(inboxTester(t, a, loop).Texts(), "\n")
 	settings := strings.Join(settingsTester(t, a).Texts(), "\n")
@@ -1090,15 +1542,15 @@ func TestTheTokenNeverLeaksFromEchoedErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, s := range map[string]string{
+	for name, held := range map[string]string{
 		"operations.json": string(data), "Activity": strings.Join(lines, "\n"), "toasts": toasts,
-		"inbox": inbox, "settings": settings, "check": f.fail, "preview": a.gh.previews[refs[1]].err,
+		"inbox": inbox, "settings": settings, "sign-in": a.gh.fail, "preview": a.gh.previews[refs[1]].err,
 	} {
-		if strings.Contains(s, testGitHubToken) {
-			t.Errorf("%s holds the token:\n%s", name, s)
+		if strings.Contains(held, testGitHubToken) {
+			t.Errorf("%s holds the token:\n%s", name, held)
 		}
 	}
-	if !strings.Contains(strings.Join(lines, "\n"), "[token]") || !strings.Contains(f.fail, "[token]") || !strings.Contains(string(data), "[token]") {
+	if !strings.Contains(strings.Join(lines, "\n"), "[token]") || !strings.Contains(a.gh.fail, "[token]") || !strings.Contains(string(data), "[token]") {
 		t.Error("the redacted errors are not where they should show")
 	}
 }
