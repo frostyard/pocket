@@ -24,10 +24,9 @@ const (
 	AppName = "Pocket for bketelsen"
 	// AppSlug is AppName's slug on GitHub.
 	AppSlug = "pocket-for-bketelsen"
-	// AppClientID is the App's client ID: public, and no secret, because
-	// the device flow needs none.
-	// TODO(T1800): the client ID from gh api apps/pocket-for-bketelsen
-	AppClientID = "Iv23liPENDING0000000"
+	// AppClientID is the App's client ID (gh api apps/pocket-for-bketelsen):
+	// public, and no secret, because the device flow needs none.
+	AppClientID = "Iv23lipJDnxo9g9oabLp"
 )
 
 // githubURL is the site whose sign-in endpoints Pocket posts to. The
