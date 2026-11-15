@@ -228,8 +228,19 @@ type tokenAnswer struct {
 
 // Poll trades dc for a pair, every dc.Interval until it ends at dc.Expires.
 // It gives the token on its own goroutine in the app: it waits, it never
-// blocks a read.
+// blocks a read. The app gives ctx the code's expiry as its deadline: the
+// end of that deadline is ErrCodeExpired, and an explicit cancel stays
+// ctx's error.
 func (o *OAuth) Poll(ctx context.Context, dc DeviceCode) (AppToken, error) {
+	tok, err := o.poll(ctx, dc)
+	if errors.Is(err, context.DeadlineExceeded) && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return AppToken{}, fmt.Errorf("%w: the code expired", ErrCodeExpired)
+	}
+	return tok, err
+}
+
+// poll is Poll before it maps the end of ctx's deadline.
+func (o *OAuth) poll(ctx context.Context, dc DeviceCode) (AppToken, error) {
 	if dc.DeviceCode == "" {
 		return AppToken{}, fmt.Errorf("%w: no device code", ErrUnexpected)
 	}
