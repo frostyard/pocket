@@ -270,6 +270,18 @@ func TestSubagentsPinPutsItselfAway(t *testing.T) {
 	}
 }
 
+// TestSubagentsPinFoldsOnSignOut checks that a list unfolded in 1 sign-in
+// does not show unfolded for the same session ID of the next one.
+func TestSubagentsPinFoldsOnSignOut(t *testing.T) {
+	a, _ := teamApp(t)
+	a.composer.pin.open = 7
+	a.composer.pin.peeked = []int{11}
+	a.composer.resetRequests()
+	if a.composer.pin.open != 0 || a.composer.pin.peeked != nil {
+		t.Errorf("sign-out kept open %d and peeks %v", a.composer.pin.open, a.composer.pin.peeked)
+	}
+}
+
 func TestSubagentsPinStopsAWorkingSubagent(t *testing.T) {
 	a, loop := teamApp(t)
 	a.current = 7

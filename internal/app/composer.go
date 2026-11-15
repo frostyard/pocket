@@ -182,8 +182,9 @@ func (cp *composer) resetRequests() {
 	cp.queueRecovered = nil
 	cp.answered, cp.answers = nil, nil
 	cp.prompts, cp.promptsFor = nil, 0
-	// The peeks watched belong to the sessions of the sign-in left.
-	cp.pin.peeked = nil
+	// The peeks watched and the unfolded list belong to the sessions of the
+	// sign-in left: a session ID is that server's.
+	cp.pin.peeked, cp.pin.open = nil, 0
 }
 
 // suggestion is one completion of what the field starts with.
