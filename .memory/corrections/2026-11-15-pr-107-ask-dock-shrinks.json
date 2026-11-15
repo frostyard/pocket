@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-15",
+  "scope": "composer",
+  "correction": "The approvals dock must be able to shrink below its share, so that a long question and a full queue together never push the composer out of the window.",
+  "evidence": "frostyard/pocket#107, cross-review by openai/gpt-6.1-sol of 3d5ef85824d311934830ec46df7d1f50c04adf69 (finding 1)",
+  "promoted_to": "internal/app/ask_dock_test.go TestAskDockShrinksBesideAFullQueue"
+}

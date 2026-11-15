@@ -295,7 +295,10 @@ pill per file the server records with the message, in the file's base name with
 its path in the tooltip, and a count of the pictures it stored. That list also
 holds files an older server named in the message's text, each file once, and a
 message that carried only attachments draws those with no empty text block.
-Approvals and questions dock above the composer.
+Approvals and questions dock above the composer, and scroll past half the
+pane's height. The dock gives way to the queue dock and to the composer when
+they are taller together than the pane, so a long question never pushes the
+composer, or its own Answer button, out of the window.
 
 Above the composer, under the queue, a session's subagents show in a bar, as
 the web app's subagents bar shows them (`internal/app/subagents_pin.go`, from
