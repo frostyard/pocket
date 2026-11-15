@@ -60,7 +60,9 @@ Facts (read on 2026-11-14):
 - GitHub also blocks a merge, after every required approval, while another
   open PR whose head is the same commit has a pending or rejected review
   (same page, "Require a pull request before merging"). A commit's
-  `associatedPullRequests` lists the PRs of that commit.
+  [`associatedPullRequests`](https://docs.github.com/en/graphql/reference/objects#commit)
+  lists open PRs only when the commit is not on the default branch, so it
+  is no complete list; the repository's `pullRequests(states: OPEN)` is.
 - `require_last_push_approval`: an approval counts only from someone other
   than the last person who pushed to the head branch. GraphQL has no field
   for the last pusher.
@@ -134,7 +136,9 @@ owner can bypass refuses, and the reason names it: "you can bypass rule
 A parameter that Pocket does not know refuses the same way (named
 `<type>.<parameter>`), unless its value is off (null, false, 0, "", [] or
 {}); this holds for every rule type, also the types that need no proof. A
-known parameter with an unexpected shape refuses. A parameter that the
+known parameter with an unexpected shape refuses, also 1 whose value sets
+no merge requirement (`dismissal_restriction`,
+`automatic_copilot_code_review_enabled`, the merge queue's parameters). A parameter that the
 [rules API](https://docs.github.com/en/rest/repos/rules) marks as required
 (for `pull_request`: `required_approving_review_count`,
 `dismiss_stale_reviews_on_push`, `require_code_owner_review`,
@@ -151,8 +155,8 @@ the reads, fails the read, as the Nulls rule of ADR-0008 says.
 **The reads.** Only where a ruleset says `always` or `pull_requests_only`
 and no rule is unchecked: 1 GraphQL query `PocketBypass` (the text is
 [`internal/github/testdata/bypass-query.graphql`](../../internal/github/testdata/bypass-query.graphql):
-head, head branch, cross-repository flag, the head commit's associated
-PRs, author type, review threads and latest reviews with
+the repository's open PRs (100 at most: more refuses), head, head branch,
+cross-repository flag, author type, review threads and latest reviews with
 `authorCanPushToRepository`); `GET .../activity`
 (`per_page=1`) only for `require_last_push_approval`; `GET .../compare/`
 only for a strict policy on a base with no merge queue. All are reads.
@@ -184,6 +188,8 @@ value and, when a rule is unchecked, its name as the reason.
   approvals can refuse where GitHub would merge.
 - A PR whose head commit is also the head of another open PR refuses on a
   base the owner can bypass, even when the other PR has no review.
+- A repository with more than 100 open PRs refuses on a base the owner
+  can bypass, because Pocket cannot read all their heads in 1 page.
 - Residual risk: the reads are sequential, not 1 snapshot, as in ADR-0008.
   A push between the reads changes the head, which the expected-head inputs
   of the mutations refuse.

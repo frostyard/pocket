@@ -73,7 +73,9 @@ type fake struct {
 	// with the owner's reviews emptied: the view before the approval. It is
 	// nil when the repository has no recorded bypass read.
 	bypassPR map[string]any
-	onBypass func(pr map[string]any)
+	// onBypass changes the answer's repository before it goes: its
+	// pullRequest, and its pullRequests.
+	onBypass func(repo map[string]any)
 	// activityRaw is a whole activity page to serve instead of the default 1
 	// push by frostyard-machines; behind is the compare's behind_by.
 	activityRaw string
@@ -618,7 +620,8 @@ func prQueryFile(t *testing.T) string {
 }
 
 // bypass answers the bypass query: the recorded answer, at the PR's head,
-// with the owner's approval when the PR shows 1.
+// with the owner's approval when the PR shows 1, and this PR itself among the
+// open PRs of the repository.
 func (f *fake) bypass(w http.ResponseWriter, vars map[string]any) {
 	t := f.t
 	if vars["owner"] != f.ref.Owner || vars["name"] != f.ref.Name || vars["number"] != float64(f.ref.Number) || len(vars) != 3 {
@@ -633,36 +636,30 @@ func (f *fake) bypass(w http.ResponseWriter, vars map[string]any) {
 	// Only a recorded answer with a pull request is 1 the client can read: a
 	// test that drops it reads a null pull request.
 	data, _ := f.bypassPR["data"].(map[string]any)
-	repo, _ := data["repository"].(map[string]any)
-	pr, ok := repo["pullRequest"].(map[string]any)
-	if !ok {
+	recorded, _ := data["repository"].(map[string]any)
+	if _, ok := recorded["pullRequest"].(map[string]any); !ok {
 		f.write(w, 200, `{"data":{"repository":{"pullRequest":null}}}`, nil)
 		return
 	}
-	pr = copyJSON(pr)
+	repo := copyJSON(recorded)
+	pr := obj(repo, "pullRequest")
 	pr["headRefOid"] = f.head()
-	// The head commit, and the PR's own entry among the PRs at it: GitHub
-	// says this PR is open, and Pocket reads it at the recorded head.
-	if commits, ok := pr["commits"].(map[string]any); ok {
-		if nodes, ok := commits["nodes"].([]any); ok {
-			for _, n := range nodes {
-				c, _ := n.(map[string]any)["commit"].(map[string]any)
-				if c == nil {
-					continue
-				}
-				c["oid"] = f.head()
-				aps, _ := c["associatedPullRequests"].(map[string]any)
-				list, _ := aps["nodes"].([]any)
-				for _, a := range list {
-					entry, _ := a.(map[string]any)
-					number, _ := entry["number"].(float64)
-					if entry == nil || int(number) != f.ref.Number {
-						continue
-					}
-					entry["state"], entry["headRefOid"] = "OPEN", f.head()
-				}
-			}
+	// The open PRs of the repository, and this PR itself among them, at the
+	// head: Pocket must leave its own entry out.
+	open, ok := repo["pullRequests"].(map[string]any)
+	if !ok {
+		open = map[string]any{"pageInfo": map[string]any{"hasNextPage": false}, "nodes": []any{}}
+		repo["pullRequests"] = open
+	}
+	nodes, _ := open["nodes"].([]any)
+	self := false
+	for _, n := range nodes {
+		if entry, ok := n.(map[string]any); ok && entry["number"] == float64(f.ref.Number) {
+			self = true
 		}
+	}
+	if !self {
+		open["nodes"] = append(nodes, map[string]any{"number": f.ref.Number, "headRefOid": f.head()})
 	}
 	// The owner's approval, when the PR has 1 at a commit: the answer of a
 	// read after the approval.
@@ -679,9 +676,9 @@ func (f *fake) bypass(w http.ResponseWriter, vars map[string]any) {
 		}
 	}
 	if f.onBypass != nil {
-		f.onBypass(pr)
+		f.onBypass(repo)
 	}
-	b, _ := json.Marshal(map[string]any{"data": map[string]any{"repository": map[string]any{"pullRequest": pr}}})
+	b, _ := json.Marshal(map[string]any{"data": map[string]any{"repository": repo}})
 	f.write(w, 200, string(b), nil)
 }
 

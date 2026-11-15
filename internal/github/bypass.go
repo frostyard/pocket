@@ -9,27 +9,19 @@ import (
 // testdata/bypass-query.graphql, which a test holds it to.
 const bypassQuery = `query PocketBypass($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
+    pullRequests(states: OPEN, first: 100) {
+      pageInfo {
+        hasNextPage
+      }
+      nodes {
+        number
+        headRefOid
+      }
+    }
     pullRequest(number: $number) {
       headRefOid
       headRefName
       isCrossRepository
-      commits(last: 1) {
-        nodes {
-          commit {
-            oid
-            associatedPullRequests(first: 20) {
-              pageInfo {
-                hasNextPage
-              }
-              nodes {
-                number
-                state
-                headRefOid
-              }
-            }
-          }
-        }
-      }
       author {
         __typename
         login
@@ -82,6 +74,13 @@ type BypassFacts struct {
 type (
 	rawBypassAnswer struct {
 		Repository *struct {
+			PullRequests *struct {
+				PageInfo *rawPageInfo `json:"pageInfo"`
+				Nodes    *[]*struct {
+					Number     *int    `json:"number"`
+					HeadRefOid *string `json:"headRefOid"`
+				} `json:"nodes"`
+			} `json:"pullRequests"`
 			PullRequest *rawBypassPR `json:"pullRequest"`
 		} `json:"repository"`
 	}
@@ -89,22 +88,7 @@ type (
 		HeadRefOid        *string `json:"headRefOid"`
 		HeadRefName       *string `json:"headRefName"`
 		IsCrossRepository *bool   `json:"isCrossRepository"`
-		Commits           *struct {
-			Nodes *[]*struct {
-				Commit *struct {
-					Oid                    *string `json:"oid"`
-					AssociatedPullRequests *struct {
-						PageInfo *rawPageInfo `json:"pageInfo"`
-						Nodes    *[]*struct {
-							Number     *int    `json:"number"`
-							State      *string `json:"state"`
-							HeadRefOid *string `json:"headRefOid"`
-						} `json:"nodes"`
-					} `json:"associatedPullRequests"`
-				} `json:"commit"`
-			} `json:"nodes"`
-		} `json:"commits"`
-		Author *struct {
+		Author            *struct {
 			Typename *string `json:"__typename"`
 			Login    *string `json:"login"`
 		} `json:"author"`
@@ -161,35 +145,25 @@ func (c *Client) bypassFacts(ctx context.Context, ref Ref, f PRFacts, r RepoRule
 	}
 	out.Head, out.HeadRef, out.CrossRepo = *pr.HeadRefOid, *pr.HeadRefName, *pr.IsCrossRepository
 
-	// The head commit, and every PR GitHub says has the same head commit: an
-	// open 1 of them can block the merge on a review Pocket does not read.
-	co := pr.Commits
-	if co == nil || co.Nodes == nil || len(*co.Nodes) != 1 {
-		return BypassFacts{}, incomplete("commits is null")
+	// Every open PR of the repository, and those at this head: another 1 of
+	// them can block the merge on a review Pocket does not read. Only open
+	// states are read, so no state field is needed.
+	open := a.Repository.PullRequests
+	if open == nil || open.PageInfo == nil || open.Nodes == nil {
+		return BypassFacts{}, incomplete("pullRequests is null")
 	}
-	node := (*co.Nodes)[0]
-	if node == nil || node.Commit == nil || node.Commit.Oid == nil {
-		return BypassFacts{}, incomplete("the last commit is null")
+	if open.PageInfo.HasNextPage == nil {
+		return BypassFacts{}, incomplete("pullRequests.pageInfo.hasNextPage is null")
 	}
-	if *node.Commit.Oid != out.Head {
-		return BypassFacts{}, incomplete("the last commit is not the head")
+	if *open.PageInfo.HasNextPage {
+		return BypassFacts{}, incomplete("too many open pull requests")
 	}
-	aps := node.Commit.AssociatedPullRequests
-	if aps == nil || aps.PageInfo == nil || aps.Nodes == nil {
-		return BypassFacts{}, incomplete("associatedPullRequests is null")
-	}
-	if aps.PageInfo.HasNextPage == nil {
-		return BypassFacts{}, incomplete("associatedPullRequests.pageInfo.hasNextPage is null")
-	}
-	if *aps.PageInfo.HasNextPage {
-		return BypassFacts{}, incomplete("too many associated pull requests")
-	}
-	for _, a := range *aps.Nodes {
-		if a == nil || a.Number == nil || a.State == nil || a.HeadRefOid == nil {
-			return BypassFacts{}, incomplete("an associated pull request is null")
+	for _, o := range *open.Nodes {
+		if o == nil || o.Number == nil || o.HeadRefOid == nil {
+			return BypassFacts{}, incomplete("an open pull request is null")
 		}
-		if *a.State == "OPEN" && *a.HeadRefOid == out.Head && *a.Number != ref.Number {
-			out.SameHead = append(out.SameHead, *a.Number)
+		if *o.HeadRefOid == out.Head && *o.Number != ref.Number {
+			out.SameHead = append(out.SameHead, *o.Number)
 		}
 	}
 	// A null author is a PR GitHub attributes to nobody: no type to read.

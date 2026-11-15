@@ -241,18 +241,6 @@ func (p *BypassRules) unchecked(name string) {
 	}
 }
 
-// queueParameterKeys are the parameters of a merge_queue rule: they only
-// shape the queue, so Pocket accepts them whatever their value.
-var queueParameterKeys = map[string]bool{
-	"merge_method":                      true,
-	"max_entries_to_build":              true,
-	"min_entries_to_merge":              true,
-	"max_entries_to_merge":              true,
-	"min_entries_to_merge_wait_minutes": true,
-	"grouping_strategy":                 true,
-	"check_response_timeout_minutes":    true,
-}
-
 // What GitHub always sends with a rule: a rule that leaves 1 out proves
 // nothing, so Pocket refuses it (ADR-0011, fail closed). The lists are
 // sorted, so the first missing key is the same on every read.
@@ -285,8 +273,9 @@ func (p *BypassRules) rule(typ string, params json.RawMessage) {
 		p.onlyKeys(typ, params, nil)
 		return
 	case "merge_queue":
-		// Pocket enqueues, and the queue's own parameters only shape it.
-		p.onlyKeys(typ, params, queueParameterKeys)
+		// Pocket enqueues, and the queue's own parameters only shape the
+		// queue; a shape Pocket cannot read still proves nothing.
+		p.mergeQueue(params)
 		return
 	case "required_status_checks":
 		p.statusChecks(params)
@@ -296,6 +285,41 @@ func (p *BypassRules) rule(typ string, params json.RawMessage) {
 		return
 	}
 	p.unchecked(typ)
+}
+
+// mergeQueue proves a merge_queue rule: its parameters shape the queue, not
+// the merge Pocket makes, but each 1 has a shape Pocket reads, and any other
+// key must be off.
+func (p *BypassRules) mergeQueue(params json.RawMessage) {
+	if trimmed := strings.TrimSpace(string(params)); trimmed == "" || trimmed == "null" {
+		return
+	}
+	values, err := parameterValues(params)
+	if err != nil {
+		p.unchecked("merge_queue")
+		return
+	}
+	for _, k := range keysOf(values) {
+		name := "merge_queue." + k
+		switch k {
+		case "merge_method", "grouping_strategy":
+			if v, ok := text(values[k]); !ok || v == "" {
+				p.unchecked(name)
+				return
+			}
+		case "max_entries_to_build", "min_entries_to_merge", "max_entries_to_merge",
+			"min_entries_to_merge_wait_minutes", "check_response_timeout_minutes":
+			if n, ok := count(values[k]); !ok || n < 0 {
+				p.unchecked(name)
+				return
+			}
+		default:
+			if !off(values[k]) {
+				p.unchecked(name)
+				return
+			}
+		}
+	}
 }
 
 // statusChecks proves a required_status_checks rule: the checks themselves
@@ -417,8 +441,21 @@ func (p *BypassRules) pullRequest(params json.RawMessage) {
 				p.unchecked(name)
 				return
 			}
-		case "dismissal_restriction", "automatic_copilot_code_review_enabled":
-			// No merge requirement: these shape who may dismiss a review.
+		case "automatic_copilot_code_review_enabled":
+			// No merge requirement, but only a boolean proves the rule is
+			// off, as GitHub sends it.
+			if _, ok := boolean(values[k]); !ok {
+				p.unchecked(name)
+				return
+			}
+		case "dismissal_restriction":
+			// An object of any keys: it sets no merge requirement, only who
+			// may dismiss a review.
+			var shape map[string]json.RawMessage
+			if err := json.Unmarshal(values[k], &shape); err != nil || shape == nil {
+				p.unchecked(name)
+				return
+			}
 		default:
 			// A key Pocket does not know is accepted only when it is off.
 			if !off(values[k]) {
@@ -515,6 +552,15 @@ func keysOf(values map[string]json.RawMessage) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// text is a JSON string; ok is false for any other value.
+func text(raw json.RawMessage) (s string, ok bool) {
+	var p *string
+	if err := json.Unmarshal(raw, &p); err != nil || p == nil {
+		return "", false
+	}
+	return *p, true
 }
 
 // boolean is a JSON true or false; ok is false for any other value.
