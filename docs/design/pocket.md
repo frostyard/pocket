@@ -290,6 +290,18 @@ holds files an older server named in the message's text, each file once, and a
 message that carried only attachments draws those with no empty text block.
 Approvals and questions dock above the composer.
 
+Above the composer, under the queue, a session's subagents show in a bar, as
+the web app's subagents bar shows them (`internal/app/subagents_pin.go`, from
+the view's `subagents`). It shows while one works or has a report on its way to
+Pi, and after they end until it is put away; a put-away bar comes back when one
+of its subagents does something newer. Folded, it is 1 line: a dot per
+subagent, how many are in each state and what the newest working one does (its
+peek: the window follows the peeks of the open session's working subagents).
+Unfolded, it has a row each, with its state, time, model, request and Stop; a
+click opens that subagent. A subagent's own view shows "Back to main session"
+with the parent's title (the view's `conversation.parent`), which opens the
+parent. Both follow the view, so they change live as subagents start and end.
+
 The inspector opens Changes and files in a native sheet. Changes show the
 repository, added/removed counts and files edited in this session; selecting a
 change loads frostui’s `DiffView`. Files has a filtered path list and an explicit

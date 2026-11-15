@@ -54,6 +54,9 @@ type composer struct {
 	// approval and field.
 	answers  map[string]map[string]string
 	answered map[string]bool
+	// pin is the subagents bar's state above the field: which session's
+	// list is unfolded, and what each session's bar was put away after.
+	pin subagentPin
 }
 
 // composerKept is what the composer held for 1 account when the window left
@@ -179,6 +182,9 @@ func (cp *composer) resetRequests() {
 	cp.queueRecovered = nil
 	cp.answered, cp.answers = nil, nil
 	cp.prompts, cp.promptsFor = nil, 0
+	// The peeks watched and the unfolded list belong to the sessions of the
+	// sign-in left: a session ID is that server's.
+	cp.pin.peeked, cp.pin.open = nil, 0
 }
 
 // suggestion is one completion of what the field starts with.
