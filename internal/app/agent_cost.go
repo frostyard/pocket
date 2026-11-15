@@ -11,7 +11,7 @@ import (
 )
 
 // agentCostNote says what the Cost by agent card counts.
-const agentCostNote = "List price of each agent's answers, from the Desk meter's ledger. Subagents and linked sessions count to the agent of the session that started them. Today: since midnight in the server's zone; 7 days: the last 7 days, to the hour."
+const agentCostNote = "List price of each agent's answers, from the Desk meter's ledger. Subagents and linked sessions count to the agent of the session that started them. Today: since midnight in the server's zone; 7 days: the last 7 days."
 
 // agentCostRow is 1 row of the Cost by agent card, its texts ready to draw.
 // A row's order is the server's: by 7-day cost, highest first.
