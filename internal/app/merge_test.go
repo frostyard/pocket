@@ -956,6 +956,27 @@ func TestMergedLeavesAndQueuedComesBack(t *testing.T) {
 	}
 }
 
+// TestQueuedLeavesWithTheExitReason: a queued PR that left the queue without a
+// merge ends as approved with GitHub's own reason.
+func TestQueuedLeavesWithTheExitReason(t *testing.T) {
+	ref := "frostyard/core#3"
+	a, loop, gh, _ := mergeApp(t, ref)
+	gh.act = func(github.Intent, string, func(string) error) github.Result {
+		return github.Result{Kind: "queued", Step: "merge", Method: "queue"}
+	}
+	startMerge(t, a, loop)
+	runDialog(t, a, loop, false, ref)
+	a.closeMergeDialog()
+	gh.settle = func(github.Intent, bool) github.Result {
+		return github.Result{Kind: "approved", Reason: "approved, not merged", QueueExit: "failed checks"}
+	}
+	a.githubDeskRead()
+	loop.RunUntil(t, func() bool { return len(a.gh.busy) == 0 && a.gh.inflight == 0 })
+	if o := a.gh.j.latest(ref); o.Result != "approved" || o.Reason != "left the merge queue: failed checks" {
+		t.Errorf("op %+v", o)
+	}
+}
+
 func writeJournal(t *testing.T, dir string, ops ...*mergeOp) {
 	t.Helper()
 	data, err := json.Marshal(journalFile{Version: journalVersion, Ops: ops})

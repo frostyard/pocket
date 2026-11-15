@@ -104,9 +104,6 @@ const prQuery = `query PocketPR($owner: String!, $name: String!, $number: Int!, 
         enqueuer {
           login
         }
-        headCommit {
-          oid
-        }
       }
     }
   }
@@ -176,10 +173,11 @@ type CheckContext struct {
 	State      string // StatusContext
 }
 
-// QueueEntry is the PR's merge queue entry.
+// QueueEntry is the PR's merge queue entry. Its headCommit is not read: it
+// is the merge group's commit once GitHub builds the group, never the PR's
+// head, so it proves nothing of an enqueue.
 type QueueEntry struct {
 	Enqueuer string
-	Head     string
 }
 
 // hasLabel says the PR has label name.
@@ -267,8 +265,7 @@ type (
 		MergeCommit     *rawOid   `json:"mergeCommit"`
 		MergedAt        *string   `json:"mergedAt"`
 		MergeQueueEntry *struct {
-			Enqueuer   *rawLogin `json:"enqueuer"`
-			HeadCommit *rawOid   `json:"headCommit"`
+			Enqueuer *rawLogin `json:"enqueuer"`
 		} `json:"mergeQueueEntry"`
 	}
 	rawCheckNode struct {
@@ -386,11 +383,6 @@ func (a *rawPRAnswer) facts() (PRFacts, string, error) {
 			n.miss("mergeQueueEntry.enqueuer")
 		} else {
 			q.Enqueuer = n.str(e.Enqueuer.Login, "mergeQueueEntry.enqueuer.login")
-		}
-		if e.HeadCommit == nil {
-			n.miss("mergeQueueEntry.headCommit")
-		} else {
-			q.Head = n.str(e.HeadCommit.Oid, "mergeQueueEntry.headCommit.oid")
 		}
 		f.QueueEntry = q
 	}

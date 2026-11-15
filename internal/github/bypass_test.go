@@ -23,6 +23,18 @@ func TestBypassQueryTextIsTheRecordedQuery(t *testing.T) {
 	}
 }
 
+// TestQueueExitQueryTextIsTheRecordedQuery holds queueExitQuery to the text the
+// recording script sent, as bypass_test.go holds the bypass query.
+func TestQueueExitQueryTextIsTheRecordedQuery(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("testdata", "queue-exit-query.graphql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimRight(queueExitQuery, "\n") != strings.TrimRight(string(b), "\n") {
+		t.Fatal("reads.go's queue-exit query differs from testdata/queue-exit-query.graphql")
+	}
+}
+
 // prParams is a pull_request rule's parameters, every requirement off,
 // changed by them.
 func prParams(with map[string]any) map[string]any {

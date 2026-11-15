@@ -81,8 +81,14 @@ type fake struct {
 	activityRaw string
 	behind      int
 
+	// exitAnswer is the queue-exit query's whole answer; nil is the empty
+	// timeline. exitFail is a status that fails it instead (0: none).
+	exitAnswer map[string]any
+	exitFail   int
+
 	reads       int // PR queries served
 	bypassReads int // bypass queries served
+	exitReads   int // queue-exit queries served
 	onRead      func(n int, pr map[string]any)
 	// prFail and restFail answer a request with an error status (0: none).
 	prFail   func(n int) (int, string, http.Header)
@@ -292,7 +298,7 @@ func (f *fake) client() *Client {
 func (f *fake) reset() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.reads, f.bypassReads, f.requests, f.mutations, f.inputs, f.waits = 0, 0, 0, nil, nil, nil
+	f.reads, f.bypassReads, f.exitReads, f.requests, f.mutations, f.inputs, f.waits = 0, 0, 0, 0, nil, nil, nil
 }
 
 // bypassAll sets every ruleset's current_user_can_bypass.
@@ -459,9 +465,13 @@ func (f *fake) graphql(w http.ResponseWriter, r *http.Request) {
 		f.bypass(w, body.Variables)
 		return
 	}
+	if body.Query == queueExitQueryFile(t) {
+		f.queueExitQuery(w, body.Variables)
+		return
+	}
 	m := mutationField.FindStringSubmatch(body.Query)
 	if m == nil {
-		t.Errorf("GraphQL text is neither the PR query, the bypass query nor a mutation: %q", body.Query)
+		t.Errorf("GraphQL text is neither the PR query, the bypass query, the queue-exit query nor a mutation: %q", body.Query)
 		return
 	}
 	field := m[1]
@@ -516,7 +526,7 @@ func (f *fake) graphql(w http.ResponseWriter, r *http.Request) {
 			}
 		case "enqueuePullRequest":
 			pr["isInMergeQueue"] = true
-			pr["mergeQueueEntry"] = map[string]any{"enqueuer": map[string]any{"login": Login}, "headCommit": map[string]any{"oid": shown}}
+			pr["mergeQueueEntry"] = map[string]any{"enqueuer": map[string]any{"login": Login}}
 			if f.afterEnqueue != nil {
 				f.afterEnqueue(pr)
 			}
@@ -698,4 +708,42 @@ func bypassQueryFile(t *testing.T) string {
 		bypassText = string(b)
 	})
 	return bypassText
+}
+
+// queueExitQuery answers the queue-exit query: f.exitAnswer, or the empty
+// timeline.
+func (f *fake) queueExitQuery(w http.ResponseWriter, vars map[string]any) {
+	t := f.t
+	if vars["owner"] != f.ref.Owner || vars["name"] != f.ref.Name || vars["number"] != float64(f.ref.Number) || len(vars) != 3 {
+		t.Errorf("queue-exit query vars %v", vars)
+	}
+	f.exitReads++
+	if f.exitFail != 0 {
+		f.write(w, f.exitFail, `{"message":"Server Error"}`, nil)
+		return
+	}
+	if f.exitAnswer == nil {
+		f.write(w, 200, `{"data":{"repository":{"pullRequest":{"timelineItems":{"nodes":[]}}}}}`, nil)
+		return
+	}
+	b, _ := json.Marshal(f.exitAnswer)
+	f.write(w, 200, string(b), nil)
+}
+
+var (
+	queueExitQueryOnce sync.Once
+	queueExitText      string
+)
+
+// queueExitQueryFile is testdata/queue-exit-query.graphql, the text the fake
+// accepts as the queue-exit query.
+func queueExitQueryFile(t *testing.T) string {
+	queueExitQueryOnce.Do(func() {
+		b, err := os.ReadFile(filepath.Join("testdata", "queue-exit-query.graphql"))
+		if err != nil {
+			t.Error(err)
+		}
+		queueExitText = string(b)
+	})
+	return queueExitText
 }

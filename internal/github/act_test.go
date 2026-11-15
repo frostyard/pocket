@@ -224,7 +224,7 @@ func TestAct(t *testing.T) {
 		}, kind: "unknown", step: "reconcile merge", muts: []string{approve, enqueue}, waits: waits3},
 		{name: "queue: enqueue no answer, queued at another head: unknown", base: queue, before: func(f *fake) {
 			f.mode[enqueue], f.land[enqueue] = answerDrop, true
-			f.afterEnqueue = func(pr map[string]any) { obj(pr, "mergeQueueEntry", "headCommit")["oid"] = newHead }
+			f.afterEnqueue = func(pr map[string]any) { f.setHead(newHead) }
 		}, kind: "unknown", step: "reconcile merge", muts: []string{approve, enqueue}, waits: waits3},
 		// Changed between the preview and the click.
 		{name: "head changed since the preview: refused", base: direct, change: func(f *fake) { f.setHead(newHead) },

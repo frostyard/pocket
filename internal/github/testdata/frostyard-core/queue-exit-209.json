@@ -1,0 +1,25 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "timelineItems": {
+          "nodes": [
+            {
+              "__typename": "AddedToMergeQueueEvent",
+              "enqueuer": {
+                "login": "bketelsen"
+              }
+            },
+            {
+              "__typename": "RemovedFromMergeQueueEvent",
+              "reason": "merge_conflict",
+              "actor": {
+                "login": "github-merge-queue"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

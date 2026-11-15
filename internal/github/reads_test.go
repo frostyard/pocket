@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestWhoami(t *testing.T) {
@@ -148,7 +149,7 @@ func TestSettleQueue(t *testing.T) {
 	in := Intent{Preview: p, Mode: "batch"}
 	pr := f.pr()
 	pr["isInMergeQueue"] = true
-	pr["mergeQueueEntry"] = map[string]any{"enqueuer": map[string]any{"login": Login}, "headCommit": map[string]any{"oid": p.Head}}
+	pr["mergeQueueEntry"] = map[string]any{"enqueuer": map[string]any{"login": Login}}
 	if r := c.Settle(context.Background(), in, "op", false); r.Kind != "queued" || r.Method != "queue" {
 		t.Errorf("queued %+v", r)
 	}
@@ -156,6 +157,126 @@ func TestSettleQueue(t *testing.T) {
 	pr["state"], pr["mergedBy"], pr["mergeCommit"] = "MERGED", map[string]any{"login": Login}, map[string]any{"oid": mergeOid}
 	if r := c.Settle(context.Background(), in, "op", false); r.Kind != "merged" || r.Method != "squash" {
 		t.Errorf("merged by the queue %+v", r)
+	}
+}
+
+// TestSettleQueueClaimsThePRsHead: the queue entry's headCommit is the merge
+// group's commit once GitHub builds the group, never the PR's head, so the
+// queued claim reads the PR's own head. The fixture still serves headCommit:
+// the client ignores it.
+func TestSettleQueueClaimsThePRsHead(t *testing.T) {
+	f := queue(t)
+	c := f.client()
+	p, err := c.Preview(context.Background(), f.ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	group := strings.Repeat("b", 40) // the merge group's commit, not the head
+	if group == p.Head {
+		t.Fatal("the merge group's commit is the PR's head")
+	}
+	pr := f.pr()
+	pr["isInMergeQueue"] = true
+	pr["mergeQueueEntry"] = map[string]any{
+		"enqueuer":   map[string]any{"login": Login},
+		"headCommit": map[string]any{"oid": group},
+	}
+	r := c.Settle(context.Background(), Intent{Preview: p, Mode: "single"}, "op", false)
+	if r.Kind != "queued" || r.Method != "queue" {
+		t.Fatalf("settle %+v, want queued at the PR's head %s (the merge group is %s)", r, p.Head, group)
+	}
+	if f.exitReads != 0 {
+		t.Errorf("a PR still in the queue read the exit %d times", f.exitReads)
+	}
+}
+
+// queueExitEvents is an answer of PocketQueueExit with 2 events: an enqueue by
+// enqueuer, then a removal with reason by actor.
+func queueExitEvents(enqueuer, reason, actor string) map[string]any {
+	return map[string]any{"data": map[string]any{"repository": map[string]any{"pullRequest": map[string]any{
+		"timelineItems": map[string]any{"nodes": []any{
+			map[string]any{"__typename": "AddedToMergeQueueEvent", "enqueuer": map[string]any{"login": enqueuer}},
+			map[string]any{"__typename": "RemovedFromMergeQueueEvent", "reason": reason, "actor": map[string]any{"login": actor}},
+		}},
+	}}}}
+}
+
+// TestSettleQueueExit: a queued PR that is open and out of the queue says why it
+// left, in words, and a removal the queue made because it merged keeps the
+// attempt queued until GitHub shows MERGED.
+func TestSettleQueueExit(t *testing.T) {
+	// base is a queue base whose PR is open, out of the queue, and approved by
+	// the owner at the shown head.
+	base := func(t *testing.T) (*fake, *Client, Intent) {
+		t.Helper()
+		f := queue(t)
+		c := f.client()
+		p, err := c.Preview(context.Background(), f.ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		approvedBefore(f)
+		pr := f.pr()
+		pr["isInMergeQueue"], pr["mergeQueueEntry"] = false, nil
+		return f, c, Intent{Preview: p, Mode: "single"}
+	}
+	for _, tc := range []struct {
+		name                         string
+		set                          func(*fake)
+		kind, method, exit, contains string
+	}{
+		{name: "a merge conflict", set: func(f *fake) { f.exitAnswer = load(t, "frostyard-core/queue-exit-209.json") },
+			kind: "approved", exit: "merge conflict"},
+		{name: "the queue merged it", set: func(f *fake) { f.exitAnswer = load(t, "frostyard-core/queue-exit-260.json") },
+			kind: "queued", method: "queue", contains: "GitHub does not say MERGED yet"},
+		{name: "a person removed it for failed checks", set: func(f *fake) {
+			f.exitAnswer = queueExitEvents(Login, "failed_checks", "bketelsen")
+		}, kind: "approved", exit: "failed checks; removed by bketelsen"},
+		{name: "another login enqueued it", set: func(f *fake) {
+			f.exitAnswer = queueExitEvents("someone-else", "failed_checks", "bketelsen")
+		}, kind: "approved"},
+		{name: "the exit read fails", set: func(f *fake) { f.exitFail = 502 },
+			kind: "approved"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, c, in := base(t)
+			tc.set(f)
+			r := c.Settle(context.Background(), in, "op", false)
+			if r.Kind != tc.kind || r.Method != tc.method || r.QueueExit != tc.exit {
+				t.Errorf("settle %+v, want kind %q, method %q, exit %q", r, tc.kind, tc.method, tc.exit)
+			}
+			if tc.contains != "" && !strings.Contains(r.Reason, tc.contains) {
+				t.Errorf("reason %q, want %q", r.Reason, tc.contains)
+			}
+			if f.exitReads != 1 {
+				t.Errorf("exit reads %d", f.exitReads)
+			}
+			if len(f.mutations) != 0 {
+				t.Errorf("mutations %v", f.mutations)
+			}
+		})
+	}
+}
+
+// TestQueueExitWords: a removal's reason in words, with who removed it when a
+// person did, 100 runes at most.
+func TestQueueExitWords(t *testing.T) {
+	for _, tc := range []struct{ reason, actor, want string }{
+		{"merged", mergeQueueActor, "merged"},
+		{"failed_checks", mergeQueueActor, "failed checks"},
+		{"merge_conflict", mergeQueueActor, "merge conflict"},
+		{"merge_conflict", "bketelsen", "merge conflict; removed by bketelsen"},
+		{"failed_checks", "dependabot[bot]", "failed checks"},
+		{"failed_checks", "", "failed checks"},
+		{"CHECKS_TIMED_OUT", "someone", "checks timed out; removed by someone"},
+	} {
+		if got := queueExitWords(tc.reason, tc.actor); got != tc.want {
+			t.Errorf("queueExitWords(%q, %q) = %q, want %q", tc.reason, tc.actor, got, tc.want)
+		}
+	}
+	long := queueExitWords(strings.Repeat("a_b", 40), "someone")
+	if utf8.RuneCountInString(long) != maxQueueExit || !utf8.ValidString(long) {
+		t.Errorf("%d runes: %q", utf8.RuneCountInString(long), long)
 	}
 }
 
