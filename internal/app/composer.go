@@ -308,6 +308,7 @@ func (a *App) composerView(c *ui.Context) {
 					if a.view.Plan.On {
 						frostui.IconPill(c, "view-list", "Plan mode", frostui.Accent)
 					}
+					a.backgroundPill(c)
 					ui.Spacer(c)
 					if busy {
 						frostui.Caption(c, "Esc stops")

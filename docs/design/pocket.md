@@ -385,6 +385,13 @@ sequences are removed from displayed output. Stop uses the numeric
 server task ID; output uses the background record ID. Subagent rows also show
 peek activity and the session's last activity time.
 
+While the open session runs commands in the background, a pill beside the
+model chip in the composer shows a dot and their count (“2 in background”),
+as the web app's status line does; a click opens the same reader. The count is
+the session list's `background` field, which the server counts (running and
+starting tasks) and pushes in a new session list on the event stream when it
+changes, so the pill makes no request of its own (`internal/app/background.go`).
+
 Scheduled messages arrive through the session stream. The inspector creates them
 from a time-and-message phrase, defaulting to the device's IANA timezone when
 known (an empty field leaves the choice to the server), and can cancel them.
