@@ -21,6 +21,47 @@ type backgroundState struct {
 	err                        string
 }
 
+// backgroundNow is how many commands the open session runs in the background,
+// the starting ones too. The server counts them in its session list and pushes
+// a new list on the event stream when the count changes, so the composer's
+// pill follows it with no request of its own, as the web app's status line
+// does.
+func (a *App) backgroundNow() int {
+	if a.current == 0 {
+		return 0
+	}
+	if s := a.byID[a.current]; s != nil && s.Background > 0 {
+		return s.Background
+	}
+	return 0
+}
+
+// backgroundTitle says in words what the pill counts and what a click does.
+func backgroundTitle(n int) string {
+	if n == 1 {
+		return "1 command runs in the background: open Background tasks to watch or stop it"
+	}
+	return fmt.Sprintf("%d commands run in the background: open Background tasks to watch or stop them", n)
+}
+
+// backgroundPill is the composer's sign that the open session runs commands
+// in the background: a dot, their count and "in background". A click opens
+// the Background tasks dialog, with each command's output and its Stop.
+func (a *App) backgroundPill(c *ui.Context) {
+	n := a.backgroundNow()
+	if n == 0 {
+		return
+	}
+	title := backgroundTitle(n)
+	button := ui.ButtonBase(c).Row().Radius(frostui.RadiusChip).Cursor(ui.CursorPointer).Label(title).Tooltip(title)
+	if button.Clicked() {
+		a.openBackground()
+	}
+	button.Children(func() {
+		frostui.DotPill(c, fmt.Sprintf("%d in background", n), frostui.ToneColor(c.Theme(), frostui.Accent))
+	})
+}
+
 func (a *App) openBackground() {
 	if a.current == 0 {
 		return
