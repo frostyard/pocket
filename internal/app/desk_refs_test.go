@@ -7,6 +7,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown/parser"
 	"github.com/frostyard/pocket/internal/pocket"
 )
@@ -217,6 +218,110 @@ func TestFollowDeskUnknownThreadShowsTheError(t *testing.T) {
 	loop.RunUntil(t, func() bool { return !a.desk.recordThread.loading })
 	if a.desk.recordThread.err == "" {
 		t.Fatal("the missing thread gave no error")
+	}
+}
+
+// A click on a desk id in a transcript reaches OnLink while the transcript's
+// list is being built. Following it there left the session in the middle of
+// that build (goPlace clears the transcript) and the window crashed. The click
+// is followed after the frame: a plan thread, a closed thread, an unknown id
+// and an ask each open their place, and an unknown id shows its error.
+func TestClickDeskIDInTranscriptOpensItsPlace(t *testing.T) {
+	for _, tc := range []struct {
+		id, place, thread, shows string
+	}{
+		{"T1996", "x:motion", "T1996", "Plan the desk export"},
+		{"T1500", "x:motion", "T1500", "An old closed thread"},
+		{"T99999", "x:motion", "T99999", "Could not read T99999"},
+		{"T1993b", "x:inbox", "", "Pick the export format"},
+		{"T8", "x:motion", "T8", "Fix the flaky CI"},
+	} {
+		t.Run(tc.id, func(t *testing.T) {
+			a, loop := teamApp(t)
+			a.desk.on = true
+			a.desk.view = &pocket.DeskView{Threads: []pocket.DeskThread{
+				{ID: "T8", Title: "Fix the flaky CI", State: "open"},
+				{ID: "T1993", Title: "Export", State: "open", Asks: []pocket.DeskAsk{{ID: "T1993b", Text: "Pick the export format"}}},
+			}}
+			a.invalidateDerived()
+			a.link.client.HTTP = &http.Client{Transport: deskFileTransport(func(r *http.Request) (*http.Response, error) {
+				switch r.URL.Path {
+				case "/api/x/desk/threads/T1996":
+					return reply(r, `{"thread":{"id":"T1996","title":"Plan the desk export","origin":"plan","state":"open","agents":["teg"]},"reports":[]}`), nil
+				case "/api/x/desk/threads/T1500":
+					return reply(r, `{"thread":{"id":"T1500","title":"An old closed thread","origin":"delegate","state":"closed","closed":{"how":"done"}},"reports":[]}`), nil
+				case "/api/x/desk/threads/T99999":
+					resp := reply(r, `{"error":"There is no thread T99999."}`)
+					resp.StatusCode = http.StatusNotFound
+					return resp, nil
+				}
+				return snapshotHTTP{}.RoundTrip(r)
+			})}
+			a.open(1)
+			a.loading = 0
+			a.view = pocket.NewView()
+			a.view.Order = []int{1, 2}
+			a.view.Entries[1] = &pocket.Entry{ID: 1, Kind: "user", Text: "What is next?"}
+			a.view.Entries[2] = &pocket.Entry{ID: 2, Kind: "assistant", Blocks: []pocket.Block{{Type: "text", Text: "See " + tc.id + " now."}}}
+			a.tr.viewChanged(a)
+			tt := ui.NewTesterWith(a.View, 1440, 900, ui.TesterOptions{})
+			tt.Frame()
+			clickWithoutCrash(t, tt, tc.id)
+			loop.RunUntil(t, func() bool { return a.selected == tc.place })
+			tt.Frame()
+			loop.RunUntil(t, func() bool { return a.desk.recordThread == nil || !a.desk.recordThread.loading })
+			tt.Frame()
+			if a.current != 0 || a.threadSel != tc.thread && tc.thread != "" {
+				t.Fatalf("session %d, thread %q", a.current, a.threadSel)
+			}
+			if tc.place == "x:inbox" && a.inboxSel != "a:"+tc.id {
+				t.Fatalf("inbox %q", a.inboxSel)
+			}
+			if !tt.HasText(tc.shows) {
+				t.Fatalf("%q not shown", tc.shows)
+			}
+		})
+	}
+}
+
+// clickWithoutCrash clicks the text s; a panic in the frame (the crash a
+// person sees) fails the test.
+func clickWithoutCrash(t *testing.T, tt *ui.Tester, s string) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("clicking %s crashed the window: %v", s, r)
+		}
+	}()
+	if err := tt.Click(s); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+}
+
+// A click waits for the end of its frame: it follows nothing before that,
+// and nothing after a sign-out or another sign-in.
+func TestLinkClickedWaitsForTheFrameAndTheSameSignIn(t *testing.T) {
+	a, loop := teamApp(t)
+	a.desk.view = &pocket.DeskView{Threads: []pocket.DeskThread{{ID: "T8", Title: "x", State: "open"}}}
+	a.invalidateDerived()
+	place := a.selected
+	a.linkClicked("desk:T8")
+	if a.selected != place {
+		t.Fatalf("followed in the frame: %q", a.selected)
+	}
+	loop.Flush()
+	if a.selected != "x:motion" {
+		t.Fatalf("not followed after the frame: %q", a.selected)
+	}
+
+	a.goPlace("x:inbox")
+	loop.Flush()
+	a.linkClicked("desk:T8")
+	a.link.client, _ = pocket.NewClient("https://example.org", "other")
+	loop.Flush()
+	if a.selected != "x:inbox" {
+		t.Fatalf("followed for another sign-in: %q", a.selected)
 	}
 }
 

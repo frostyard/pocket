@@ -84,7 +84,7 @@ func (a *App) openDeskFile(path string) {
 		a.toast("Not a Desk Markdown file path")
 		return
 	}
-	f := &deskFile{path: path, open: true, loading: true, md: markdown.Options{OnLink: a.followLink}}
+	f := &deskFile{path: path, open: true, loading: true, md: markdown.Options{OnLink: a.linkClicked}}
 	a.deskFile = f
 	client := a.link.client
 	var text string

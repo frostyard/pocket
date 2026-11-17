@@ -135,6 +135,20 @@ func (a *App) scheduleArtifactRefresh() {
 	})
 }
 
+// linkClicked is the OnLink of Pocket's Markdown views. A click comes while
+// a view is being built, and following the link can change what that build
+// still reads: goPlace leaves the session and clears the transcript whose
+// list holds the link. So the link is followed after the frame, on the UI
+// thread, and only for the sign-in that saw the click.
+func (a *App) linkClicked(dest string) {
+	client := a.link.client
+	a.post(func() {
+		if a.link.client == client {
+			a.followLink(dest)
+		}
+	})
+}
+
 // followLink follows a link in Markdown Pocket shows: an artifact
 // reference opens the artifact, a desk id (desk:T13, desk:T13a) the Inbox or
 // In motion, a web or mail address the browser.
