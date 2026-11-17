@@ -286,7 +286,10 @@ different session.
 Replies stream in as Markdown (`ui/markdown.Stream`, word-paced, faded in).
 Desk ids (T13, T13a) in a reply, a message or a report link once the text is a
 stored row: an open ask opens in the Inbox, any other id opens its thread in In
-motion (one read when the thread is outside the Desk's window). Code, links and
+motion (one read when the thread is outside the Desk's window; an unknown id
+shows the server's error there). A link in Pocket's Markdown is followed after
+the frame that saw the click, because leaving the session clears the transcript
+that frame still builds. Code, links and
 URLs stay as they are, and so do the stored, sent and searched text; the live
 stream shows plain text until the reply is a stored row.
 A streaming reply changes no stored row, so it does not build the transcript

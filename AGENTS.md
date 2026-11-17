@@ -89,7 +89,10 @@ them rather than improvising, whichever agent you are. Start a new one from
   which posts `done` to the UI thread and logs failures to Activity. It drops
   answers from a previous sign-in and signs out on a route 401, without
   calling the old completion. Stream retries keep the authenticated client. Never
-  touch `App` from a goroutine.
+  touch `App` from a goroutine. A callback that fires while a view is built
+  (a Markdown `OnLink`, a key handler) and navigates (`goPlace`, `open`) runs
+  through `a.post`, after the frame: navigating mid-build clears state the
+  build still reads (`linkClicked`).
 - **Derived data.** Server events and request completions invalidate the Inbox,
   state and thread-match caches. A new direct mutation of their sources must
   call `invalidateDerived`; `setSessions` and `markSeen` already do. Cache

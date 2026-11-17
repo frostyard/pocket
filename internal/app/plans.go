@@ -47,7 +47,7 @@ func (a *App) openPlan(id string) {
 		a.loadPlan()
 		return
 	}
-	a.plan = &planPage{id: id, drafts: map[string]*planDraft{}, keys: map[string]planKey{}, md: markdown.Options{OnLink: a.followLink}}
+	a.plan = &planPage{id: id, drafts: map[string]*planDraft{}, keys: map[string]planKey{}, md: markdown.Options{OnLink: a.linkClicked}}
 	a.loadPlan()
 }
 func (a *App) loadPlan() {
