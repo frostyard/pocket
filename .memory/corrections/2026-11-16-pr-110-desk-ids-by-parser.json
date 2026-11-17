@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-16",
+  "scope": "markdown",
+  "correction": "Text that rewrites Markdown for rendering must find prose with MyGo's own parser (parser.Default, the inlines' source offsets), never a hand-written scanner: a scanner missed code in quotes and lists, reference links, math and HTML, and went quadratic on runs of <.",
+  "evidence": "frostyard/pocket#110, cross-review by openai/gpt-6.1-sol of adf72b1fd3c3fab7de6de7c475c6976aa6e25cca (findings 1 to 4)",
+  "promoted_to": "internal/app/desk_refs_test.go TestLinkDeskIDs"
+}

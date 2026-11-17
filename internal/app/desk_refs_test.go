@@ -42,9 +42,33 @@ func TestLinkDeskIDs(t *testing.T) {
 		{"link with spaces", "[see T12 here](a/b) T8a", "[see T12 here](a/b) " + T8a},
 		{"link to desk", "[see](desk:T12)", "[see](desk:T12)"},
 		{"parens in destination", "[a](b_(T12)) T8a", "[a](b_(T12)) " + T8a},
-		{"reference link", "[a T12][ref] T8a", "[a T12][ref] " + T8a},
-		{"definition", "[ref]: x T12\nT8a", "[ref]: x T12\n" + T8a},
+		// Changed with the parser: with no definition, a reference is prose.
+		{"undefined reference", "[a T12][ref] T8a", "[a " + T12 + "][ref] " + T8a},
+		// Changed with the parser: "x T12" is no destination and title, so this is no definition.
+		{"not a definition", "[ref]: x T12\nT8a", "[ref]: x " + T12 + "\n" + T8a},
+		{"definition", "[ref]: https://example.org \"T12\"\nT8a", "[ref]: https://example.org \"T12\"\n" + T8a},
 		{"brackets only", "[T12]", "[" + T12 + "]"},
+		{"quoted tilde fence", "> ~~~\n> T12\n> ~~~", "> ~~~\n> T12\n> ~~~"},
+		{"quoted backtick fence", "> ```\n> T12\n> ```", "> ```\n> T12\n> ```"},
+		{"fence in a list item", "- a\n\n  ```\n  T12\n  ```", "- a\n\n  ```\n  T12\n  ```"},
+		{"indented code in a list item", "- a\n\n      T12", "- a\n\n      T12"},
+		{"quoted prose", "> see T12", "> see " + T12},
+		{"shortcut reference", "[T12]\n\n[T12]: https://example.org", "[T12]\n\n[T12]: https://example.org"},
+		{"full reference", "[x T12][r]\n\n[r]: https://example.org", "[x T12][r]\n\n[r]: https://example.org"},
+		{"collapsed reference", "[T12][]\n\n[T12]: https://example.org", "[T12][]\n\n[T12]: https://example.org"},
+		{"display math", "$$x + T13$$", "$$x + T13$$"},
+		// MyGo reads single-dollar math only with ExtDollarMath, which Default lacks:
+		// the view shows this as plain text, so the id is linked.
+		{"single dollars", "$x T13$", "$x " + "[T13](desk:T13)$"},
+		{"inline math", "$$x T13$$ and T12", "$$x T13$$ and " + T12},
+		{"math block", "$$\nT13\n$$", "$$\nT13\n$$"},
+		{"html attribute", `<span title="T13">x</span>`, `<span title="T13">x</span>`},
+		// The parser reads an HTML block as raw HTML up to the blank line.
+		{"html block", "<div>\nT13\n</div>", "<div>\nT13\n</div>"},
+		{"between tags", "<b>T13</b>", "<b>[T13](desk:T13)</b>"},
+		{"table cell", "| a | b |\n|---|---|\n| T12 | x \\| T8a |", "| a | b |\n|---|---|\n| " + T12 + " | x \\| " + T8a + " |"},
+		{"heading", "## T12 done", "## " + T12 + " done"},
+		{"mention", "@T12", "@T12"},
 		{"after bracket text", "[a] T12", "[a] " + T12},
 		{"too long", "T12345abc", "T12345abc"},
 		{"7 digits", "T1234567", "T1234567"},
@@ -112,10 +136,20 @@ func TestLinkDeskIDsIsStableOnOddText(t *testing.T) {
 	}
 }
 
-func TestLinkDeskIDsScansLongBracketRunsQuickly(t *testing.T) {
-	text := strings.Repeat("[", 50000) + " T12"
-	if got := linkDeskIDs(text); !strings.HasSuffix(got, "[T12](desk:T12)") {
-		t.Fatal("id after unmatched brackets was not linked")
+func TestLinkDeskIDsKeepsLongLinks(t *testing.T) {
+	text := "[" + strings.Repeat("a T12 ", 600) + "](https://example.org/" + strings.Repeat("x", 3000) + ")"
+	if got := linkDeskIDs(text); got != text {
+		t.Fatal("a long link was changed")
+	}
+}
+
+func TestLinkDeskIDsScansLongRunsQuickly(t *testing.T) {
+	for _, unit := range []string{"[", "<", "`"} {
+		// A line of backticks alone would open a fence: start with a word.
+		text := "x " + strings.Repeat(unit, 50000) + " T12"
+		if got := linkDeskIDs(text); !strings.HasSuffix(got, "[T12](desk:T12)") {
+			t.Errorf("id after 50000 %q was not linked", unit)
+		}
 	}
 }
 
