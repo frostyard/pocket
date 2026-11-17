@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-16",
+  "scope": "markdown",
+  "correction": "Markdown inserted for rendering can change how its neighbours parse (a ! before it makes an image, a * beside it can start emphasis): parse the result again and keep it only when it has the original's shape plus the new links.",
+  "evidence": "frostyard/pocket#110, cross-review by openai/gpt-6.1-sol of 0da933b036c8dae4930e30ae44fc487b2c5c13de (re-review 1, finding 1)",
+  "promoted_to": "internal/app/desk_refs_test.go TestLinkDeskIDsKeepsTheParse"
+}

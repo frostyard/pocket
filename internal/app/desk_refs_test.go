@@ -2,17 +2,21 @@ package app
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
+	"github.com/egoist/mygo/ui/markdown/parser"
 	"github.com/frostyard/pocket/internal/pocket"
 )
 
-func TestLinkDeskIDs(t *testing.T) {
+type deskLinkCase struct{ name, in, want string }
+
+func deskLinkCases() []deskLinkCase {
 	const T12 = "[T12](desk:T12)"
 	const T8a = "[T8a](desk:T8a)"
-	for _, c := range []struct{ name, in, want string }{
+	return []deskLinkCase{
 		{"none", "no ids here", "no ids here"},
 		{"thread", "See T12 now", "See " + T12 + " now"},
 		{"ask", "Needs you: T8a", "Needs you: " + T8a},
@@ -94,7 +98,24 @@ func TestLinkDeskIDs(t *testing.T) {
 		{"tab before", "a\tT12", "a\t" + T12},
 		{"empty", "", ""},
 		{"crlf", "T12\r\nT8a\r\n", T12 + "\r\n" + T8a + "\r\n"},
-	} {
+		// A bang would turn the link into an image.
+		{"bang", "!T12", "!T12"},
+		// The link's ")" would make the stars emphasis: the id stays plain.
+		{"stars after", "T12*\"x\"*", "T12*\"x\"*"},
+		{"strong", "**T12**", "**" + T12 + "**"},
+		{"strong in a sentence", "a **T12** b", "a **" + T12 + "** b"},
+		// Inside a word the link changes how the stars flank: the id stays plain.
+		{"strong in a word", "a**T12**b", "a**T12**b"},
+		{"emphasis", "*T12*", "*" + T12 + "*"},
+		{"strike", "~~T12~~", "~~T12~~"},
+		// The risky id stays plain; the safe one is linked.
+		{"risky and safe", "T12*\"x\"* and T8a", "T12*\"x\"* and " + T8a},
+		{"strong then id", "T12**x**", T12 + "**x**"},
+	}
+}
+
+func TestLinkDeskIDs(t *testing.T) {
+	for _, c := range deskLinkCases() {
 		t.Run(c.name, func(t *testing.T) {
 			got := linkDeskIDs(c.in)
 			if got != c.want {
@@ -116,7 +137,7 @@ func TestLinkDeskIDsComposesWithDeskPaths(t *testing.T) {
 }
 
 func TestLinkDeskIDsIsStableOnOddText(t *testing.T) {
-	parts := []string{"T1", "T12a", "[", "]", "(", ")", "`", "``", "\\", "<", ">", "\n", "\n\n", " ", "    ", "```\n", "~~~\n", "x", "://", "é", ":", "/", "."}
+	parts := []string{"T1", "T12a", "[", "]", "(", ")", "`", "``", "\\", "<", ">", "\n", "\n\n", " ", "    ", "```\n", "~~~\n", "x", "://", "é", ":", "/", ".", "*", "**", "~~", "!", "_", "- ", "> "}
 	seed := uint32(7)
 	for range 4000 {
 		var b strings.Builder
@@ -132,6 +153,9 @@ func TestLinkDeskIDsIsStableOnOddText(t *testing.T) {
 		}
 		if !utf8.ValidString(got) && utf8.ValidString(in) {
 			t.Fatalf("broke UTF-8 on %q: %q", in, got)
+		}
+		if !keepsShape(parseDesk(in), got) {
+			t.Fatalf("changed the parse of %q: %q", in, got)
 		}
 	}
 }
@@ -228,5 +252,86 @@ func TestBuildItemsLinksDeskIDsOnlyInTheRenderedText(t *testing.T) {
 	}
 	if texts != 1 {
 		t.Fatalf("%d text rows", texts)
+	}
+}
+
+func parseDesk(text string) *parser.Document {
+	d := parser.New(parser.Default)
+	d.Set(text)
+	return d
+}
+
+// countInlines counts the inlines of a kind in a document, and the desk
+// links whose content is not exactly their id.
+func countInlines(d *parser.Document, kind parser.InlineKind) (n, badDesk int) {
+	for i := 0; i < d.Len(); i++ {
+		ins := d.Inlines(i)
+		for k, in := range ins {
+			if in.Kind == kind {
+				n++
+			}
+			if id, ok := strings.CutPrefix(in.Dest, "desk:"); ok && in.Kind == parser.Link &&
+				(in.Next != k+2 || ins[k+1].Kind != parser.Text || ins[k+1].Text != id) {
+				badDesk++
+			}
+		}
+	}
+	return n, badDesk
+}
+
+func plainTexts(d *parser.Document) []string {
+	var out []string
+	for i := 0; i < d.Len(); i++ {
+		out = append(out, parser.PlainText(d.Inlines(i)))
+	}
+	return out
+}
+
+func TestLinkDeskIDsKeepsTheParse(t *testing.T) {
+	var inputs []string
+	for _, c := range deskLinkCases() {
+		inputs = append(inputs, c.in)
+	}
+	inputs = append(inputs, "!T12 and T8a", "T12*x*", "*T12 *x*", "a ~~T12~~ b T8a", "**T12**T8a", "_T12_", "__T12__", "x T12**", "> **T12** and T8a", "- *T12*\n- T8a")
+	for _, in := range inputs {
+		out := linkDeskIDs(in)
+		a, b := parseDesk(in), parseDesk(out)
+		before, _ := countInlines(a, parser.Image)
+		after, _ := countInlines(b, parser.Image)
+		if after != before {
+			t.Errorf("%q: images %d -> %d in %q", in, before, after, out)
+		}
+		_, badBefore := countInlines(a, parser.Link)
+		if _, bad := countInlines(b, parser.Link); bad > badBefore {
+			t.Errorf("%q: a desk link holds more than its id in %q", in, out)
+		}
+		if !sameShape(a, b) {
+			t.Errorf("%q: the parse changed in %q", in, out)
+		}
+		if x, y := plainTexts(a), plainTexts(b); !slices.Equal(x, y) {
+			t.Errorf("%q: plain text %q -> %q", in, x, y)
+		}
+	}
+}
+
+func TestSameShapeSeesAChangedParse(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"!T12", "![T12](desk:T12)"},
+		{"T12*\"x\"*", "[T12](desk:T12)*\"x\"*"},
+		{"a **T12** b", "a **T12 b"},
+		{"T12", "[T12](desk:T13)"},
+	} {
+		if sameShape(parseDesk(pair[0]), parseDesk(pair[1])) {
+			t.Errorf("%q and %q have the same shape", pair[0], pair[1])
+		}
+	}
+	for _, pair := range [][2]string{
+		{"see T12 now", "see [T12](desk:T12) now"},
+		{"**T12**", "**[T12](desk:T12)**"},
+		{"a\n\nb", "a\n\nb"},
+	} {
+		if !sameShape(parseDesk(pair[0]), parseDesk(pair[1])) {
+			t.Errorf("%q and %q have another shape", pair[0], pair[1])
+		}
 	}
 }
