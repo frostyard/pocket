@@ -67,7 +67,7 @@ them rather than improvising, whichever agent you are. Start a new one from
   the machines that play them), `arrakis_vision.go` (a made-up order, to
   see it move), `arrakis_cast.go` (who is who), `artifacts.go`,
   `running.go` (cross-session work), `background.go` (task output and the composer's background pill), `schedules.go` (scheduled messages), `timezone.go` (device IANA zone),
-  `refs.go`, `desk_files.go` (read-only Desk Markdown), `browser_watch.go` (read-only browser frames), `wiki.go`, `teampage.go`,
+  `refs.go`, `desk_refs.go` (desk ids as links), `desk_files.go` (read-only Desk Markdown), `browser_watch.go` (read-only browser frames), `wiki.go`, `teampage.go`,
   `signin.go`, `webnav.go` (where the artifact web view may go, and its cookie)
   and `webpane.go` (`ArtifactWeb`: the web view's sign-in, sign-out and native
   calls, in order, over the `WebNative` that `cmd/pocket` gives it).

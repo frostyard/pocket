@@ -136,11 +136,14 @@ func (a *App) scheduleArtifactRefresh() {
 }
 
 // followLink follows a link in Markdown Pocket shows: an artifact
-// reference opens the artifact, a web or mail address the browser.
+// reference opens the artifact, a desk id (desk:T13, desk:T13a) the Inbox or
+// In motion, a web or mail address the browser.
 func (a *App) followLink(dest string) {
 	switch {
 	case strings.HasPrefix(dest, "deskfile:"):
 		a.openDeskFile(strings.TrimPrefix(dest, "deskfile:"))
+	case strings.HasPrefix(dest, "desk:"):
+		a.openDeskID(strings.TrimPrefix(dest, "desk:"))
 	case strings.HasPrefix(dest, "artifact:"):
 		id, hint, _ := strings.Cut(strings.TrimPrefix(dest, "artifact:"), "#")
 		var prefer []int

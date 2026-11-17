@@ -465,7 +465,7 @@ func (a *App) askItem(c *ui.Context, it *inboxItem) {
 			ui.Spacer(c)
 			frostui.Caption(c, clock(it.at))
 		})
-		markdown.View(c, linkDeskPaths(linkArtifacts(ask.Text, a.artifactHint(t))), &a.md)
+		markdown.View(c, linkDeskIDs(linkDeskPaths(linkArtifacts(ask.Text, a.artifactHint(t)))), &a.md)
 		a.artifactButtons(c, refIDs(ask.Text), a.artifactPrefer(t))
 		if t.Origin == "plan" || ask.Gen != nil {
 			if ui.Button(c, "Review plan decision").Disabled(!a.planOwner()).Clicked() {
@@ -700,7 +700,7 @@ func (a *App) threadContext(c *ui.Context, t *pocket.DeskThread, supplied ...*po
 			r := d.Reports[i]
 			a.disclosureRow(c.Key(fmt.Sprint("r", i)), "report:"+t.ID+":"+fmt.Sprint(i), "pocket-desk",
 				truncate(firstLine(r.Text), 70), clock(r.At.Time()), func() {
-					markdown.View(c, linkDeskPaths(linkArtifacts(r.Text, a.artifactHint(t))), &a.md)
+					markdown.View(c, linkDeskIDs(linkDeskPaths(linkArtifacts(r.Text, a.artifactHint(t)))), &a.md)
 					a.artifactButtons(c, refIDs(r.Text), a.artifactPrefer(t))
 				})
 		}

@@ -78,12 +78,14 @@ server that surpasses its web app at a desk. Phases 1 to 4 shipped on
   ([ADR-0011](../adr/0011-act-where-the-owner-can-bypass-only-on-rules-pocket-proves.md),
   2026-11-14). Done when the owner's
   first direct merge from Pocket shows `bketelsen` with the App's badge.
+- Desk thread and ask ids in transcripts and in the Inbox's asks and reports
+  link to the Inbox or In motion ([design](../design/pocket.md#a-session);
+  implemented 2026-11-16).
 - **Done when:** the owner uses Pocket for a full working day without opening
   the web app.
 
 ## Later / ideas
 
-- The supervisor's "Needs you: T13a" line as chips linked to the Inbox.
 - A first release: `.svu.yml`, `make bump`, a signed and notarized Mac build,
   and a `site/` (core ADR-0012, ADR-0070).
 
