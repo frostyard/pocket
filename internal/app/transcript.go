@@ -59,6 +59,9 @@ type item struct {
 	key   string
 	entry *pocket.Entry
 	text  string
+	// md is the Markdown the row renders: text with its desk ids linked.
+	// text stays what search, titles and the first line read.
+	md    string
 	calls []call
 	at    time.Time
 }
@@ -166,7 +169,7 @@ func buildItems(v *pocket.View) []item {
 			if isReport(e.Text) {
 				kind = itemReport
 			}
-			items = append(items, item{kind: kind, key: fmt.Sprintf("u:%d", e.ID), entry: e, text: e.Text, at: e.At.Time()})
+			items = append(items, item{kind: kind, key: fmt.Sprintf("u:%d", e.ID), entry: e, text: e.Text, md: linkDeskIDs(e.Text), at: e.At.Time()})
 		case "assistant":
 			for i, b := range e.Blocks {
 				switch b.Type {
@@ -183,7 +186,7 @@ func buildItems(v *pocket.View) []item {
 						continue
 					}
 					flush()
-					items = append(items, item{kind: itemText, key: fmt.Sprintf("t:%d:%d", e.ID, i), entry: e, text: b.Text, at: e.At.Time()})
+					items = append(items, item{kind: itemText, key: fmt.Sprintf("t:%d:%d", e.ID, i), entry: e, text: b.Text, md: linkDeskIDs(b.Text), at: e.At.Time()})
 				}
 			}
 			if e.Error != "" || e.StopReason == "error" {
@@ -199,7 +202,7 @@ func buildItems(v *pocket.View) []item {
 			items = append(items, item{kind: itemNote, key: fmt.Sprintf("n:%d", e.ID), entry: e, text: e.Text})
 		case "compaction":
 			flush()
-			items = append(items, item{kind: itemCompaction, key: fmt.Sprintf("c:%d", e.ID), entry: e, text: e.Summary})
+			items = append(items, item{kind: itemCompaction, key: fmt.Sprintf("c:%d", e.ID), entry: e, text: e.Summary, md: linkDeskIDs(e.Summary)})
 		case "reset":
 			flush()
 			items = append(items, item{kind: itemNote, key: fmt.Sprintf("r:%d", e.ID), entry: e, text: firstNonEmpty(e.Text, "Context reset")})
@@ -288,7 +291,7 @@ func (a *App) itemView(c *ui.Context, it *item) {
 	case itemReport:
 		a.reportRow(c, it)
 	case itemText:
-		markdown.View(c, it.text, &a.md)
+		markdown.View(c, it.md, &a.md)
 	case itemThinking:
 		a.thinkingRow(c, it, false)
 	case itemTools:
@@ -303,7 +306,7 @@ func (a *App) itemView(c *ui.Context, it *item) {
 		})
 	case itemCompaction:
 		a.disclosureRow(c, it.key, "edit-clear-all", "Context compacted", "", func() {
-			markdown.View(c, it.text, &a.md)
+			markdown.View(c, it.md, &a.md)
 		})
 	case itemShell:
 		a.shellRow(c, it.entry)
@@ -415,6 +418,7 @@ func (a *App) userRow(c *ui.Context, it *item) {
 	name, mine := a.author(it.entry)
 	text, legacy, _ := strings.Cut(it.text, attachedMarker)
 	files := attachments(it.entry, legacy)
+	words, _, _ := strings.Cut(it.md, attachedMarker)
 	images := 0
 	if it.entry != nil {
 		images = it.entry.Images
@@ -435,7 +439,7 @@ func (a *App) userRow(c *ui.Context, it *item) {
 			})
 			// A message can carry only attachments, with no words of its own.
 			if strings.TrimSpace(text) != "" {
-				markdown.View(c, text, &a.md)
+				markdown.View(c, words, &a.md)
 			}
 			if len(files) > 0 || images > 0 {
 				ui.Row(c).Gap(frostui.SpaceXS).Wrap().Children(func() {
@@ -465,7 +469,7 @@ func (a *App) reportRow(c *ui.Context, it *item) {
 		icon = "pocket-night"
 	}
 	a.disclosureRow(c, it.key, icon, truncate(first, 140), clock(it.at), func() {
-		markdown.View(c, it.text, &a.md)
+		markdown.View(c, it.md, &a.md)
 	})
 }
 
@@ -850,6 +854,8 @@ func (a *App) liveRow(c *ui.Context) {
 					a.thinkingRow(c, &item{}, true)
 				}
 			case "text":
+				// The live stream shows the raw text, so its reveal and byte
+				// offsets hold; the stored row that follows has the desk links.
 				markdown.Stream(c.Key(fmt.Sprintf("live-text-%d", i)), b.Text, &a.md)
 			case "toolCall":
 				calls = append(calls, call{block: b, slot: v.Slot(b.ID), asked: v.ApprovalFor(b.ID)})

@@ -63,7 +63,9 @@ internal/icons ── the icons Pocket draws itself
   that names an artifact (`artifact:<id>`, as the Desk writes it) links it,
   and gets a button titled as the artifact that opens it in Artifacts: the
   id is looked up across sessions, the thread's own session first, then its
-  supervisor's, then the newest. Decisions stay together by thread, oldest thread first, with asks in the
+  supervisor's, then the newest. Desk ids (T13, T13a) in an ask or a report
+  link too: an open ask opens in the Inbox, any other id opens its thread in
+  In motion. Decisions stay together by thread, oldest thread first, with asks in the
   server's filing order and one thread heading. Reopened asks start a fresh
   draft and notify again. Each is answered on its card; J/K move, 1–6 answer a decision with
   that option, ⌥Y / ⌥N allow or deny. The right pane shows the chosen item's
@@ -282,6 +284,11 @@ their source session, and a late fork never moves the user away from a
 different session.
 
 Replies stream in as Markdown (`ui/markdown.Stream`, word-paced, faded in).
+Desk ids (T13, T13a) in a reply, a message or a report link once the text is a
+stored row: an open ask opens in the Inbox, any other id opens its thread in In
+motion (one read when the thread is outside the Desk's window). Code, links and
+URLs stay as they are, and so do the stored, sent and searched text; the live
+stream shows plain text until the reply is a stored row.
 A streaming reply changes no stored row, so it does not build the transcript
 again: the rows are built once per conversation revision, and a live update
 refreshes what they hold of the live state in place (each folded call's slot
