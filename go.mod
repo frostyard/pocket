@@ -3,8 +3,8 @@ module github.com/frostyard/pocket
 go 1.27.4
 
 require (
-	github.com/egoist/mygo v0.9.0
-	github.com/frostyard/frostui v0.7.0
+	github.com/egoist/mygo v0.9.1
+	github.com/frostyard/frostui v0.9.0
 	golang.org/x/sys v0.48.0
 )
 
