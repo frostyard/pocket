@@ -1,8 +1,10 @@
-# Tool pins for this repository (frostyard core ADR-0043). Every tool the gates
-# invoke is listed; mise.lock carries the checksums. `mise install` provisions
-# the same versions locally and in CI. Go comes from go.mod's go line, the only
-# Go pin; never pin it here.
+# Tool pins for this repository (frostyard core ADR-0043). Locally, `mise
+# install` installs golangci-lint and Node from the pins below, and Go from
+# go.mod's go line, the only Go pin; never pin Go here. mise.lock records the
+# resolved versions and checksums of all three. CI uses setup-go for Go and
+# mise for golangci-lint and Node.
 [settings]
+idiomatic_version_file_enable_tools = ["go"]
 lockfile = true
 
 [tools]

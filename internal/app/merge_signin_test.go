@@ -99,6 +99,7 @@ func TestSettingsSignInStates(t *testing.T) {
 	t.Run("the code", func(t *testing.T) {
 		a, loop, _, auth := mergeApp(t, "frostyard/core#1")
 		auth.set(github.AppToken{}, false)
+		auth.holdPoll(t)
 		a.startGitHub()
 		loop.RunUntil(t, func() bool { return a.gh.phase == signInNone })
 		a.githubSignIn()
@@ -274,24 +275,17 @@ func TestTheCodeOpensPocketsURL(t *testing.T) {
 func TestCancelSavesNothing(t *testing.T) {
 	a, loop, _, auth := mergeApp(t, "frostyard/core#1")
 	auth.set(github.AppToken{}, false)
-	poll, releasePoll := make(chan github.AppToken, 1), make(chan struct{})
-	auth.setPollFn(func(ctx context.Context) (github.AppToken, error) {
-		select {
-		case tok := <-poll:
-			return tok, nil
-		case <-ctx.Done():
-			return github.AppToken{}, ctx.Err()
-		}
-	})
+	late := holdLatePoll(t, a, auth)
 	a.startGitHub()
 	loop.RunUntil(t, func() bool { return a.gh.phase == signInNone })
 	a.githubSignIn()
 	loop.RunUntil(t, func() bool { return a.gh.phase == signInCode })
 	a.cancelSignIn()
-	close(releasePoll)
-	poll <- github.AppToken{ClientID: github.AppClientID, Access: testGitHubToken, Refresh: "r",
-		AccessExpires: a.opts.Now().Add(time.Hour), RefreshExpires: a.opts.Now().Add(time.Hour)}
-	loop.RunUntil(t, func() bool { return auth.cancelCount() == 1 })
+	if auth.cancelCount() != 1 {
+		t.Fatalf("Cancel cancelled %d sign-ins", auth.cancelCount())
+	}
+	late.answer(t, loop, github.AppToken{ClientID: github.AppClientID, Access: testGitHubToken, Refresh: "r",
+		AccessExpires: a.opts.Now().Add(time.Hour), RefreshExpires: a.opts.Now().Add(time.Hour)})
 	frames(inboxTester(t, a, loop), loop)
 	if auth.adoptCount() != 0 {
 		t.Errorf("a cancelled sign-in saved %d pairs", auth.adoptCount())
@@ -306,24 +300,16 @@ func TestCancelSavesNothing(t *testing.T) {
 func TestSignOutDuringThePollSavesNothing(t *testing.T) {
 	a, loop, _, auth := mergeApp(t, "frostyard/core#1")
 	auth.set(github.AppToken{}, false)
-	poll := make(chan github.AppToken, 1)
-	auth.setPollFn(func(ctx context.Context) (github.AppToken, error) {
-		select {
-		case tok := <-poll:
-			return tok, nil
-		case <-ctx.Done():
-			return github.AppToken{}, ctx.Err()
-		}
-	})
+	late := holdLatePoll(t, a, auth)
 	a.startGitHub()
 	loop.RunUntil(t, func() bool { return a.gh.phase == signInNone })
 	a.githubSignIn()
 	loop.RunUntil(t, func() bool { return a.gh.phase == signInCode })
 	a.githubSignOut()
 	loop.RunUntil(t, func() bool { return auth.forgetCount() == 1 })
-	poll <- github.AppToken{ClientID: github.AppClientID, Access: testGitHubToken, Refresh: "r",
-		AccessExpires: a.opts.Now().Add(time.Hour), RefreshExpires: a.opts.Now().Add(time.Hour)}
-	loop.RunUntil(t, func() bool { return polled(a) })
+	late.answer(t, loop, github.AppToken{ClientID: github.AppClientID, Access: testGitHubToken, Refresh: "r",
+		AccessExpires: a.opts.Now().Add(time.Hour), RefreshExpires: a.opts.Now().Add(time.Hour)})
+	frames(inboxTester(t, a, loop), loop)
 	if auth.adoptCount() != 0 {
 		t.Errorf("a signed-out sign-in saved %d pairs", auth.adoptCount())
 	}
@@ -331,10 +317,6 @@ func TestSignOutDuringThePollSavesNothing(t *testing.T) {
 		t.Errorf("phase %v", a.gh.phase)
 	}
 }
-
-// polled reports that the poll's result reached the app: the phase is not
-// the code's any more.
-func polled(a *App) bool { return a.gh.phase != signInCode }
 
 // TestANewerSignInWins: a pair of an older sign-in saves nothing, and the
 // newer sign-in is the 1 saved.
@@ -377,7 +359,9 @@ func TestSignOutClearsTheOwnersAndThePreviews(t *testing.T) {
 	}
 	a.gh.preflight = map[string]*preflightResult{"frostyard": {rows: []github.PreflightRow{{Repo: "frostyard/core"}}}}
 	a.githubSignOut()
-	loop.RunUntil(t, func() bool { return auth.forgetCount() == 1 })
+	// Forget runs on the read's goroutine; the status comes back in its
+	// completion, on the UI thread, after it (#118).
+	loop.RunUntil(t, func() bool { return auth.forgetCount() == 1 && !a.gh.status.SignedIn })
 	if len(a.gh.previews) != 0 || len(a.gh.owners) != 0 || len(a.gh.preflight) != 0 {
 		t.Errorf("after: previews %d owners %v preflight %d", len(a.gh.previews), len(a.gh.owners), len(a.gh.preflight))
 	}
@@ -572,6 +556,7 @@ func TestSignInSnapshots(t *testing.T) {
 	a, loop, _, auth = mergeApp(t, "frostyard/core#1")
 	auth.set(github.AppToken{}, false)
 	auth.setCodeExpiry(a.opts.Now().Add(14 * time.Minute))
+	auth.holdPoll(t)
 	a.startGitHub()
 	loop.RunUntil(t, func() bool { return a.gh.phase == signInNone })
 	a.githubSignIn()
@@ -727,6 +712,7 @@ func TestCheckOwnersTakesItsErrorOnTheUIThread(t *testing.T) {
 func TestTheCodeButtonsShowTheirWords(t *testing.T) {
 	a, loop, _, auth := mergeApp(t, "frostyard/core#1")
 	auth.set(github.AppToken{}, false)
+	auth.holdPoll(t)
 	a.startGitHub()
 	loop.RunUntil(t, func() bool { return a.gh.phase == signInNone })
 	a.githubSignIn()

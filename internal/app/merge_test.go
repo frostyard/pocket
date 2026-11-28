@@ -9,9 +9,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -493,6 +495,77 @@ func (f *fakeAuth) setPollFn(fn func(ctx context.Context) (github.AppToken, erro
 	f.mu.Lock()
 	f.pollFn = fn
 	f.mu.Unlock()
+}
+
+// holdPoll makes the device flow's poll wait until the test ends. A poll that
+// answers at once can end the code's phase in the same flush, before
+// RunUntil sees it (#108, #118).
+func (f *fakeAuth) holdPoll(t *testing.T) {
+	t.Helper()
+	hold := make(chan struct{})
+	t.Cleanup(func() { close(hold) })
+	f.setPollFn(func(context.Context) (github.AppToken, error) {
+		<-hold
+		return github.AppToken{}, context.Canceled
+	})
+}
+
+// latePoll holds a sign-in's poll until the test gives it a pair, and tells
+// when the poll's answer ran on the UI thread (#118). The fake code's expiry
+// is past, so a poll that waits on its context answers at once.
+type latePoll struct {
+	pair   chan github.AppToken
+	sent   bool
+	posted chan struct{}
+	once   sync.Once
+	ran    atomic.Bool
+}
+
+// holdLatePoll makes the fake poll wait for the test's pair, and wraps a.post
+// to mark the post that pollSignIn's goroutine makes, found by its stack:
+// the countdown and other reads post through a.post too.
+func holdLatePoll(t *testing.T, a *App, auth *fakeAuth) *latePoll {
+	t.Helper()
+	l := &latePoll{pair: make(chan github.AppToken, 1), posted: make(chan struct{})}
+	auth.setPollFn(func(context.Context) (github.AppToken, error) {
+		tok, ok := <-l.pair
+		if !ok {
+			return github.AppToken{}, context.Canceled
+		}
+		return tok, nil
+	})
+	base := a.post
+	a.post = func(fn func()) {
+		if strings.Contains(string(debug.Stack()), ").pollSignIn.func") {
+			inner := fn
+			fn = func() { inner(); l.ran.Store(true) }
+			l.once.Do(func() { close(l.posted) })
+		}
+		base(fn)
+	}
+	// A test that ends before it gave the pair lets the poll return.
+	t.Cleanup(func() {
+		if !l.sent {
+			close(l.pair)
+		}
+	})
+	return l
+}
+
+// answer gives the poll its pair, and runs the loop until the poll's answer
+// ran on the UI thread. The pair channel has 1 slot: a poll that never
+// started fails at the timeout, not in a send that waits.
+func (l *latePoll) answer(t *testing.T, loop *frostuitest.Loop, tok github.AppToken) {
+	t.Helper()
+	l.sent = true
+	l.pair <- tok
+	close(l.pair)
+	select {
+	case <-l.posted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the poll's answer was not posted")
+	}
+	loop.RunUntil(t, l.ran.Load)
 }
 
 // opens is how many times the app opened the sign-in.

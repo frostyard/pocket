@@ -53,7 +53,7 @@ Paste the sign-in link your Pi Pocket launcher printed (`https://example.org/log
 ## Develop
 
 ```sh
-mise install   # the pinned tools
+mise install   # Go from go.mod, plus the pinned golangci-lint and Node
 make ci        # what CI runs
 make run       # build and start the app
 ```
