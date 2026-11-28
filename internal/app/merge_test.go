@@ -526,7 +526,7 @@ type latePoll struct {
 // the countdown and other reads post through a.post too.
 func holdLatePoll(t *testing.T, a *App, auth *fakeAuth) *latePoll {
 	t.Helper()
-	l := &latePoll{pair: make(chan github.AppToken), posted: make(chan struct{})}
+	l := &latePoll{pair: make(chan github.AppToken, 1), posted: make(chan struct{})}
 	auth.setPollFn(func(context.Context) (github.AppToken, error) {
 		tok, ok := <-l.pair
 		if !ok {
@@ -553,7 +553,8 @@ func holdLatePoll(t *testing.T, a *App, auth *fakeAuth) *latePoll {
 }
 
 // answer gives the poll its pair, and runs the loop until the poll's answer
-// ran on the UI thread.
+// ran on the UI thread. The pair channel has 1 slot: a poll that never
+// started fails at the timeout, not in a send that waits.
 func (l *latePoll) answer(t *testing.T, loop *frostuitest.Loop, tok github.AppToken) {
 	t.Helper()
 	l.sent = true
