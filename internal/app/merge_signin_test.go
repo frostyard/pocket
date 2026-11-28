@@ -99,6 +99,7 @@ func TestSettingsSignInStates(t *testing.T) {
 	t.Run("the code", func(t *testing.T) {
 		a, loop, _, auth := mergeApp(t, "frostyard/core#1")
 		auth.set(github.AppToken{}, false)
+		auth.holdPoll(t)
 		a.startGitHub()
 		loop.RunUntil(t, func() bool { return a.gh.phase == signInNone })
 		a.githubSignIn()
@@ -377,7 +378,9 @@ func TestSignOutClearsTheOwnersAndThePreviews(t *testing.T) {
 	}
 	a.gh.preflight = map[string]*preflightResult{"frostyard": {rows: []github.PreflightRow{{Repo: "frostyard/core"}}}}
 	a.githubSignOut()
-	loop.RunUntil(t, func() bool { return auth.forgetCount() == 1 })
+	// Forget runs on the read's goroutine; the status comes back in its
+	// completion, on the UI thread, after it (#118).
+	loop.RunUntil(t, func() bool { return auth.forgetCount() == 1 && !a.gh.status.SignedIn })
 	if len(a.gh.previews) != 0 || len(a.gh.owners) != 0 || len(a.gh.preflight) != 0 {
 		t.Errorf("after: previews %d owners %v preflight %d", len(a.gh.previews), len(a.gh.owners), len(a.gh.preflight))
 	}
@@ -572,6 +575,7 @@ func TestSignInSnapshots(t *testing.T) {
 	a, loop, _, auth = mergeApp(t, "frostyard/core#1")
 	auth.set(github.AppToken{}, false)
 	auth.setCodeExpiry(a.opts.Now().Add(14 * time.Minute))
+	auth.holdPoll(t)
 	a.startGitHub()
 	loop.RunUntil(t, func() bool { return a.gh.phase == signInNone })
 	a.githubSignIn()
@@ -727,6 +731,7 @@ func TestCheckOwnersTakesItsErrorOnTheUIThread(t *testing.T) {
 func TestTheCodeButtonsShowTheirWords(t *testing.T) {
 	a, loop, _, auth := mergeApp(t, "frostyard/core#1")
 	auth.set(github.AppToken{}, false)
+	auth.holdPoll(t)
 	a.startGitHub()
 	loop.RunUntil(t, func() bool { return a.gh.phase == signInNone })
 	a.githubSignIn()

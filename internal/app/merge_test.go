@@ -495,6 +495,19 @@ func (f *fakeAuth) setPollFn(fn func(ctx context.Context) (github.AppToken, erro
 	f.mu.Unlock()
 }
 
+// holdPoll makes the device flow's poll wait until the test ends. A poll that
+// answers at once can end the code's phase in the same flush, before
+// RunUntil sees it (#108, #118).
+func (f *fakeAuth) holdPoll(t *testing.T) {
+	t.Helper()
+	hold := make(chan struct{})
+	t.Cleanup(func() { close(hold) })
+	f.setPollFn(func(context.Context) (github.AppToken, error) {
+		<-hold
+		return github.AppToken{}, context.Canceled
+	})
+}
+
 // opens is how many times the app opened the sign-in.
 func (f *fakeAuth) openCount() int {
 	f.mu.Lock()
