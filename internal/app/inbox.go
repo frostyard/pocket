@@ -738,10 +738,7 @@ func reviewRow(c *ui.Context, r pocket.DeskReview) {
 	case "not-ready":
 		tone = frostui.Danger
 	}
-	ref := "no PR"
-	if r.Ref != "" {
-		ref = r.Ref + "@" + r.Head[:min(12, len(r.Head))]
-	}
+	ref := reviewRef(r)
 	ui.Column(c).Gap(2).AlignItems(ui.Stretch).Children(func() {
 		ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
 			frostui.Pill(c, r.Outcome, tone)
@@ -752,6 +749,18 @@ func reviewRow(c *ui.Context, r pocket.DeskReview) {
 			frostui.Caption(c, clock(r.At.Time())).Shrink(0)
 		})
 	})
+}
+
+// reviewRef is the PR and head that a review verdict names: "no PR" without a
+// PR, and the head (its first 12 characters) only when the verdict has one.
+func reviewRef(r pocket.DeskReview) string {
+	switch {
+	case r.Ref == "":
+		return "no PR"
+	case r.Head == "":
+		return r.Ref
+	}
+	return r.Ref + "@" + r.Head[:min(12, len(r.Head))]
 }
 
 func (a *App) prRow(c *ui.Context, pr pocket.DeskPR) {

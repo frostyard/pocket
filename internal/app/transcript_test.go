@@ -94,6 +94,8 @@ func TestTranscriptTurnNoteDisclosure(t *testing.T) {
 	}
 }
 
+// The web app's itemsOf (web/turns.js of Pi Pocket v0.30.1) closes a group of
+// calls at every row that is not an answer, a turn note too.
 func TestTurnNoteSplitsToolGroups(t *testing.T) {
 	v := pocket.NewView()
 	v.Order = []int{6, 7, 8}
