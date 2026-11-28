@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -506,6 +507,57 @@ func (f *fakeAuth) holdPoll(t *testing.T) {
 		<-hold
 		return github.AppToken{}, context.Canceled
 	})
+}
+
+// latePoll holds a sign-in's poll until the test lets it answer, and tells
+// when that answer ran on the UI thread (#118). The fake code's expiry is
+// past, so a poll that waits on its context alone answers at once.
+type latePoll struct {
+	start     chan struct{}
+	returning atomic.Bool
+	posted    chan struct{}
+	ran       atomic.Bool
+}
+
+// holdLatePoll wraps a.post, which a sign-in's poll takes when it starts:
+// call it before the sign-in. The poll function waits on l.start, and calls
+// l.returned just before it returns.
+func holdLatePoll(t *testing.T, a *App) *latePoll {
+	t.Helper()
+	l := &latePoll{start: make(chan struct{}), posted: make(chan struct{})}
+	base := a.post
+	a.post = func(fn func()) {
+		if l.returning.CompareAndSwap(true, false) {
+			inner := fn
+			fn = func() { inner(); l.ran.Store(true) }
+			close(l.posted)
+		}
+		base(fn)
+	}
+	t.Cleanup(func() {
+		select {
+		case <-l.start:
+		default:
+			close(l.start)
+		}
+	})
+	return l
+}
+
+// returned marks the poll's answer as the next post.
+func (l *latePoll) returned() { l.returning.Store(true) }
+
+// answer lets the poll answer, and runs the loop until the answer ran on the
+// UI thread. The test goroutine runs no loop while it waits for the post.
+func (l *latePoll) answer(t *testing.T, loop *frostuitest.Loop) {
+	t.Helper()
+	close(l.start)
+	select {
+	case <-l.posted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the poll's answer was not posted")
+	}
+	loop.RunUntil(t, l.ran.Load)
 }
 
 // opens is how many times the app opened the sign-in.

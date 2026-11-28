@@ -275,24 +275,24 @@ func TestTheCodeOpensPocketsURL(t *testing.T) {
 func TestCancelSavesNothing(t *testing.T) {
 	a, loop, _, auth := mergeApp(t, "frostyard/core#1")
 	auth.set(github.AppToken{}, false)
-	poll, releasePoll := make(chan github.AppToken, 1), make(chan struct{})
-	auth.setPollFn(func(ctx context.Context) (github.AppToken, error) {
-		select {
-		case tok := <-poll:
-			return tok, nil
-		case <-ctx.Done():
-			return github.AppToken{}, ctx.Err()
-		}
+	late := holdLatePoll(t, a)
+	poll := make(chan github.AppToken, 1)
+	auth.setPollFn(func(context.Context) (github.AppToken, error) {
+		<-late.start
+		defer late.returned()
+		return <-poll, nil
 	})
 	a.startGitHub()
 	loop.RunUntil(t, func() bool { return a.gh.phase == signInNone })
 	a.githubSignIn()
 	loop.RunUntil(t, func() bool { return a.gh.phase == signInCode })
 	a.cancelSignIn()
-	close(releasePoll)
+	if auth.cancelCount() != 1 {
+		t.Fatalf("Cancel cancelled %d sign-ins", auth.cancelCount())
+	}
 	poll <- github.AppToken{ClientID: github.AppClientID, Access: testGitHubToken, Refresh: "r",
 		AccessExpires: a.opts.Now().Add(time.Hour), RefreshExpires: a.opts.Now().Add(time.Hour)}
-	loop.RunUntil(t, func() bool { return auth.cancelCount() == 1 })
+	late.answer(t, loop)
 	frames(inboxTester(t, a, loop), loop)
 	if auth.adoptCount() != 0 {
 		t.Errorf("a cancelled sign-in saved %d pairs", auth.adoptCount())
@@ -307,24 +307,24 @@ func TestCancelSavesNothing(t *testing.T) {
 func TestSignOutDuringThePollSavesNothing(t *testing.T) {
 	a, loop, _, auth := mergeApp(t, "frostyard/core#1")
 	auth.set(github.AppToken{}, false)
+	late := holdLatePoll(t, a)
 	poll := make(chan github.AppToken, 1)
-	auth.setPollFn(func(ctx context.Context) (github.AppToken, error) {
-		select {
-		case tok := <-poll:
-			return tok, nil
-		case <-ctx.Done():
-			return github.AppToken{}, ctx.Err()
-		}
+	auth.setPollFn(func(context.Context) (github.AppToken, error) {
+		<-late.start
+		defer late.returned()
+		return <-poll, nil
 	})
 	a.startGitHub()
 	loop.RunUntil(t, func() bool { return a.gh.phase == signInNone })
 	a.githubSignIn()
 	loop.RunUntil(t, func() bool { return a.gh.phase == signInCode })
 	a.githubSignOut()
-	loop.RunUntil(t, func() bool { return auth.forgetCount() == 1 })
+	// The sign-out's read is back before the late pair comes.
+	loop.RunUntil(t, func() bool { return auth.forgetCount() == 1 && !a.gh.status.SignedIn })
 	poll <- github.AppToken{ClientID: github.AppClientID, Access: testGitHubToken, Refresh: "r",
 		AccessExpires: a.opts.Now().Add(time.Hour), RefreshExpires: a.opts.Now().Add(time.Hour)}
-	loop.RunUntil(t, func() bool { return polled(a) })
+	late.answer(t, loop)
+	frames(inboxTester(t, a, loop), loop)
 	if auth.adoptCount() != 0 {
 		t.Errorf("a signed-out sign-in saved %d pairs", auth.adoptCount())
 	}
@@ -332,10 +332,6 @@ func TestSignOutDuringThePollSavesNothing(t *testing.T) {
 		t.Errorf("phase %v", a.gh.phase)
 	}
 }
-
-// polled reports that the poll's result reached the app: the phase is not
-// the code's any more.
-func polled(a *App) bool { return a.gh.phase != signInCode }
 
 // TestANewerSignInWins: a pair of an older sign-in saves nothing, and the
 // newer sign-in is the 1 saved.

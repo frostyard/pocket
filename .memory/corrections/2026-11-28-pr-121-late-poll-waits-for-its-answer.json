@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-28",
+  "scope": "tests",
+  "correction": "A test of the GitHub sign-in must hold the fake device-flow poll until its action ran: the fake code's expiry is past, so a poll that waits only on its context answers at once and can end the code phase before RunUntil sees it. A test that checks a late answer saves nothing must wait until that answer ran on the UI thread.",
+  "evidence": "frostyard/pocket#121, cross-review by openai/gpt-6.2-sol of 57e73ecb545652e2afd334bd1d31e1183228653c (finding 1); issue #118",
+  "promoted_to": "internal/app/merge_signin_test.go TestCancelSavesNothing, TestSignOutDuringThePollSavesNothing (holdLatePoll in internal/app/merge_test.go)"
+}
