@@ -25,6 +25,20 @@ type DeskPR struct {
 	Level   string `json:"level,omitempty"`
 }
 
+// DeskReview is a verdict on a thread's work, with its status from the Desk.
+type DeskReview struct {
+	Kind     string `json:"kind"`    // cross-review, owner-review, plan-review
+	Outcome  string `json:"outcome"` // ready, not-ready, unclear
+	Reviewer string `json:"reviewer"`
+	Ref      string `json:"ref,omitempty"`  // empty for work without a PR
+	Head     string `json:"head,omitempty"` // the head the reviewer saw
+	At       Millis `json:"at"`
+	Key      string `json:"key,omitempty"`
+	Stale    bool   `json:"stale"`   // the PR head differs or is unknown
+	Current  bool   `json:"current"` // this verdict still applies
+	Ended    bool   `json:"ended"`   // the PR merged or closed
+}
+
 // DeskAsk is a decision a thread waits on the owner for.
 type DeskAsk struct {
 	ID      string   `json:"id"`
@@ -70,6 +84,17 @@ type DeskWatch struct {
 	On string `json:"on,omitempty"`
 	// OnFired says how that event happened, once it did.
 	OnFired string `json:"onFired,omitempty"`
+	// Condition is the machine check in the Desk's normalized form.
+	Condition string            `json:"condition,omitempty"`
+	Machine   *DeskWatchMachine `json:"machine,omitempty"`
+}
+
+// DeskWatchMachine is the sweep's assessment of a watch condition.
+type DeskWatchMachine struct {
+	Status string `json:"status"` // pass, fail, unknown
+	Text   string `json:"text"`
+	Head   string `json:"head,omitempty"`
+	At     Millis `json:"at"`
 }
 
 // DeskThread is one delegation, plan or found piece of work.
@@ -84,6 +109,7 @@ type DeskThread struct {
 	Stale       bool           `json:"stale"`
 	Open        []string       `json:"open"`
 	PRs         []DeskPR       `json:"prs"`
+	Reviews     []DeskReview   `json:"reviews,omitempty"`
 	Asks        []DeskAsk      `json:"asks"`
 	Answered    []DeskAnswered `json:"answered"`
 	Resolved    []DeskResolved `json:"resolved"`

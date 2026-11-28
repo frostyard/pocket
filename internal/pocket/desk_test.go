@@ -6,9 +6,46 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 )
+
+func TestDeskViewDecodesReviewsAndWatchMachine(t *testing.T) {
+	const head = "0123456789abcdef0123456789abcdef01234567"
+	const condition = "pr:frostyard/pocket#12 merged"
+	var v DeskView
+	err := Decode([]byte(`{"threads":[{"id":"T1","reviews":[
+		{"kind":"cross-review","outcome":"ready","reviewer":"Example Reviewer","ref":"frostyard/pocket#12",
+		 "head":"`+head+`","at":1234,"key":"review-1","stale":true,"current":false,"ended":true},
+		{"kind":"plan-review","outcome":"unclear","reviewer":"Example Planner",
+		 "at":2345,"key":"review-2","stale":false,"current":true,"ended":false}
+	],"watch":{"checkOn":"2026-11-12","check":"Check the merge","due":true,"condition":"`+condition+`",
+		"machine":{"status":"pass","text":"PR merged","head":"`+head+`","at":3456,"key":"check-1"}}}]}`), &v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Threads) != 1 {
+		t.Fatalf("threads = %d, want 1", len(v.Threads))
+	}
+	thread := v.Threads[0]
+	want := []DeskReview{
+		{Kind: "cross-review", Outcome: "ready", Reviewer: "Example Reviewer", Ref: "frostyard/pocket#12", Head: head,
+			At: 1234, Key: "review-1", Stale: true, Ended: true},
+		{Kind: "plan-review", Outcome: "unclear", Reviewer: "Example Planner", At: 2345, Key: "review-2", Current: true},
+	}
+	if !slices.Equal(thread.Reviews, want) {
+		t.Errorf("reviews = %+v, want %+v", thread.Reviews, want)
+	}
+	w := thread.Watch
+	if w == nil || w.Condition != condition {
+		t.Fatalf("watch = %+v, want condition %q", w, condition)
+	}
+	machine := DeskWatchMachine{Status: "pass", Text: "PR merged", Head: head, At: 3456}
+	if w.Machine == nil || *w.Machine != machine {
+		t.Errorf("machine = %+v, want %+v", w.Machine, machine)
+	}
+}
 
 func TestRecordMerge(t *testing.T) {
 	head := strings.Repeat("a", 40)

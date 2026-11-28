@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -84,6 +85,128 @@ func TestDueWatchIsAnInboxDecisionAndActionsSnapshot(t *testing.T) {
 	th.State = "parked"
 	if dueWatch(&th) {
 		t.Fatal("parked watch stays due")
+	}
+}
+
+func TestWatchLines(t *testing.T) {
+	const date = "2026-11-12"
+	const check = "Check the merge"
+	const on = "pr:frostyard/pocket#12 merged"
+	const fired = "PR merged"
+	const condition = "pr:frostyard/pocket#12 checks-green"
+	result := func(pass bool, text string) *pocket.DeskWatch {
+		return &pocket.DeskWatch{Result: &struct {
+			Pass bool          `json:"pass"`
+			Text string        `json:"text"`
+			By   string        `json:"by"`
+			At   pocket.Millis `json:"at"`
+		}{Pass: pass, Text: text, By: "Example Owner"}}
+	}
+	machine := &pocket.DeskWatchMachine{Status: "fail", Text: "A check failed"}
+	all := result(false, "Needs a fix")
+	all.CheckOn, all.CheckTime, all.Check, all.On = date, "15:30", check, on
+	all.Condition, all.Machine, all.Due, all.OnFired = condition, machine, true, fired
+	for _, tc := range []struct {
+		name  string
+		watch *pocket.DeskWatch
+		want  []string
+	}{
+		{"nil", nil, nil},
+		{"empty", &pocket.DeskWatch{}, nil},
+		{"bare", &pocket.DeskWatch{CheckOn: date, Check: check}, []string{date + ": " + check}},
+		{"date_without_check", &pocket.DeskWatch{CheckOn: date}, []string{date}},
+		{"check_without_date", &pocket.DeskWatch{Check: check}, []string{check}},
+		{"on", &pocket.DeskWatch{CheckOn: date, CheckTime: "15:30", Check: check, On: on}, []string{date + " 15:30 or on " + on + ": " + check}},
+		{"condition", &pocket.DeskWatch{Condition: condition}, []string{"Condition: " + condition}},
+		{"machine_with_text", &pocket.DeskWatch{Machine: machine}, []string{"Machine check: fail — A check failed"}},
+		{"machine_without_text", &pocket.DeskWatch{Machine: &pocket.DeskWatchMachine{Status: "unknown"}}, []string{"Machine check: unknown"}},
+		{"due", &pocket.DeskWatch{Due: true}, []string{"Due"}},
+		{"due_on_fired", &pocket.DeskWatch{Due: true, OnFired: fired}, []string{"Due (PR merged)"}},
+		{"on_fired_not_due", &pocket.DeskWatch{OnFired: fired}, nil},
+		{"passed", result(true, "All checks passed"), []string{"Passed by Example Owner: All checks passed"}},
+		{"failed", result(false, "Needs a fix"), []string{"Failed by Example Owner: Needs a fix"}},
+		{"all_in_order", all, []string{date + " 15:30 or on " + on + ": " + check, "Condition: " + condition,
+			"Machine check: fail — A check failed", "Due (PR merged)", "Failed by Example Owner: Needs a fix"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := watchLines(tc.watch); !slices.Equal(got, tc.want) {
+				t.Errorf("watchLines = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReviewLine(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		review pocket.DeskReview
+		status string
+	}{
+		{"current", pocket.DeskReview{Current: true, Stale: true, Outcome: "not-ready"}, "current"},
+		{"ended", pocket.DeskReview{Ended: true, Stale: true, Outcome: "ready"}, "not current (PR merged or closed)"},
+		{"stale_ready", pocket.DeskReview{Stale: true, Outcome: "ready"}, "not current (PR head differs or is unknown)"},
+		{"stale_not_ready", pocket.DeskReview{Stale: true, Outcome: "not-ready"}, "superseded"},
+		{"neither", pocket.DeskReview{Outcome: "unclear"}, "superseded"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.review.Kind = "cross-review"
+			tc.review.Reviewer = "Example Reviewer"
+			want := "cross-review · " + tc.status + " · reviewer Example Reviewer"
+			if got := reviewLine(tc.review); got != want {
+				t.Errorf("reviewLine = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestDeskThreadReviewsSnapshot(t *testing.T) {
+	a, _ := teamApp(t)
+	const ref = "frostyard/pocket#12"
+	const head = "0123456789abcdef0123456789abcdef01234567"
+	const condition = "pr:" + ref + " merged"
+	thread := &pocket.DeskThread{
+		ID: "T1", Title: "Check the desktop build", State: "open", Origin: "delegate",
+		PRs: []pocket.DeskPR{{Ref: ref, Title: "Check the desktop build", State: "OPEN"}},
+		Reviews: []pocket.DeskReview{
+			{Kind: "cross-review", Outcome: "ready", Reviewer: "Example Reviewer", Ref: ref, Head: head,
+				At: pocket.Millis(time.Date(2020, 1, 2, 12, 0, 0, 0, time.Local).UnixMilli()), Key: "review-9", Current: true},
+			{Kind: "plan-review", Outcome: "unclear", Reviewer: "Example Planner",
+				At: pocket.Millis(time.Date(2020, 1, 1, 12, 0, 0, 0, time.Local).UnixMilli())},
+		},
+		Watch: &pocket.DeskWatch{CheckOn: "2026-11-12", Check: "Confirm the merge", Condition: condition,
+			Machine: &pocket.DeskWatchMachine{Status: "unknown", Text: "The PR is still open"}},
+	}
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		frostui.Adapt(c)
+		ui.Column(c).Padding(frostui.SpaceM).Gap(frostui.SpaceM).AlignItems(ui.Stretch).Children(func() {
+			a.threadContext(c, thread)
+		})
+	}, 380, 480, ui.TesterOptions{})
+	tt.Frame()
+	texts := tt.Texts()
+	prev := -1
+	for _, want := range []string{
+		"Pull requests", "Reviews", "ready", "cross-review · current · reviewer Example Reviewer", ref + "@0123456789ab", "Jan 2",
+		"unclear", "plan-review · superseded · reviewer Example Planner", "no PR", "Jan 1", "Watch",
+		"2026-11-12: Confirm the merge", "Condition: " + condition, "Machine check: unknown — The PR is still open",
+	} {
+		if i := slices.Index(texts, want); i <= prev {
+			t.Fatalf("missing or out of order: %q in %q", want, texts)
+		} else {
+			prev = i
+		}
+	}
+	writePNG(t, tt, "desk-thread-reviews")
+
+	thread.Reviews[1].Ref, thread.Reviews[1].Head = ref, "abc"
+	tt.Frame()
+	if !tt.HasText(ref + "@abc") {
+		t.Error("the short head is not shown in full")
+	}
+	thread.Reviews = nil
+	tt.Frame()
+	if tt.HasText("Reviews") {
+		t.Error("the section heading is shown without reviews")
 	}
 }
 
