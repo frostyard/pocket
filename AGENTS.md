@@ -14,8 +14,9 @@ the canonical paths; keep content tool-agnostic.
 
 ## Build, test, run
 
-- `mise install` — the pinned golangci-lint and Node (`mise.toml`, checksums
-  in `mise.lock`). Go comes from go.mod's `go` line, the only Go pin.
+- `mise install` — installs Go from go.mod's `go` line (the only Go pin),
+  and golangci-lint and Node from `mise.toml`'s pins. `mise.lock` records the
+  resolved versions and checksums of all three.
 - `make test` — every test, headless (`env -u DISPLAY -u WAYLAND_DISPLAY`,
   `CGO_ENABLED=0`). MyGo's Tester needs Pango and cairo, no display.
 - `make verify` — the gate that leaves `git status` unchanged: `go mod tidy
@@ -152,8 +153,8 @@ them rather than improvising, whichever agent you are. Start a new one from
   record removed or renamed, only an empty `promoted_to` filled, and the old
   corrections file does not come back. Run `make ci BASE=origin/main` for the
   same check locally.
-- `mise.toml` and `mise.lock` pin every tool the gate runs (ADR-0043 in core);
-  run `mise install` to get those versions. Change a pin only with `mise lock`,
+- go.mod, `mise.toml` and `mise.lock` pin every tool the gate runs (ADR-0043
+  in core); run `mise install` to get those versions. Change a pin only with `mise lock`,
   in a commit of its own.
 
 **Test reliability.** No sleeps for timing (wait on a condition or inject a
