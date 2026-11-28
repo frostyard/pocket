@@ -202,6 +202,8 @@ func buildItems(v *pocket.View) []item {
 			flush()
 			items = append(items, item{kind: itemNote, key: fmt.Sprintf("n:%d", e.ID), entry: e, text: e.Text})
 		case "turnNote":
+			// A row of its own ends the run of calls, as every row that is not
+			// an answer does in the web app's itemsOf (web/turns.js).
 			flush()
 			items = append(items, item{kind: itemTurnNote, key: fmt.Sprintf("tn:%d", e.ID), entry: e, text: e.Text, at: e.At.Time()})
 		case "compaction":

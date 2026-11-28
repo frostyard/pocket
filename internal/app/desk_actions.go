@@ -41,8 +41,11 @@ func watchLines(w *pocket.DeskWatch) []string {
 	}
 	var lines []string
 	date := strings.TrimSpace(w.CheckOn + " " + w.CheckTime)
-	if w.On != "" {
-		date = strings.TrimSpace(date + " or on " + w.On)
+	switch {
+	case w.On != "" && date == "":
+		date = "On " + w.On
+	case w.On != "":
+		date += " or on " + w.On
 	}
 	switch {
 	case date != "" && w.Check != "":

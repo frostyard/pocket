@@ -117,6 +117,8 @@ func TestWatchLines(t *testing.T) {
 		{"date_without_check", &pocket.DeskWatch{CheckOn: date}, []string{date}},
 		{"check_without_date", &pocket.DeskWatch{Check: check}, []string{check}},
 		{"on", &pocket.DeskWatch{CheckOn: date, CheckTime: "15:30", Check: check, On: on}, []string{date + " 15:30 or on " + on + ": " + check}},
+		{"on_without_date", &pocket.DeskWatch{Check: check, On: on}, []string{"On " + on + ": " + check}},
+		{"on_only", &pocket.DeskWatch{On: on}, []string{"On " + on}},
 		{"condition", &pocket.DeskWatch{Condition: condition}, []string{"Condition: " + condition}},
 		{"machine_with_text", &pocket.DeskWatch{Machine: machine}, []string{"Machine check: fail — A check failed"}},
 		{"machine_without_text", &pocket.DeskWatch{Machine: &pocket.DeskWatchMachine{Status: "unknown"}}, []string{"Machine check: unknown"}},
@@ -154,6 +156,27 @@ func TestReviewLine(t *testing.T) {
 			want := "cross-review · " + tc.status + " · reviewer Example Reviewer"
 			if got := reviewLine(tc.review); got != want {
 				t.Errorf("reviewLine = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestReviewRef(t *testing.T) {
+	const ref = "frostyard/pocket#12"
+	const head = "0123456789abcdef0123456789abcdef01234567"
+	for _, tc := range []struct {
+		name, ref, head, want string
+	}{
+		{"no_pr", "", "", "no PR"},
+		{"no_pr_with_head", "", head, "no PR"},
+		{"ref_without_head", ref, "", ref},
+		{"short_head", ref, "0123abc", ref + "@0123abc"},
+		{"head_of_12", ref, head[:12], ref + "@" + head[:12]},
+		{"full_head", ref, head, ref + "@" + head[:12]},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := reviewRef(pocket.DeskReview{Ref: tc.ref, Head: tc.head}); got != tc.want {
+				t.Errorf("reviewRef = %q, want %q", got, tc.want)
 			}
 		})
 	}
