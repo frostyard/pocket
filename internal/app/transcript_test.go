@@ -36,6 +36,80 @@ func countText(tt *ui.Tester, want string) int {
 	return n
 }
 
+func TestCallState(t *testing.T) {
+	waiting := &pocket.ToolSlot{Status: "waiting"}
+	success := &pocket.Entry{Kind: "toolResult"}
+	failure := &pocket.Entry{Kind: "toolResult", IsError: true}
+	for _, tc := range []struct {
+		name string
+		call call
+		want frostui.StepState
+	}{
+		{"running", call{slot: &pocket.ToolSlot{Status: "running"}}, frostui.StepRunning},
+		{"waiting", call{slot: waiting}, frostui.StepRunning},
+		{"sleeping", call{slot: &pocket.ToolSlot{Status: "sleeping"}}, frostui.StepRunning},
+		{"pending", call{slot: &pocket.ToolSlot{Status: "pending"}}, frostui.StepQueued},
+		{"empty", call{slot: &pocket.ToolSlot{}}, frostui.StepQueued},
+		{"unknown", call{slot: &pocket.ToolSlot{Status: "unknown"}}, frostui.StepQueued},
+		{"done_slot_without_result", call{slot: &pocket.ToolSlot{Status: "done"}}, frostui.StepQueued},
+		{"result_before_slot", call{result: success, slot: waiting}, frostui.StepDone},
+		{"error_before_result", call{result: failure, slot: waiting}, frostui.StepFailed},
+		{"approval_before_error", call{asked: &pocket.Approval{}, result: failure, slot: waiting}, frostui.StepHeld},
+		{"no_slot_or_result", call{}, frostui.StepDone},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := callState(tc.call); got != tc.want {
+				t.Fatalf("callState = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestTranscriptTurnNoteDisclosure(t *testing.T) {
+	const note = "Due today: 2 checks"
+	for _, tc := range []struct {
+		name, source, title string
+	}{
+		{"desk", "desk", "Note for Pi from desk:"},
+		{"empty_source", "", "Note for Pi from an extension:"},
+		{"blank_source", " \t", "Note for Pi from an extension:"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, tt := transcriptTester(t, "transcript-turn-note-collapsed-"+tc.name,
+				&pocket.Entry{ID: 7, Kind: "turnNote", Text: note, Source: tc.source})
+			if !tt.HasText(tc.title) || tt.HasText(note) {
+				t.Fatalf("collapsed transcript should show only the note title %q: %q", tc.title, tt.Texts())
+			}
+			if err := tt.Click(tc.title); err != nil {
+				t.Fatal(err)
+			}
+			tt.Frame()
+			if !tt.HasText(note) {
+				t.Fatalf("expanded transcript lacks %q: %q", note, tt.Texts())
+			}
+			if tc.name == "desk" {
+				writePNG(t, tt, "transcript-turn-note")
+			}
+		})
+	}
+}
+
+func TestTurnNoteSplitsToolGroups(t *testing.T) {
+	v := pocket.NewView()
+	v.Order = []int{6, 7, 8}
+	v.Entries[6] = &pocket.Entry{ID: 6, Kind: "assistant", Blocks: []pocket.Block{{Type: "toolCall", ID: "first"}}}
+	note := &pocket.Entry{ID: 7, Kind: "turnNote", Text: "Due today: 2 checks", Source: "desk", At: 1234}
+	v.Entries[7] = note
+	v.Entries[8] = &pocket.Entry{ID: 8, Kind: "assistant", Blocks: []pocket.Block{{Type: "toolCall", ID: "second"}}}
+	rows := buildItems(v)
+	if len(rows) != 3 || rows[0].kind != itemTools || rows[1].kind != itemTurnNote || rows[2].kind != itemTools {
+		t.Fatalf("want a note between 2 tool groups, got %+v", rows)
+	}
+	if row := rows[1]; row.key != "tn:7" || row.entry != note || row.text != note.Text || !row.at.Equal(note.At.Time()) {
+		t.Fatalf("turn note row = %+v", row)
+	}
+}
+
 func TestUserRowShowsFilesWithoutText(t *testing.T) {
 	a, tt := transcriptTester(t, "user-row-files", &pocket.Entry{ID: 77, Kind: "user", Files: []string{"/home/team/reports/report.pdf"}})
 	if !tt.HasText("report.pdf") {

@@ -51,6 +51,7 @@ const (
 	itemShell
 	itemLive
 	itemEarlier
+	itemTurnNote
 )
 
 // item is one row of the transcript.
@@ -200,6 +201,9 @@ func buildItems(v *pocket.View) []item {
 		case "note":
 			flush()
 			items = append(items, item{kind: itemNote, key: fmt.Sprintf("n:%d", e.ID), entry: e, text: e.Text})
+		case "turnNote":
+			flush()
+			items = append(items, item{kind: itemTurnNote, key: fmt.Sprintf("tn:%d", e.ID), entry: e, text: e.Text, at: e.At.Time()})
 		case "compaction":
 			flush()
 			items = append(items, item{kind: itemCompaction, key: fmt.Sprintf("c:%d", e.ID), entry: e, text: e.Summary, md: linkDeskIDs(e.Summary)})
@@ -303,6 +307,12 @@ func (a *App) itemView(c *ui.Context, it *item) {
 			ui.Divider(c).Grow(1)
 			frostui.Caption(c, it.text)
 			ui.Divider(c).Grow(1)
+		})
+	case itemTurnNote:
+		source := firstNonEmpty(it.entry.Source, "an extension")
+		title := "Note for Pi from " + source + ":"
+		a.disclosureRow(c, it.key, "dialog-information", title, "", func() {
+			frostui.Body(c, it.text).Wrap()
 		})
 	case itemCompaction:
 		a.disclosureRow(c, it.key, "edit-clear-all", "Context compacted", "", func() {
@@ -703,10 +713,13 @@ func callState(cl call) frostui.StepState {
 		return frostui.StepFailed
 	case cl.result != nil:
 		return frostui.StepDone
-	case cl.slot != nil && cl.slot.Status == "running":
-		return frostui.StepRunning
 	case cl.slot != nil:
-		return frostui.StepQueued
+		switch cl.slot.Status {
+		case "running", "waiting", "sleeping":
+			return frostui.StepRunning
+		default:
+			return frostui.StepQueued
+		}
 	}
 	return frostui.StepDone
 }

@@ -51,6 +51,23 @@ func TestViewAppliesFullThenUpdates(t *testing.T) {
 	}
 }
 
+func TestViewRowsIncludeTurnNote(t *testing.T) {
+	v := NewView()
+	err := v.Apply(update(t, `{"full":true,"conversation":{"id":1},
+		"entries":[{"id":7,"kind":"turnNote","text":"Due today: 2 checks","source":"desk"}],
+		"order":[7],"live":{"busy":false},"approvals":[]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := v.Rows()
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(rows))
+	}
+	if e := rows[0]; e.ID != 7 || e.Kind != "turnNote" || e.Text != "Due today: 2 checks" || e.Source != "desk" {
+		t.Fatalf("turn note = %+v", e)
+	}
+}
+
 func TestLiveDeltasGrowTheMessage(t *testing.T) {
 	v := NewView()
 	base := `{"full":true,"conversation":{"id":1},"entries":[],"order":[],"approvals":[],"live":{"busy":true,"generation":{"attempt":1,"message":{"blocks":[{"type":"thinking","text":"hmm"},{"type":"text","text":"Hel"}]}}}}`

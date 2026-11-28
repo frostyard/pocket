@@ -51,6 +51,23 @@ func TestSessionFindIncludesFoldedToolsAndEarlierRows(t *testing.T) {
 	}
 }
 
+func TestSessionFindTurnNote(t *testing.T) {
+	a, _ := teamApp(t)
+	a.view = pocket.NewView()
+	a.view.Order = []int{7}
+	a.view.Entries[7] = &pocket.Entry{ID: 7, Kind: "turnNote", Text: "Due today: 2 checks", Source: "desk"}
+	a.tr.viewChanged(a)
+	for _, query := range []string{"checks", "DESK"} {
+		t.Run(query, func(t *testing.T) {
+			a.tr.find.query = query
+			matches := a.findMatches()
+			if len(matches) != 1 || a.tr.items[matches[0]].key != "tn:7" {
+				t.Fatalf("matches for %q = %v, want the turn note", query, matches)
+			}
+		})
+	}
+}
+
 func TestSessionExportPreservesMarkdownAndCancel(t *testing.T) {
 	a, loop := teamApp(t)
 	a.current = 7

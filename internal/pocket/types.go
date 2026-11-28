@@ -172,7 +172,7 @@ type Block struct {
 // it has: user (Text, From, Images, Files), assistant (Blocks,
 // StopReason, Error, Model), toolResult (CallID, Name, Text, IsError,
 // Details), compaction (Summary), reset, shell, command, note (Text,
-// Name), fromPi (Title, File), other (EntryKind).
+// Name), turnNote (Text, Source), fromPi (Title, File), other (EntryKind).
 type Entry struct {
 	ID         int             `json:"id"`
 	Kind       string          `json:"kind"`
@@ -196,6 +196,8 @@ type Entry struct {
 	Title      string          `json:"title,omitempty"`
 	File       string          `json:"file,omitempty"`
 	EntryKind  string          `json:"entryKind,omitempty"`
+	// Source is the extension that wrote a turn note.
+	Source string `json:"source,omitempty"`
 	// Shell and command entries.
 	Command string `json:"command,omitempty"`
 	By      string `json:"by,omitempty"`
