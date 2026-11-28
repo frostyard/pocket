@@ -621,8 +621,8 @@ func peekIcon(l pocket.PeekLine) string {
 	return "info"
 }
 
-// threadContext shows a Desk thread: what keeps it open, its PRs, its
-// events and the reports its agents filed.
+// threadContext shows a Desk thread: what keeps it open, its PRs and reviews,
+// its watch, events and the reports its agents filed.
 func (a *App) threadContext(c *ui.Context, t *pocket.DeskThread, supplied ...*pocket.DeskThreadDetail) {
 	ui.Column(c).Gap(frostui.SpaceXS).AlignItems(ui.Stretch).Children(func() {
 		ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
@@ -663,9 +663,17 @@ func (a *App) threadContext(c *ui.Context, t *pocket.DeskThread, supplied ...*po
 			a.prRow(c.Key(pr.Ref), pr)
 		}
 	}
+	if len(t.Reviews) > 0 {
+		frostui.SectionHeader(c, frostui.SectionHead{Title: "Reviews", Quiet: true})
+		for i, r := range t.Reviews {
+			reviewRow(c.Key("review:"+firstNonEmpty(r.Key, fmt.Sprint(i))), r)
+		}
+	}
 	if t.Watch != nil {
 		frostui.SectionHeader(c, frostui.SectionHead{Title: "Watch", Quiet: true})
-		frostui.Caption(c, strings.TrimSpace(t.Watch.CheckOn+" "+t.Watch.CheckTime)+": "+t.Watch.Check).Wrap()
+		for _, line := range watchLines(t.Watch) {
+			frostui.Caption(c, line).Wrap()
+		}
 	}
 	if len(t.Resolved) > 0 {
 		frostui.SectionHeader(c, frostui.SectionHead{Title: "Resolved or withdrawn", Quiet: true})
@@ -720,6 +728,30 @@ func (a *App) threadContext(c *ui.Context, t *pocket.DeskThread, supplied ...*po
 			a.deskFileButtons(c.Key(fmt.Sprint("files", i)), e.Text)
 		}
 	}
+}
+
+func reviewRow(c *ui.Context, r pocket.DeskReview) {
+	tone := frostui.Warning
+	switch r.Outcome {
+	case "ready":
+		tone = frostui.Success
+	case "not-ready":
+		tone = frostui.Danger
+	}
+	ref := "no PR"
+	if r.Ref != "" {
+		ref = r.Ref + "@" + r.Head[:min(12, len(r.Head))]
+	}
+	ui.Column(c).Gap(2).AlignItems(ui.Stretch).Children(func() {
+		ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
+			frostui.Pill(c, r.Outcome, tone)
+			frostui.Caption(c, reviewLine(r)).Wrap().Grow(1)
+		})
+		ui.Row(c).Gap(frostui.SpaceS).AlignItems(ui.Center).Children(func() {
+			frostui.Mono(c, ref).Wrap()
+			frostui.Caption(c, clock(r.At.Time())).Shrink(0)
+		})
+	})
 }
 
 func (a *App) prRow(c *ui.Context, pr pocket.DeskPR) {

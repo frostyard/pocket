@@ -100,9 +100,12 @@ func itemSearchText(it item) string {
 	text := it.text
 	if it.entry != nil {
 		text += "\n" + strings.Join(it.entry.Files, "\n")
-	}
-	if it.kind == itemShell && it.entry != nil {
-		text += "\n" + it.entry.Command + "\n" + it.entry.Output
+		switch it.kind {
+		case itemShell:
+			text += "\n" + it.entry.Command + "\n" + it.entry.Output
+		case itemTurnNote:
+			text += "\n" + it.entry.Source
+		}
 	}
 	for _, call := range it.calls {
 		text += "\n" + call.block.Name + "\n" + searchValues(call.block.Args)

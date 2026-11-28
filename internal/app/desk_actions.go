@@ -34,6 +34,63 @@ func dueWatch(t *pocket.DeskThread) bool {
 	return t.State != "closed" && t.State != "parked" && t.Origin != "plan" && t.Watch != nil && t.Watch.Due && t.Watch.Result == nil
 }
 
+// watchLines lists the schedule, machine assessment and result of a watch.
+func watchLines(w *pocket.DeskWatch) []string {
+	if w == nil {
+		return nil
+	}
+	var lines []string
+	date := strings.TrimSpace(w.CheckOn + " " + w.CheckTime)
+	if w.On != "" {
+		date = strings.TrimSpace(date + " or on " + w.On)
+	}
+	switch {
+	case date != "" && w.Check != "":
+		lines = append(lines, date+": "+w.Check)
+	case date != "" || w.Check != "":
+		lines = append(lines, date+w.Check)
+	}
+	if w.Condition != "" {
+		lines = append(lines, "Condition: "+w.Condition)
+	}
+	if m := w.Machine; m != nil {
+		line := "Machine check: " + m.Status
+		if m.Text != "" {
+			line += " — " + m.Text
+		}
+		lines = append(lines, line)
+	}
+	if w.Due {
+		line := "Due"
+		if w.OnFired != "" {
+			line += " (" + w.OnFired + ")"
+		}
+		lines = append(lines, line)
+	}
+	if r := w.Result; r != nil {
+		label := "Failed by "
+		if r.Pass {
+			label = "Passed by "
+		}
+		lines = append(lines, label+r.By+": "+r.Text)
+	}
+	return lines
+}
+
+// reviewLine gives the kind, current status and reviewer of one verdict.
+func reviewLine(r pocket.DeskReview) string {
+	status := "superseded"
+	switch {
+	case r.Current:
+		status = "current"
+	case r.Ended:
+		status = "not current (PR merged or closed)"
+	case r.Stale && r.Outcome == "ready":
+		status = "not current (PR head differs or is unknown)"
+	}
+	return r.Kind + " · " + status + " · reviewer " + r.Reviewer
+}
+
 func (a *App) threadActions(c *ui.Context, t *pocket.DeskThread) {
 	c = c.Key("actions:" + t.ID)
 	if a.desk.editors == nil {

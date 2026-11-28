@@ -210,7 +210,7 @@ func (v *View) Rows() []*Entry {
 			continue
 		}
 		switch e.Kind {
-		case "user", "assistant", "compaction", "reset", "shell", "command", "note", "fromPi":
+		case "user", "assistant", "compaction", "reset", "shell", "command", "note", "turnNote", "fromPi":
 			rows = append(rows, e)
 		}
 	}

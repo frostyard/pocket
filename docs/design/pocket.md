@@ -223,8 +223,12 @@ an unsuccessful action keeps its typed reason.
 In motion stamps the last look after reading the Desk, retaining the previous
 look as the baseline for fresh row marks throughout the visit. Its folds show
 other authors' PRs, queued issues and completed plans (read on demand); the
-thread pane shows resolved and withdrawn asks with their reasons. Ready PRs
-sort L4, L3, L2, L1/L2, L1, then unknown, oldest label first within a level.
+thread pane shows resolved and withdrawn asks with their reasons. The pane
+shows read-only review verdicts (kind, outcome, whether the verdict is current
+or why it is not, reviewer, PR and head) and a watch's machine condition and
+assessment. Pocket cannot set a condition because the owner's
+`POST /api/x/desk/threads/:id/watch` route only accepts `checkOn` and `check`.
+Ready PRs sort L4, L3, L2, L1/L2, L1, then unknown, oldest label first within a level.
 
 The Inbox, session states, status counts and thread-to-session matches share a
 cache between data changes. Stream events, request completions, session lists
